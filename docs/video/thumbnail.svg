@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <title>Inky: Tell it once. Round 1 video thumbnail</title>
+  <rect width="1280" height="720" fill="#F7F6F3"/>
+  <rect x="0" y="0" width="1280" height="10" fill="#E86F51"/>
+
+  <!-- Inky, the octopus from app/static/favicon.svg -->
+  <g transform="translate(70 150) scale(3)">
+    <g fill="none" stroke="#E86F51" stroke-width="11" stroke-linecap="round">
+      <path d="M34 76 C 28 92, 16 98, 20 110"/><path d="M47 80 C 45 96, 38 104, 42 114"/><path d="M60 82 C 62 98, 56 106, 60 114"/>
+      <path d="M73 80 C 75 96, 82 104, 78 114"/><path d="M86 76 C 92 92, 104 98, 100 110"/>
+    </g>
+    <ellipse cx="60" cy="52" rx="38" ry="36" fill="#E86F51"/>
+    <ellipse cx="46" cy="54" rx="5.5" ry="7.5" fill="#111110"/><ellipse cx="74" cy="54" rx="5.5" ry="7.5" fill="#111110"/>
+    <circle cx="48" cy="51" r="2" fill="#fff"/><circle cx="76" cy="51" r="2" fill="#fff"/>
+    <path d="M54 66 Q60 72 66 66" fill="none" stroke="#111110" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <g font-family="Geist, system-ui, -apple-system, 'Helvetica Neue', sans-serif" fill="#111110">
+    <text x="470" y="150" font-size="40" font-weight="600" letter-spacing="-1">Inky</text>
+    <text x="466" y="290" font-size="124" font-weight="700" letter-spacing="-5">Tell it once.</text>
+    <text x="470" y="360" font-size="32" fill="#3F3C37">Good listings go in days.</text>
+    <text x="470" y="404" font-size="32" fill="#3F3C37">Inky watches every 15 minutes. You only decide.</text>
+
+    <rect x="470" y="440" width="330" height="54" rx="27" fill="#E86F51"/>
+    <text x="635" y="476" font-size="24" font-weight="600" text-anchor="middle">Fixed itself in 7.3 s</text>
+    <rect x="816" y="440" width="236" height="54" rx="27" fill="#111110"/>
+    <text x="934" y="476" font-size="24" font-weight="600" fill="#FFFFFF" text-anchor="middle">0 AI calls a run</text>
+  </g>
+
+  <line x1="70" y1="600" x2="1210" y2="600" stroke="#DCD9D2" stroke-width="2"/>
+  <g font-family="'Geist Mono', ui-monospace, Menlo, monospace" font-size="22" fill="#6B6862">
+    <text x="70" y="648">17,836 listings read · 46 homes found · Apify + n8n</text>
+    <text x="1210" y="648" text-anchor="end" fill="#111110">github.com/GHGuide/inky</text>
+  </g>
+</svg>

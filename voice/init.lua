@@ -1,12 +1,15 @@
 -- Inky voice for Hammerspoon: hold ⌥ Space in any app, speak, release.
 -- Inky applies the change while it keeps running. Load it from ~/.hammerspoon/init.lua (see README.md).
 -- Hammerspoon needs Accessibility (to see ⌥ Space) and Microphone (ffmpeg records as Hammerspoon).
+-- Also: a coral "Inky has the screen" frame round the display while teach/learn.py or race/race.py drives Chrome
+-- (they write $TMPDIR/inky-screen.flag, voice/screen.py). Drawing needs no permission.
 
 local dir = debug.getinfo(1, "S").source:sub(2):match("(.*)/")
 local venv = dir .. "/../.venv/bin/python"
 local python = hs.fs.attributes(venv) and venv or "/usr/bin/python3" -- listen.py is stdlib only
 local listen = dir .. "/listen.py"
 local flag = (os.getenv("TMPDIR") or "/tmp/") .. "inky-voice.flag"
+local screenFlag = (os.getenv("TMPDIR") or "/tmp/") .. "inky-screen.flag"
 local critter = hs.image.imageFromPath(dir .. "/critter.png") -- the octopus from Critter.dc.html, 32 px
 
 local CORAL, INK, GREY = "#E86F51", "#111110", "#A8A49C"
@@ -68,11 +71,13 @@ local function done(code, stdout, stderr)
     show("Inky didn't get that", r.error, 5)
     return
   end
-  local sub = "“" .. tostring(r.heard) .. "”"
-  if r.matches_before and r.matches_after then
-    sub = sub .. string.format(" · %s → %s matches", tostring(r.matches_before), tostring(r.matches_after))
+  local heard = "“" .. tostring(r.heard) .. "”"
+  local before, after = tonumber(r.matches_before), tonumber(r.matches_after)
+  if before and after then -- the effect first: "46 → 14 homes", the change under it
+    show(string.format("%d → %d homes", before, after), r.change or heard, 5)
+  else
+    show(r.change or "Done", heard, 5)
   end
-  show(r.change or "Done", sub, 4)
 end
 
 local function pressed()
@@ -113,6 +118,33 @@ end)
 M.tap:start()
 -- macOS switches taps off after sleep or a slow callback; switch it back on.
 M.watchdog = hs.timer.doEvery(5, function() if not M.tap:isEnabled() then M.tap:start() end end)
+
+-- "Inky has the screen": a coral frame round the whole display while the flag file exists, and a tag at the bottom
+-- with what the file says ("learning tecnocasa.it"). Clicks go through (a canvas with no mouse callback).
+function M.frameCheck()
+  local f = io.open(screenFlag)
+  if not f then
+    if M.frame then M.frame:delete(); M.frame = nil end
+    return
+  end
+  local what = ((f:read("*a") or ""):gsub("%s+$", ""))
+  f:close()
+  if M.frame then return end
+  local s = hs.screen.mainScreen():fullFrame()
+  local t = styled("Inky has the screen" .. (what ~= "" and (" · " .. what) or ""), BOLD, 15, INK)
+  local tw, th = math.ceil(hs.drawing.getTextDrawingSize(t).w) + 28, 30
+  M.frame = hs.canvas.new(s)
+  M.frame:level(hs.canvas.windowLevels.overlay)
+  M.frame:behavior({ "canJoinAllSpaces", "stationary" })
+  M.frame:appendElements(
+    { type = "rectangle", action = "stroke", strokeColor = { hex = CORAL }, strokeWidth = 12,
+      frame = { x = 0, y = 0, w = s.w, h = s.h } },
+    { type = "rectangle", action = "fill", fillColor = { hex = CORAL },
+      roundedRectangleRadii = { xRadius = 8, yRadius = 8 }, frame = { x = (s.w - tw) / 2, y = s.h - th - 6, w = tw, h = th } },
+    { type = "text", text = t, frame = { x = (s.w - tw) / 2 + 14, y = s.h - th - 6 + 5, w = tw - 28, h = th - 8 } })
+  M.frame:show()
+end
+M.frameTimer = hs.timer.doEvery(0.5, M.frameCheck)
 
 InkyVoice = M
 return M

@@ -1,0 +1,854 @@
+{
+ "name": "Inky · Buy-to-let abroad",
+ "nodes": [
+  {
+   "id": "e00e3429-8090-42fd-a407-8e8176f34cd7",
+   "name": "Every 15 min",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    260
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "minutes",
+       "minutesInterval": 15
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "bb913392-89eb-4a0f-9f33-f15082bb7d2f",
+   "name": "Run again after a fix",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.1,
+   "position": [
+    0,
+    460
+   ],
+   "parameters": {
+    "inputSource": "passthrough"
+   }
+  },
+  {
+   "id": "de8d9edd-4dcd-4a74-9998-41683ba4b3af",
+   "name": "Under the daily cap",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    360
+   ],
+   "parameters": {
+    "jsCode": "const MAX_RUNS = 120;\n\n// Saved between runs in n8n's static data: seen listings, counters, homes held for the morning.\nfunction inkyState() {\n  const s = $getWorkflowStaticData('global');\n  s.seen = s.seen || {};\n  s.flats = s.flats || {};\n  s.held = s.held || [];\n  s.stats = s.stats || { runs: 0, checked: 0, fresh: 0, matches: 0, since: new Date().toISOString() };\n  // Counters since the last digest. The first time, they start from everything so far.\n  s.night = s.night || { runs: s.stats.runs, checked: s.stats.checked, fresh: s.stats.fresh, matches: s.stats.matches, fixes: 0, since: s.stats.since };\n  return s;\n}\nconst hourNow = () => +new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', hourCycle: 'h23' }).format(new Date());\nconst dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date());\n// Telegram reads messages as Markdown: a * or _ in a listing title must not break the message.\nconst md = (t) => String(t ?? '').replace(/[_*`\\[]/g, '\\\\$&');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;\n\n// At most MAX_RUNS runs a day, so Apify spend has a ceiling. Over it, this run stops here and Apify is not called.\nconst state = inkyState();\nconst day = dayNow();\nif (!state.day || state.day.date !== day) state.day = { date: day, runs: 0, skipped: 0 };\nif ($('Run again after a fix').isExecuted) state.night.fixes++;\nif (state.day.runs >= MAX_RUNS) {\n  state.day.skipped++;\n  return [];\n}\nstate.day.runs++;\nreturn [{ json: { day, run: state.day.runs, cap: MAX_RUNS } }];\n"
+   }
+  },
+  {
+   "id": "d42a8665-c4fa-4d75-afd9-bd04c56545a0",
+   "name": "Merge",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3,
+   "position": [
+    680,
+    360
+   ],
+   "parameters": {
+    "numberInputs": 5
+   }
+  },
+  {
+   "id": "1d38b670-c915-48d3-88ce-68f24d01f2a9",
+   "name": "idealista · Porto",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    80
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.apify.com/v2/acts/igolaizola~idealista-scraper/run-sync-get-dataset-items",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "maxTotalChargeUsd",
+       "value": "0.1"
+      },
+      {
+       "name": "timeout",
+       "value": "120"
+      },
+      {
+       "name": "memory",
+       "value": "128"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\n  \"country\": \"pt\",\n  \"location\": \"Porto\",\n  \"operation\": \"sale\",\n  \"propertyType\": \"homes\",\n  \"sortBy\": \"mostRecent\",\n  \"maxItems\": 60\n}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_APIFY_CREDENTIAL",
+     "name": "Inky · Apify token"
+    }
+   }
+  },
+  {
+   "id": "1e4ac575-76cc-42e0-861b-af7e4f7305d6",
+   "name": "idealista · Bari",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    220
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.apify.com/v2/acts/igolaizola~idealista-scraper/run-sync-get-dataset-items",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "maxTotalChargeUsd",
+       "value": "0.1"
+      },
+      {
+       "name": "timeout",
+       "value": "120"
+      },
+      {
+       "name": "memory",
+       "value": "128"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\n  \"country\": \"it\",\n  \"location\": \"Bari\",\n  \"operation\": \"sale\",\n  \"propertyType\": \"homes\",\n  \"sortBy\": \"mostRecent\",\n  \"maxItems\": 60\n}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_APIFY_CREDENTIAL",
+     "name": "Inky · Apify token"
+    }
+   }
+  },
+  {
+   "id": "e6932bbd-2fde-45e1-808c-744e1013a9e0",
+   "name": "immobiliare · Bari",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    360
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.apify.com/v2/acts/memo23~immobiliare-scraper/run-sync-get-dataset-items",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "maxTotalChargeUsd",
+       "value": "0.15"
+      },
+      {
+       "name": "timeout",
+       "value": "180"
+      },
+      {
+       "name": "memory",
+       "value": "512"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\n  \"startUrls\": [\n    \"https://www.immobiliare.it/vendita-case/bari/\"\n  ],\n  \"sortBy\": \"mostRecent\",\n  \"includeAgencyDetails\": false,\n  \"maxItems\": 60\n}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_APIFY_CREDENTIAL",
+     "name": "Inky · Apify token"
+    }
+   }
+  },
+  {
+   "id": "201ac567-0e1c-45d2-afb5-ee065e5330a6",
+   "name": "otodom · Łódź",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    500
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.apify.com/v2/acts/trev0n~otodom-scraper/run-sync-get-dataset-items",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "maxTotalChargeUsd",
+       "value": "0.3"
+      },
+      {
+       "name": "timeout",
+       "value": "240"
+      },
+      {
+       "name": "memory",
+       "value": "512"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\n  \"searchType\": \"sprzedaz\",\n  \"propertyType\": \"mieszkanie\",\n  \"location\": \"lodzkie/lodz/lodz/lodz\",\n  \"maxItems\": 60\n}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_APIFY_CREDENTIAL",
+     "name": "Inky · Apify token"
+    }
+   }
+  },
+  {
+   "id": "877f5e9e-f4a1-4063-bba3-77a55661ac08",
+   "name": "tecnocasa · Bari",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    640
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.apify.com/v2/acts/cavernous_stew~inky-tecnocasa-homes/run-sync-get-dataset-items",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "maxTotalChargeUsd",
+       "value": "0.05"
+      },
+      {
+       "name": "timeout",
+       "value": "60"
+      },
+      {
+       "name": "memory",
+       "value": "128"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\n  \"city\": \"Bari\",\n  \"maxPrice\": 185000,\n  \"maxItems\": 60\n}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_APIFY_CREDENTIAL",
+     "name": "Inky · Apify token"
+    }
+   }
+  },
+  {
+   "id": "10667435-99bd-4b50-899b-42f5127c5400",
+   "name": "Score · rules",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    900,
+    360
+   ],
+   "parameters": {
+    "jsCode": "// Inky's compiled program: turn raw Apify items into one listing shape, then score them against\n// the rules GLM derived. The same file runs locally (node inky.js normalize ...) and inside the\n// n8n Code node, so the rules the judges see in n8n are exactly the ones that were tested here.\n\nconst CITY = { porto: 'PT', bari: 'IT', lodz: 'PL' };\n\nfunction cityKey(name) {\n  return String(name || '')\n    .replace(/[Łł]/g, 'l')\n    .normalize('NFD').replace(/[̀-ͯ]/g, '')\n    .toLowerCase().trim();\n}\n\n// otodom does not return districts for Łódź, only coordinates.\n// ponytail: rough districts by distance and direction from the centre; use real boundaries if zones matter more.\nfunction lodzDistrict(lat, lon) {\n  const dy = (lat - 51.7687) * 111, dx = (lon - 19.457) * 68.7;  // km\n  if (Math.hypot(dx, dy) < 2) return 'Śródmieście';\n  const a = Math.atan2(dy, dx) * 180 / Math.PI;  // 0 = east, 90 = north\n  return a >= 45 && a < 135 ? 'Bałuty' : a >= -45 && a < 45 ? 'Widzew' : a >= -135 && a < -45 ? 'Górna' : 'Polesie';\n}\n\n// Tecnocasa names its own quarters (\"Carrassi Chiesa Russa\"), which the rent data does not know.\n// `near` (built by workflow.py from geolocated sale listings) maps a place name to the nearest\n// neighbourhood that has rent data. Longest run of words first: \"Quartiere San Paolo\" -> \"san paolo\".\nfunction nearZone(near, city, zone) {\n  const t = near && near[city];\n  if (!t || !zone) return zone;\n  const w = cityKey(zone).split(/\\s+/);\n  for (let n = w.length; n > 0; n--) {\n    for (let i = 0; i + n <= w.length; i++) {\n      const z = t[w.slice(i, i + n).join(' ')];\n      if (z) return z;\n    }\n  }\n  return zone;\n}\n\nfunction num(v) {\n  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[^\\d.]/g, ''));\n  return Number.isFinite(n) ? n : null;\n}\n\n// One raw Apify item -> { id, source, city, country, op, price_eur, size_m2, bedrooms, zone, url, ... }.\n// `hint` fills what an actor does not say itself (otodom items do not carry sale/rent).\nfunction normalize(item, plnPerEur, hint = {}) {\n  let l;\n  if (item.propertyCode !== undefined) {\n    // In Portugal idealista's \"municipality\" is the parish (Campanhã, Bonfim...) and the city is the province.\n    const inCity = CITY[cityKey(item.municipality)];\n    const rooms = num(item.rooms);\n    l = {\n      source: 'idealista', id: String(item.propertyCode), op: item.operation,\n      city: inCity ? item.municipality : item.province,\n      zone: inCity ? item.neighborhood || item.district || item.municipality : item.municipality,\n      price: num(item.price), currency: 'EUR', size_m2: num(item.size),\n      // idealista.it counts all rooms (locali), idealista.pt counts bedrooms (T2 = 2)\n      bedrooms: rooms == null ? null : item.country === 'it' ? Math.max(rooms - 1, 0) : rooms,\n      url: item.url, title: item.suggestedTexts?.title || item.address,\n      lat: item.latitude, lon: item.longitude,\n    };\n  } else if (item.topology || item.geography) {\n    const rooms = num(item.topology?.rooms);\n    const contract = item.contract?.name || item.analytics?.contract || '';\n    l = {\n      source: 'immobiliare', id: String(item.id),\n      op: /rent|affitto/i.test(contract) ? 'rent' : 'sale',\n      city: item.geography?.municipality?.name,\n      zone: item.geography?.macrozone?.name || item.geography?.microzone?.name || item.geography?.municipality?.name,\n      price: num(item.price?.raw), currency: item.price?.currency || 'EUR',\n      size_m2: num(item.topology?.surface?.size),\n      bedrooms: num(item.analytics?.numBedrooms) ?? (rooms == null ? null : Math.max(rooms - 1, 0)),\n      url: item.url || `https://www.immobiliare.it/annunci/${item.id}/`, title: item.title,\n      lat: item.geography?.geolocation?.latitude, lon: item.geography?.geolocation?.longitude,\n    };\n  } else if (item.propertyUrl !== undefined) {\n    const rooms = num(item.rooms);\n    l = {\n      source: 'otodom', id: String(item.id || item.propertyUrl), op: hint.op || 'sale',\n      city: item.city,\n      zone: item.district || item.subdistrict || (item.latitude ? lodzDistrict(item.latitude, item.longitude) : item.city),\n      price: num(item.price), currency: item.priceCurrency || 'PLN', size_m2: num(item.area),\n      bedrooms: rooms == null ? null : Math.max(rooms - 1, 0),\n      url: item.propertyUrl, title: item.title, lat: item.latitude, lon: item.longitude,\n    };\n  } else if (item.source === 'tecnocasa') {\n    // Items of the program Inky learned (teach/run_program.py, the inky-tecnocasa-homes actor): already typed.\n    // Tecnocasa counts all rooms (locali), like immobiliare.it.\n    const rooms = num(item.rooms);\n    l = {\n      source: 'tecnocasa', id: (String(item.url).match(/(\\d+)\\.html/) || [])[1] || String(item.url),\n      op: item.op || hint.op || 'sale', city: item.city,\n      zone: nearZone(hint.near, cityKey(item.city), item.zone) || item.city,\n      price: num(item.price), currency: 'EUR', size_m2: num(item.size_m2),\n      bedrooms: rooms == null ? null : Math.max(rooms - 1, 0),\n      url: item.url, title: item.title,\n    };\n  } else {\n    return null;\n  }\n  l.city = cityKey(l.city || hint.city);\n  l.country = CITY[l.city] || null;\n  l.op = l.op || hint.op;\n  l.price_eur = l.price == null ? null : l.currency === 'PLN' ? Math.round(l.price / plnPerEur) : l.price;\n  if (!l.country || !l.price_eur || !l.size_m2 || l.size_m2 < 15) return null;\n  return l;\n}\n\nconst OPS = {\n  '<=': (a, b) => a <= b, '>=': (a, b) => a >= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b,\n  in: (a, b) => b.includes(a), not_in: (a, b) => !b.includes(a),\n};\n\n// Yield after costs for one sale listing, using the rent per m² of its neighbourhood.\nfunction economics(l, zones, costs) {\n  const z = zones[`${l.city}|${l.zone}`];\n  const c = costs[l.country];\n  if (!z || !c || !z.rent_m2) return null;\n  const rentMonth = z.rent_m2 * l.size_m2;\n  const collected = rentMonth * 12 * (1 - c.vacancy);\n  const net = collected * (1 - c.management) - l.price_eur * c.upkeep - collected * c.rent_tax;\n  return {\n    rent_month: Math.round(rentMonth),\n    gross_yield: +((rentMonth * 12) / l.price_eur * 100).toFixed(2),\n    net_yield: +(net / (l.price_eur * (1 + c.buy_costs)) * 100).toFixed(2),\n    price_vs_zone: +((l.price_eur / l.size_m2) / z.sale_m2).toFixed(2),\n    zone_rent_listings: z.n_rent,\n    price_trend: c.price_trend,\n    currency: l.currency,\n  };\n}\n\nfunction score(l, rules, zones, costs) {\n  const e = economics(l, zones, costs);\n  if (!e) return { ...l, match: false, passed: [], failed: ['no rent data for this area'] };\n  const f = { ...l, ...e };\n  const passed = [], failed = [];\n  for (const r of rules) (OPS[r.op] && OPS[r.op](f[r.field], r.value) ? passed : failed).push(r.id);\n  return { ...f, match: failed.length === 0, passed, failed };\n}\n\n\n// Compiled by Inky from the research run. No model runs here.\nconst RULES = [{\"id\": \"R1\", \"field\": \"price_eur\", \"op\": \"<=\", \"value\": 185000, \"why\": \"Unchanged: with a €200,000 cash budget and 3.5-8% in taxes and fees added on top of the price depending on the country, a €185,000 cap keeps the total purchase inside budget everywhere.\"}, {\"id\": \"R2\", \"field\": \"bedrooms\", \"op\": \"in\", \"value\": [1, 2], \"why\": \"Unchanged: the plan asks for a small flat with one or two bedrooms, so studios and larger family homes are left out.\"}, {\"id\": \"R3\", \"field\": \"net_yield\", \"op\": \">=\", \"value\": 6.2, \"why\": \"The only change this round: v2 found 70 matches, just over the 60 ceiling, so the after-costs return floor rises slightly from 6.0% to 6.2%; this trims the weakest tail while keeping both cities, since fairly-priced Bari flats net in the low 6s and Lodz's best reach about 7%.\"}, {\"id\": \"R4\", \"field\": \"price_vs_zone\", \"op\": \">=\", \"value\": 0.7, \"why\": \"Unchanged: the near-miss list confirms it is doing its job by blocking the €5,000-17,000 Bari listings with impossible 19-123% 'yields' that are almost certainly wrecks - exactly the big-repairs homes the buyer wants flagged.\"}, {\"id\": \"R5\", \"field\": \"zone_rent_listings\", \"op\": \">=\", \"value\": 20, \"why\": \"Unchanged: an agency needs an active local rental market to find long-term tenants quickly, and all six matching zones have between 26 and 486 rental listings.\"}, {\"id\": \"R6\", \"field\": \"price_trend\", \"op\": \">=\", \"value\": 3, \"why\": \"Unchanged guard: only countries where house prices rose at least about 3% last year are allowed, and all three candidates pass (Portugal 17.8%, Poland 5.9%, Italy 5.2%).\"}, {\"id\": \"R7\", \"field\": \"city\", \"op\": \"in\", \"value\": [\"porto\", \"bari\", \"lodz\"], \"why\": \"Unchanged: the search stays inside the three chosen cities, all within three hours' flight of Amsterdam and open to a Dutch buyer without any permit.\"}];\nconst ZONES = {\"bari|Madonnella - Umbertino\": {\"city\": \"bari\", \"zone\": \"Madonnella - Umbertino\", \"n_sale\": 113, \"n_rent\": 30, \"sale_m2\": 2700, \"rent_m2\": 15.3}, \"bari|Murat\": {\"city\": \"bari\", \"zone\": \"Murat\", \"n_sale\": 287, \"n_rent\": 88, \"sale_m2\": 2596, \"rent_m2\": 15.24}, \"bari|Picone\": {\"city\": \"bari\", \"zone\": \"Picone\", \"n_sale\": 153, \"n_rent\": 48, \"sale_m2\": 2492, \"rent_m2\": 15.0}, \"bari|San Nicola\": {\"city\": \"bari\", \"zone\": \"San Nicola\", \"n_sale\": 41, \"n_rent\": 10, \"sale_m2\": 2609, \"rent_m2\": 14.37}, \"bari|Libertà\": {\"city\": \"bari\", \"zone\": \"Libertà\", \"n_sale\": 412, \"n_rent\": 26, \"sale_m2\": 1839, \"rent_m2\": 13.4}, \"bari|Torre a Mare\": {\"city\": \"bari\", \"zone\": \"Torre a Mare\", \"n_sale\": 86, \"n_rent\": 10, \"sale_m2\": 1948, \"rent_m2\": 13.33}, \"bari|Palese\": {\"city\": \"bari\", \"zone\": \"Palese\", \"n_sale\": 125, \"n_rent\": 25, \"sale_m2\": 1692, \"rent_m2\": 11.23}, \"bari|Santo Spirito\": {\"city\": \"bari\", \"zone\": \"Santo Spirito\", \"n_sale\": 137, \"n_rent\": 21, \"sale_m2\": 2200, \"rent_m2\": 11.23}, \"bari|Carrassi\": {\"city\": \"bari\", \"zone\": \"Carrassi\", \"n_sale\": 96, \"n_rent\": 13, \"sale_m2\": 2190, \"rent_m2\": 15.0}, \"bari|San Pasquale Alta\": {\"city\": \"bari\", \"zone\": \"San Pasquale Alta\", \"n_sale\": 177, \"n_rent\": 15, \"sale_m2\": 2784, \"rent_m2\": 14.18}, \"bari|Ceglie del Campo\": {\"city\": \"bari\", \"zone\": \"Ceglie del Campo\", \"n_sale\": 104, \"n_rent\": 6, \"sale_m2\": 1059, \"rent_m2\": 9.12}, \"bari|Carrassi Alta\": {\"city\": \"bari\", \"zone\": \"Carrassi Alta\", \"n_sale\": 71, \"n_rent\": 5, \"sale_m2\": 2167, \"rent_m2\": 14.89}, \"bari|Quartierino\": {\"city\": \"bari\", \"zone\": \"Quartierino\", \"n_sale\": 16, \"n_rent\": 8, \"sale_m2\": 3375, \"rent_m2\": 16.84}, \"bari|Carbonara\": {\"city\": \"bari\", \"zone\": \"Carbonara\", \"n_sale\": 310, \"n_rent\": 13, \"sale_m2\": 1378, \"rent_m2\": 10.0}, \"bari|San Giorgio\": {\"city\": \"bari\", \"zone\": \"San Giorgio\", \"n_sale\": 25, \"n_rent\": 5, \"sale_m2\": 3680, \"rent_m2\": 16.95}, \"bari|Marconi\": {\"city\": \"bari\", \"zone\": \"Marconi\", \"n_sale\": 47, \"n_rent\": 5, \"sale_m2\": 2829, \"rent_m2\": 11.11}, \"bari|San Pasquale\": {\"city\": \"bari\", \"zone\": \"San Pasquale\", \"n_sale\": 164, \"n_rent\": 25, \"sale_m2\": 2336, \"rent_m2\": 14.17}, \"bari|Japigia\": {\"city\": \"bari\", \"zone\": \"Japigia\", \"n_sale\": 127, \"n_rent\": 11, \"sale_m2\": 2083, \"rent_m2\": 12.5}, \"bari|Poggiofranco\": {\"city\": \"bari\", \"zone\": \"Poggiofranco\", \"n_sale\": 110, \"n_rent\": 11, \"sale_m2\": 2694, \"rent_m2\": 13.57}, \"bari|Palese, Santo Spirito\": {\"city\": \"bari\", \"zone\": \"Palese, Santo Spirito\", \"n_sale\": 253, \"n_rent\": 46, \"sale_m2\": 1923, \"rent_m2\": 11.6}, \"bari|Fesca, San Girolamo\": {\"city\": \"bari\", \"zone\": \"Fesca, San Girolamo\", \"n_sale\": 115, \"n_rent\": 6, \"sale_m2\": 2192, \"rent_m2\": 12.15}, \"bari|Poggiofranco, Santa Caterina\": {\"city\": \"bari\", \"zone\": \"Poggiofranco, Santa Caterina\", \"n_sale\": 354, \"n_rent\": 57, \"sale_m2\": 2407, \"rent_m2\": 14.39}, \"bari|Carbonara di Bari, Ceglie del Campo, Loseto\": {\"city\": \"bari\", \"zone\": \"Carbonara di Bari, Ceglie del Campo, Loseto\", \"n_sale\": 386, \"n_rent\": 17, \"sale_m2\": 1321, \"rent_m2\": 10.0}, \"bari|Borgo Antico, Murat, Madonnella\": {\"city\": \"bari\", \"zone\": \"Borgo Antico, Murat, Madonnella\", \"n_sale\": 502, \"n_rent\": 137, \"sale_m2\": 2748, \"rent_m2\": 15.71}, \"bari|Picone, Carrassi, San Pasquale, Mungivacca\": {\"city\": \"bari\", \"zone\": \"Picone, Carrassi, San Pasquale, Mungivacca\", \"n_sale\": 563, \"n_rent\": 93, \"sale_m2\": 2364, \"rent_m2\": 14.44}, \"bari|Marconi, San Cataldo, Libertà\": {\"city\": \"bari\", \"zone\": \"Marconi, San Cataldo, Libertà\", \"n_sale\": 454, \"n_rent\": 36, \"sale_m2\": 1811, \"rent_m2\": 13.55}, \"bari|Japigia, San Giorgio, Torre a Mare\": {\"city\": \"bari\", \"zone\": \"Japigia, San Giorgio, Torre a Mare\", \"n_sale\": 339, \"n_rent\": 34, \"sale_m2\": 2261, \"rent_m2\": 13.45}, \"lodz|Polesie\": {\"city\": \"lodz\", \"zone\": \"Polesie\", \"n_sale\": 358, \"n_rent\": 145, \"sale_m2\": 2072, \"rent_m2\": 11.14}, \"lodz|Śródmieście\": {\"city\": \"lodz\", \"zone\": \"Śródmieście\", \"n_sale\": 957, \"n_rent\": 486, \"sale_m2\": 2295, \"rent_m2\": 13.8}, \"lodz|Bałuty\": {\"city\": \"lodz\", \"zone\": \"Bałuty\", \"n_sale\": 252, \"n_rent\": 116, \"sale_m2\": 2034, \"rent_m2\": 10.89}, \"lodz|Górna\": {\"city\": \"lodz\", \"zone\": \"Górna\", \"n_sale\": 514, \"n_rent\": 172, \"sale_m2\": 2256, \"rent_m2\": 12.1}, \"lodz|Widzew\": {\"city\": \"lodz\", \"zone\": \"Widzew\", \"n_sale\": 313, \"n_rent\": 122, \"sale_m2\": 2036, \"rent_m2\": 12.26}, \"porto|Cedofeita - Santo Ildefonso - Sé - Miragaia - São Nicolau - Vitória\": {\"city\": \"porto\", \"zone\": \"Cedofeita - Santo Ildefonso - Sé - Miragaia - São Nicolau - Vitória\", \"n_sale\": 1623, \"n_rent\": 1187, \"sale_m2\": 5000, \"rent_m2\": 22.11}, \"porto|Campanhã\": {\"city\": \"porto\", \"zone\": \"Campanhã\", \"n_sale\": 612, \"n_rent\": 105, \"sale_m2\": 3850, \"rent_m2\": 16.67}, \"porto|Aldoar - Foz do Douro - Nevogilde\": {\"city\": \"porto\", \"zone\": \"Aldoar - Foz do Douro - Nevogilde\", \"n_sale\": 287, \"n_rent\": 208, \"sale_m2\": 4821, \"rent_m2\": 16.58}, \"porto|Bonfim\": {\"city\": \"porto\", \"zone\": \"Bonfim\", \"n_sale\": 672, \"n_rent\": 319, \"sale_m2\": 4286, \"rent_m2\": 20.73}, \"porto|Paranhos\": {\"city\": \"porto\", \"zone\": \"Paranhos\", \"n_sale\": 677, \"n_rent\": 337, \"sale_m2\": 3743, \"rent_m2\": 15.79}, \"porto|Ramalde\": {\"city\": \"porto\", \"zone\": \"Ramalde\", \"n_sale\": 659, \"n_rent\": 161, \"sale_m2\": 3982, \"rent_m2\": 14.29}, \"porto|Lordelo do Ouro e Massarelos\": {\"city\": \"porto\", \"zone\": \"Lordelo do Ouro e Massarelos\", \"n_sale\": 470, \"n_rent\": 249, \"sale_m2\": 4614, \"rent_m2\": 16.0}};\nconst COSTS = {\"PT\": {\"buy_costs\": 0.08, \"upkeep\": 0.01, \"vacancy\": 0.08, \"management\": 0.09, \"rent_tax\": 0.25, \"price_trend\": 17.8}, \"IT\": {\"buy_costs\": 0.07, \"upkeep\": 0.012, \"vacancy\": 0.08, \"management\": 0.09, \"rent_tax\": 0.21, \"price_trend\": 5.2}, \"PL\": {\"buy_costs\": 0.035, \"upkeep\": 0.008, \"vacancy\": 0.08, \"management\": 0.09, \"rent_tax\": 0.085, \"price_trend\": 5.9}};\nconst PLN_PER_EUR = 4.3718;\nconst STEPS = {\"idealista|porto\": \"idealista · Porto\", \"idealista|bari\": \"idealista · Bari\", \"immobiliare|bari\": \"immobiliare · Bari\", \"otodom|lodz\": \"otodom · Łódź\", \"tecnocasa|bari\": \"tecnocasa · Bari\"};\nconst SITES = {\"idealista|porto\": \"idealista.pt\", \"idealista|bari\": \"idealista.it\", \"immobiliare|bari\": \"immobiliare.it\", \"otodom|lodz\": \"otodom.pl\", \"tecnocasa|bari\": \"tecnocasa.it\"};\nconst ZONE_NEAR = {\"bari\": {\"borgo antico\": \"Borgo Antico, Murat, Madonnella\", \"borgo antico, murat, madonnella\": \"Borgo Antico, Murat, Madonnella\", \"carbonara\": \"Carbonara\", \"carbonara - ceglie - loseto\": \"Carbonara di Bari, Ceglie del Campo, Loseto\", \"carbonara di bari\": \"Carbonara\", \"carbonara di bari, ceglie del campo, loseto\": \"Carbonara di Bari, Ceglie del Campo, Loseto\", \"carrassi\": \"Carrassi\", \"carrassi - san pasquale\": \"Picone, Carrassi, San Pasquale, Mungivacca\", \"carrassi alta\": \"Carrassi Alta\", \"ceglie\": \"Carbonara di Bari, Ceglie del Campo, Loseto\", \"ceglie del campo\": \"Ceglie del Campo\", \"fesca\": \"Fesca, San Girolamo\", \"fesca, san girolamo\": \"Fesca, San Girolamo\", \"japigia\": \"Japigia\", \"japigia - torre a mare - san giorgio\": \"Japigia, San Giorgio, Torre a Mare\", \"japigia, san giorgio, torre a mare\": \"Japigia, San Giorgio, Torre a Mare\", \"liberta\": \"Libertà\", \"loseto\": \"Ceglie del Campo\", \"madonnella\": \"Borgo Antico, Murat, Madonnella\", \"madonnella - umbertino\": \"Madonnella - Umbertino\", \"marconi\": \"Marconi\", \"marconi - san cataldo\": \"Marconi\", \"marconi - san girolamo-fesca\": \"Fesca, San Girolamo\", \"marconi, san cataldo, liberta\": \"Marconi, San Cataldo, Libertà\", \"mungivacca\": \"San Pasquale Alta\", \"murat\": \"Murat\", \"palese\": \"Palese\", \"palese, santo spirito\": \"Palese, Santo Spirito\", \"picone\": \"Picone\", \"picone - poggiofranco\": \"Poggiofranco, Santa Caterina\", \"picone, carrassi, san pasquale, mungivacca\": \"Picone, Carrassi, San Pasquale, Mungivacca\", \"poggiofranco\": \"Poggiofranco\", \"poggiofranco, santa caterina\": \"Poggiofranco, Santa Caterina\", \"quartierino\": \"Quartierino\", \"san cataldo\": \"Marconi, San Cataldo, Libertà\", \"san giorgio\": \"San Giorgio\", \"san girolamo\": \"Fesca, San Girolamo\", \"san nicola\": \"San Nicola\", \"san nicola - borgo antico\": \"San Nicola\", \"san nicola - murat - liberta\": \"Libertà\", \"san paolo\": \"Fesca, San Girolamo\", \"san paolo, stanic\": \"Fesca, San Girolamo\", \"san pasquale\": \"San Pasquale\", \"san pasquale alta\": \"San Pasquale Alta\", \"santa caterina\": \"Quartierino\", \"santa fara\": \"Poggiofranco, Santa Caterina\", \"santo spirito\": \"Santo Spirito\", \"santo spirito - palese\": \"Palese, Santo Spirito\", \"stanic\": \"Quartierino\", \"torre a mare\": \"Torre a Mare\", \"umbertina\": \"Madonnella - Umbertino\", \"umbertina - madonnella\": \"Madonnella - Umbertino\", \"umbertino\": \"Madonnella - Umbertino\", \"zona aeroporto\": \"Palese\"}};\nconst QUIET = [23, 7];\n\n// Saved between runs in n8n's static data: seen listings, counters, homes held for the morning.\nfunction inkyState() {\n  const s = $getWorkflowStaticData('global');\n  s.seen = s.seen || {};\n  s.flats = s.flats || {};\n  s.held = s.held || [];\n  s.stats = s.stats || { runs: 0, checked: 0, fresh: 0, matches: 0, since: new Date().toISOString() };\n  // Counters since the last digest. The first time, they start from everything so far.\n  s.night = s.night || { runs: s.stats.runs, checked: s.stats.checked, fresh: s.stats.fresh, matches: s.stats.matches, fixes: 0, since: s.stats.since };\n  return s;\n}\nconst hourNow = () => +new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', hourCycle: 'h23' }).format(new Date());\nconst dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date());\n// Telegram reads messages as Markdown: a * or _ in a listing title must not break the message.\nconst md = (t) => String(t ?? '').replace(/[_*`\\[]/g, '\\\\$&');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;\n\nconst LETTER = {\n  PT: (u) => `Olá! O apartamento ainda está disponível? Gostaria de marcar uma visita.\\n\\n${u}`,\n  IT: (u) => `Buongiorno, l'appartamento è ancora disponibile? Vorrei fissare una visita.\\n\\n${u}`,\n  PL: (u) => `Dzień dobry, czy mieszkanie jest nadal dostępne? Chciałbym umówić się na oglądanie.\\n\\n${u}`,\n  EN: (u) => `Hello, is the apartment still available? I would like to arrange a viewing.\\n\\n${u}`,\n};\n// The Telegram question and the Gmail draft for one home.\nfunction texts(s, label, i, n) {\n  return {\n    telegram_text: `${label}${n > 1 ? ` ${i + 1} of ${n}` : ''} · ${md(s.city)} · ${md(s.zone)}\\n${md(s.title)}\\n` +\n      `€${Math.round(s.price_eur).toLocaleString('en')} · ${s.size_m2 ?? '?'} m² · ${s.bedrooms ?? '?'} bed\\n` +\n      `${s.net_yield}% a year after costs${s.gross_yield != null ? ` (${s.gross_yield}% before)` : ''}\\n` +\n      (s.passed && s.passed.length ? `Passed ${s.passed.join(' ')}\\n` : '') +\n      `${md(s.url)}\\n\\nSave a Gmail draft to the agent? Nothing is sent.`,\n    email_subject: `${s.title || 'Apartment'} · ${s.zone}`,\n    email_body: (LETTER[s.country] || LETTER.EN)(s.url),\n  };\n}\n\nconst state = inkyState();\nconst siteOf = (item) => { const t = JSON.stringify(item); return Object.keys(SITES).find((k) => t.includes(SITES[k])); };\nconst read = {};  // per step: [items, items Inky could read]\nconst listings = [];\nfor (const { json: item } of $input.all()) {\n  const l = normalize(item, PLN_PER_EUR, { op: 'sale', near: ZONE_NEAR });\n  const k = l ? `${l.source}|${l.city}` : siteOf(item);\n  if (k) {\n    read[k] = read[k] || [0, 0];\n    read[k][0]++;\n    if (l) read[k][1]++;\n  }\n  if (l) listings.push(l);\n}\n// A site that changed its format: most of its items no longer read. The repair workflow takes it from here.\nfor (const [k, [n, ok]] of Object.entries(read)) {\n  if (STEPS[k] && n >= 4 && ok * 2 < n) throw new Error(`Step ${STEPS[k]} returned items Inky can't read`);\n}\nconst empty = Object.keys(STEPS).filter((k) => !(read[k] && read[k][1]));\nif (empty.length) throw new Error(`Step ${STEPS[empty[0]]} returned 0 homes`);\n\nconst now = Date.now();\nconst found = [];\nfor (const l of listings) {\n  state.stats.checked++;\n  state.night.checked++;\n  const key = `${l.source}:${l.id}`;\n  if (state.seen[key]) continue;\n  state.seen[key] = now;\n  // The same flat on two sites counts once: same city, price and size.\n  const flat = `${l.city}|${l.price_eur}|${Math.round(l.size_m2)}`;\n  if (state.flats[flat]) continue;\n  state.flats[flat] = now;\n  state.stats.fresh++;\n  state.night.fresh++;\n  const s = score(l, RULES, ZONES, COSTS);\n  if (s.match) found.push(s);\n}\nstate.stats.runs++;\nstate.night.runs++;\nstate.stats.matches += found.length;\nstate.night.matches += found.length;\nfor (const s of found) {\n  if (!state.best || s.net_yield > state.best.net_yield) state.best = { title: s.title, city: s.city, zone: s.zone, net_yield: s.net_yield, url: s.url };\n}\n\n// Quiet hours: hold what was found, the first run after 07:00 asks.\nconst h = hourNow();\nif (h >= QUIET[0] || h < QUIET[1]) {\n  state.held.push(...found);\n  return [];\n}\n// At most 3 questions per run, best first; the rest wait for the next run.\nconst all = [...state.held, ...found].sort((a, b) => b.net_yield - a.net_yield);\nstate.held = all.slice(3);\nconst ask = all.slice(0, 3);\nreturn ask.map((s, i) => ({ json: { ...s, ...texts(s, 'New match', i, ask.length) } }));\n"
+   }
+  },
+  {
+   "id": "71d6c8f7-5888-4333-95e9-54d77d6cad98",
+   "name": "Send me the best now",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    680,
+    760
+   ],
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "INKY_BEST_PATH",
+    "responseMode": "onReceived",
+    "options": {}
+   },
+   "webhookId": "adcdb126-3627-4be8-872b-2135a6cd35af"
+  },
+  {
+   "id": "6158dc9c-d4bb-49ce-a6b9-d8f9635b4c76",
+   "name": "Best so far",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    900,
+    760
+   ],
+   "parameters": {
+    "jsCode": "\n// Saved between runs in n8n's static data: seen listings, counters, homes held for the morning.\nfunction inkyState() {\n  const s = $getWorkflowStaticData('global');\n  s.seen = s.seen || {};\n  s.flats = s.flats || {};\n  s.held = s.held || [];\n  s.stats = s.stats || { runs: 0, checked: 0, fresh: 0, matches: 0, since: new Date().toISOString() };\n  // Counters since the last digest. The first time, they start from everything so far.\n  s.night = s.night || { runs: s.stats.runs, checked: s.stats.checked, fresh: s.stats.fresh, matches: s.stats.matches, fixes: 0, since: s.stats.since };\n  return s;\n}\nconst hourNow = () => +new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', hourCycle: 'h23' }).format(new Date());\nconst dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date());\n// Telegram reads messages as Markdown: a * or _ in a listing title must not break the message.\nconst md = (t) => String(t ?? '').replace(/[_*`\\[]/g, '\\\\$&');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;\n\nconst LETTER = {\n  PT: (u) => `Olá! O apartamento ainda está disponível? Gostaria de marcar uma visita.\\n\\n${u}`,\n  IT: (u) => `Buongiorno, l'appartamento è ancora disponibile? Vorrei fissare una visita.\\n\\n${u}`,\n  PL: (u) => `Dzień dobry, czy mieszkanie jest nadal dostępne? Chciałbym umówić się na oglądanie.\\n\\n${u}`,\n  EN: (u) => `Hello, is the apartment still available? I would like to arrange a viewing.\\n\\n${u}`,\n};\n// The Telegram question and the Gmail draft for one home.\nfunction texts(s, label, i, n) {\n  return {\n    telegram_text: `${label}${n > 1 ? ` ${i + 1} of ${n}` : ''} · ${md(s.city)} · ${md(s.zone)}\\n${md(s.title)}\\n` +\n      `€${Math.round(s.price_eur).toLocaleString('en')} · ${s.size_m2 ?? '?'} m² · ${s.bedrooms ?? '?'} bed\\n` +\n      `${s.net_yield}% a year after costs${s.gross_yield != null ? ` (${s.gross_yield}% before)` : ''}\\n` +\n      (s.passed && s.passed.length ? `Passed ${s.passed.join(' ')}\\n` : '') +\n      `${md(s.url)}\\n\\nSave a Gmail draft to the agent? Nothing is sent.`,\n    email_subject: `${s.title || 'Apartment'} · ${s.zone}`,\n    email_body: (LETTER[s.country] || LETTER.EN)(s.url),\n  };\n}\n\n// The app sends the best homes it knows: POST {\"matches\": [{title, city, zone, price_eur, size_m2, bedrooms, net_yield, url, country}]}.\n// They get the same question as a new match, best first, at most 3.\nconst body = $input.first().json.body || {};\nconst num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(+v) ? null : +v);\nconst text = (v, n) => String(v ?? '').slice(0, n);\nconst homes = (Array.isArray(body.matches) ? body.matches : [])\n  .filter((m) => m && typeof m.url === 'string' && /^https:\\/\\//.test(m.url) && num(m.price_eur))\n  .map((m) => ({ title: text(m.title, 160), city: text(m.city, 40), zone: text(m.zone, 80), country: text(m.country, 2).toUpperCase(),\n    price_eur: num(m.price_eur), size_m2: num(m.size_m2), bedrooms: num(m.bedrooms), net_yield: num(m.net_yield),\n    gross_yield: num(m.gross_yield), url: text(m.url, 500) }))\n  .sort((a, b) => (b.net_yield ?? 0) - (a.net_yield ?? 0))\n  .slice(0, 3);\nreturn homes.map((s, i) => ({ json: { ...s, ...texts(s, 'Best so far', i, homes.length) } }));\n"
+   }
+  },
+  {
+   "id": "7b30cb4e-1832-49b2-8682-047fd25f1425",
+   "name": "One home at a time",
+   "type": "n8n-nodes-base.splitInBatches",
+   "typeVersion": 3,
+   "position": [
+    1140,
+    360
+   ],
+   "parameters": {
+    "batchSize": 1,
+    "options": {}
+   }
+  },
+  {
+   "id": "ccc2169f-4b48-463d-943b-542cb1a5d70c",
+   "name": "Ask me on Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    1360,
+    360
+   ],
+   "parameters": {
+    "operation": "sendAndWait",
+    "chatId": "INKY_TELEGRAM_CHAT_ID",
+    "message": "={{ $json.telegram_text }}",
+    "responseType": "approval",
+    "approvalOptions": {
+     "values": {
+      "approvalType": "double",
+      "approveLabel": "Save as draft",
+      "disapproveLabel": "Skip"
+     }
+    },
+    "options": {
+     "limitWaitTime": {
+      "values": {
+       "limitType": "afterTimeInterval",
+       "resumeAmount": 24,
+       "resumeUnit": "hours"
+      }
+     },
+     "appendAttribution": false
+    }
+   },
+   "webhookId": "6f7878ae-2803-4a7e-b806-c5e6db2dd42a",
+   "credentials": {
+    "telegramApi": {
+     "id": "INKY_TELEGRAM_CREDENTIAL",
+     "name": "Inky · Telegram"
+    }
+   }
+  },
+  {
+   "id": "af464158-fc17-404c-850f-9cc279cfd3c0",
+   "name": "Keep approved",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1580,
+    360
+   ],
+   "parameters": {
+    "jsCode": "\n// Your answer, next to the home it was about (the loop holds one home at a time, from either branch).\n// No answer within 24 hours, or Telegram switched off, counts as \"no\".\nreturn $input.all().map((it, i) => ({ json: { ...$('One home at a time').itemMatching(i).json, approved: it.json.data?.approved === true } }));\n"
+   }
+  },
+  {
+   "id": "07c312bb-d3da-4712-a889-cb90afda4edb",
+   "name": "Approved?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1800,
+    360
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "7e9a7af4-98e8-4da7-bf77-490c0a6672ef",
+       "leftValue": "={{ $json.approved }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "7da35c4c-ec08-4649-a6b0-c56b81ff0315",
+   "name": "Gmail draft to the agent",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    2040,
+    260
+   ],
+   "parameters": {
+    "resource": "draft",
+    "operation": "create",
+    "subject": "={{ $json.email_subject }}",
+    "emailType": "text",
+    "message": "={{ $json.email_body }}",
+    "options": {}
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "INKY_GMAIL_CREDENTIAL",
+     "name": "Gmail"
+    }
+   }
+  },
+  {
+   "id": "6194af3b-176a-43c3-9b46-833d0d2af637",
+   "name": "Every day 08:00",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    1040
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "cronExpression",
+       "expression": "0 8 * * *"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "d25765b2-ea14-4d0e-8e7d-69a0335db205",
+   "name": "Digest",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    1040
+   ],
+   "parameters": {
+    "jsCode": "const BEST = {\"title\": \"Okazja! 6 978 zł/m² | 2 Pokoje | Osobna Kuchnia\", \"city\": \"lodz\", \"zone\": \"Śródmieście\", \"net_yield\": 6.84, \"url\": \"https://www.otodom.pl/pl/oferta/okazja-6-978-zl-m-2-pokoje-osobna-kuchnia-ID4Cxxs\"};\n\n// Saved between runs in n8n's static data: seen listings, counters, homes held for the morning.\nfunction inkyState() {\n  const s = $getWorkflowStaticData('global');\n  s.seen = s.seen || {};\n  s.flats = s.flats || {};\n  s.held = s.held || [];\n  s.stats = s.stats || { runs: 0, checked: 0, fresh: 0, matches: 0, since: new Date().toISOString() };\n  // Counters since the last digest. The first time, they start from everything so far.\n  s.night = s.night || { runs: s.stats.runs, checked: s.stats.checked, fresh: s.stats.fresh, matches: s.stats.matches, fixes: 0, since: s.stats.since };\n  return s;\n}\nconst hourNow = () => +new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Amsterdam', hour: '2-digit', hourCycle: 'h23' }).format(new Date());\nconst dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date());\n// Telegram reads messages as Markdown: a * or _ in a listing title must not break the message.\nconst md = (t) => String(t ?? '').replace(/[_*`\\[]/g, '\\\\$&');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;\n\nconst s = inkyState();\nconst n = s.night;\nconst lines = [`Good morning. While you slept: ${plural(n.runs, 'run', 'runs')} · ${n.checked.toLocaleString('en')} listings checked · ` +\n  `${n.fresh} new · ${plural(n.matches, 'match', 'matches')} · ${plural(n.fixes, 'fix', 'fixes')}`];\nfor (const m of s.held.slice(0, 3)) lines.push(`Waiting for you: ${md(m.title)} · ${md(m.zone)} · ${m.net_yield}% after costs`);\nconst best = [s.best, BEST].filter(Boolean).sort((a, b) => b.net_yield - a.net_yield)[0];\nif (!n.matches && best) lines.push(`Best home right now: ${md(best.title)}, ${md(best.zone)}, ${best.net_yield}% after costs\\n${md(best.url)}`);\ns.night = { runs: 0, checked: 0, fresh: 0, matches: 0, fixes: 0, since: new Date().toISOString() };\nreturn [{ json: { text: lines.join('\\n') } }];\n"
+   }
+  },
+  {
+   "id": "a306f075-65c8-4c66-9bbb-d1e4f1ca598c",
+   "name": "Send the digest",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    440,
+    1040
+   ],
+   "parameters": {
+    "chatId": "INKY_TELEGRAM_CHAT_ID",
+    "text": "={{ $json.text }}",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "credentials": {
+    "telegramApi": {
+     "id": "INKY_TELEGRAM_CREDENTIAL",
+     "name": "Inky · Telegram"
+    }
+   }
+  },
+  {
+   "id": "726af00b-09be-40cd-ae80-f64f99a9576d",
+   "name": "Note · Read",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -60,
+    -120
+   ],
+   "parameters": {
+    "content": "## 1 · Read\n5 sites through Apify, every 15 minutes: the 60 newest homes for sale on each. At most 120 runs a day.",
+    "width": 640,
+    "height": 900,
+    "color": 5
+   }
+  },
+  {
+   "id": "adc7e755-0143-4da2-adcb-1538249d5f10",
+   "name": "Note · Score",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    640,
+    160
+   ],
+   "parameters": {
+    "content": "## 2 · Score\nInky's compiled rules, no AI. Only new homes; the same flat on two sites counts once. 23:00-07:00 matches wait for the morning.",
+    "width": 400,
+    "height": 360,
+    "color": 6
+   }
+  },
+  {
+   "id": "d6e18307-8426-4547-958f-be48b7d755ee",
+   "name": "Note · Ask",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    1100,
+    160
+   ],
+   "parameters": {
+    "content": "## 3 · Ask\nTelegram, one home at a time. It waits for your tap, at most 24 hours.",
+    "width": 860,
+    "height": 360,
+    "color": 4
+   }
+  },
+  {
+   "id": "bee77381-5c19-45d2-85ad-bdde0ce3fc50",
+   "name": "Note · Draft",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    2000,
+    100
+   ],
+   "parameters": {
+    "content": "## 4 · Draft\nGmail, never sent. You read it and send it yourself.",
+    "width": 260,
+    "height": 380,
+    "color": 3
+   }
+  },
+  {
+   "id": "5c3bcbd2-6983-4419-ba11-3cd1d05496a1",
+   "name": "Note · Best now",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    640,
+    600
+   ],
+   "parameters": {
+    "content": "## Send me the best now\nThe Inky app posts its top 3 homes here. They get the same question.",
+    "width": 400,
+    "height": 320,
+    "color": 4
+   }
+  },
+  {
+   "id": "696d9066-6517-4ef5-92b8-6dd1c87f8d22",
+   "name": "Note · Digest",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -60,
+    880
+   ],
+   "parameters": {
+    "content": "## Every morning\n08:00 on Telegram: what happened while you slept.",
+    "width": 640,
+    "height": 320,
+    "color": 7
+   }
+  }
+ ],
+ "connections": {
+  "Every 15 min": {
+   "main": [
+    [
+     {
+      "node": "Under the daily cap",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Run again after a fix": {
+   "main": [
+    [
+     {
+      "node": "Under the daily cap",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Under the daily cap": {
+   "main": [
+    [
+     {
+      "node": "idealista · Porto",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "idealista · Bari",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "immobiliare · Bari",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "otodom · Łódź",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "tecnocasa · Bari",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "idealista · Porto": {
+   "main": [
+    [
+     {
+      "node": "Merge",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "idealista · Bari": {
+   "main": [
+    [
+     {
+      "node": "Merge",
+      "type": "main",
+      "index": 1
+     }
+    ]
+   ]
+  },
+  "immobiliare · Bari": {
+   "main": [
+    [
+     {
+      "node": "Merge",
+      "type": "main",
+      "index": 2
+     }
+    ]
+   ]
+  },
+  "otodom · Łódź": {
+   "main": [
+    [
+     {
+      "node": "Merge",
+      "type": "main",
+      "index": 3
+     }
+    ]
+   ]
+  },
+  "tecnocasa · Bari": {
+   "main": [
+    [
+     {
+      "node": "Merge",
+      "type": "main",
+      "index": 4
+     }
+    ]
+   ]
+  },
+  "Merge": {
+   "main": [
+    [
+     {
+      "node": "Score · rules",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send me the best now": {
+   "main": [
+    [
+     {
+      "node": "Best so far",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Score · rules": {
+   "main": [
+    [
+     {
+      "node": "One home at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Best so far": {
+   "main": [
+    [
+     {
+      "node": "One home at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "One home at a time": {
+   "main": [
+    [],
+    [
+     {
+      "node": "Ask me on Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ask me on Telegram": {
+   "main": [
+    [
+     {
+      "node": "Keep approved",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Keep approved": {
+   "main": [
+    [
+     {
+      "node": "Approved?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved?": {
+   "main": [
+    [
+     {
+      "node": "Gmail draft to the agent",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "One home at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gmail draft to the agent": {
+   "main": [
+    [
+     {
+      "node": "One home at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Every day 08:00": {
+   "main": [
+    [
+     {
+      "node": "Digest",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Digest": {
+   "main": [
+    [
+     {
+      "node": "Send the digest",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "timezone": "Europe/Amsterdam",
+  "saveManualExecutions": true,
+  "errorWorkflow": "INKY_REPAIR_WORKFLOW_ID"
+ }
+}

@@ -2,15 +2,21 @@
 
     uv run python derive.py            # uses OpenRouter (GLM-5.3)
     uv run python derive.py --offline  # no LLM: fixed rules, for testing the pipeline
+    uv run python derive.py --rescore  # no LLM: re-evaluate the saved final rules, rewrite research.json only
+
+The same work is callable from Python: derive.run(progress, offline=False, data_dir=None, rescore=False, plan=None).
 
 Reads data/raw/*.json and plan.json. Writes data/zones.json, data/costs.json, data/rules.json
-and data/research.json (the numbers the Research screen and the video use).
+and data/research.json (the numbers the Research screen and the video use), keeping the previous
+version of each as <name>.bak.json.
 """
 import argparse
 import json
 import os
+import shutil
 import statistics
 import subprocess
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,6 +124,9 @@ def glm(messages):
     return d["choices"][0]["message"]["content"], (d.get("usage") or {}).get("cost", 0)
 
 
+ONLY_RULES = 'Do not repeat the input. Answer with one JSON object {"rules": [...], "note": "..."} and nothing else.\n'
+
+
 def propose(history, context, offline):
     """One round of rules. Offline: tighten a fixed rule set so the pipeline can run without a key."""
     if offline:
@@ -134,60 +143,150 @@ def propose(history, context, offline):
         {"role": "system", "content": "You are the research step of Inky, an agent that turns a vague goal into typed rules. "
                                       "Answer with one JSON object: {\"rules\": [{\"id\", \"field\", \"op\", \"value\", \"why\"}], \"note\": string}. "
                                       "Number the rules R1, R2, R3 and so on. Use only the listed fields and ops. 'why' is one plain sentence for a non-expert."},
-        {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+        {"role": "user", "content": ONLY_RULES + "The plan and the data:\n" + json.dumps(context, ensure_ascii=False)},
     ]
     for h in history:
         messages += [{"role": "assistant", "content": json.dumps({"rules": h["rules"]})},
-                     {"role": "user", "content": json.dumps(h["feedback"], ensure_ascii=False)}]
+                     {"role": "user", "content": ONLY_RULES + f"What v{h['v']} let through:\n" + json.dumps(h["feedback"], ensure_ascii=False)}]
     cost = 0.0
-    for attempt in range(2):
+    for attempt in range(3):  # seen live: GLM-5.3 now and then echoes the input or answers {"error": ...}
         text, c = glm(messages)
         cost += c or 0
         try:
             return valid(json.loads(text[text.find("{"):text.rfind("}") + 1])["rules"]), cost
         except (ValueError, KeyError, AssertionError, TypeError) as e:
-            messages += [{"role": "assistant", "content": text}, {"role": "user", "content": f"Invalid: {e}. Answer again with valid JSON."}]
-    raise RuntimeError("GLM did not return valid rules twice")
+            error = f"{type(e).__name__}: {e}"
+            print(f"GLM answer {attempt + 1} invalid ({error}): {text[:300]!r}", file=sys.stderr)
+            messages += [{"role": "assistant", "content": text[:500]},
+                         {"role": "user", "content": f"That was not valid ({error}). " + ONLY_RULES}]
+    raise RuntimeError(f"GLM did not return valid rules in 3 tries ({error})")
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--offline", action="store_true")
-    args = p.parse_args()
-    load_dotenv()
+ZONE_KEYS = ("rent_m2", "sale_m2", "n_rent")
+MATCH_KEYS = ("title", "city", "zone", "country", "source", "currency", "price_eur", "size_m2", "bedrooms", "rent_month",
+              "gross_yield", "net_yield", "zone_rent_listings", "price_vs_zone", "price_trend", "url")
 
-    pln, trend, period = market_facts()
-    costs = {c: {**v, "price_trend": trend[c]} for c, v in COSTS.items()}
-    raw = sorted(str(f) for f in (DATA / "raw").glob("*-*-*.json"))
+
+def rule_text(r):
+    return f"{r['id']} {r['field']} {r['op']} {r['value']}"
+
+
+def verdict(matches, known, rules):
+    """What to change next, from the data, so GLM does not overshoot (seen live: 664 homes, then 0)."""
+    n = len(matches)
+    if n > 60:
+        # the highest 'yields' are wrecks, garages and typos far below the neighbourhood price: aim the tip at the rest (seen live: 13%)
+        sane = sorted((m["net_yield"] for m in matches if m["price_vs_zone"] >= 0.7), reverse=True)
+        floor = any(r["field"] == "price_vs_zone" and r["op"] == ">=" for r in rules)
+        tip = f"about {sane[59]}% leaves 60, {sane[14]}% leaves 15" if len(sane) > 60 else "raise it a little"
+        return (f"Far too many ({n}). Raise the net_yield floor: {tip}."
+                + ("" if floor else " Also add price_vs_zone >= 0.7: far below the neighbourhood price means a wreck or a typo, and those top the yields.")
+                + " Keep the other rules.")
+    if n < 15:
+        near = Counter(s["failed"][0] for s in known if len(s["failed"]) == 1)
+        if not near:
+            return f"Too few ({n}). Loosen the rule that removes the most."
+        rid, k = near.most_common(1)[0]
+        return f"Too few ({n}). {k:,} listings fail only {rule_text(next(r for r in rules if r['id'] == rid))}: loosen that one a little."
+    return "In range: change little, if anything."
+
+
+def best_by_city(known, rules, cities, matches):
+    """Per city: the best net yield among flats that fit only the budget and bedroom rules, and why nothing passes if nothing does.
+    Also kept: the price-vs-neighbourhood rules and a floor of half the neighbourhood's price per m², else the "best" is a wreck,
+    a garage or a typo (a €1,121 flat at 852%)."""
+    basic = {r["id"] for r in rules if r["field"] in ("price_eur", "bedrooms", "price_vs_zone")}
+    out = {}
+    for city in cities:
+        pool = [s for s in known if s["city"] == city and s["price_vs_zone"] >= 0.5 and not basic & set(s["failed"])]
+        n = sum(1 for m in matches if m["city"] == city)
+        if not pool:
+            out[city] = {"candidates": 0, "matches": n, "reason": None if n else "No flat in budget with the right bedrooms has rent data nearby."}
+            continue
+        best = max(pool, key=lambda s: s["net_yield"])
+        reason = None
+        if not n:
+            fails = Counter(f for s in pool for f in s["failed"] if f not in basic)
+            rid, blocked = fails.most_common(1)[0]
+            r = next(r for r in rules if r["id"] == rid)
+            reason = (f"Of {len(pool):,} flats in budget with the right bedrooms, {blocked:,} fail {rule_text(r)}. "
+                      f"The best earns {best['net_yield']}% a year after costs, in {best['zone']}.")
+        out[city] = {"candidates": len(pool), "matches": n, **{k: best.get(k) for k in MATCH_KEYS}, "failed": best["failed"], "reason": reason}
+    return out
+
+
+def run(progress=None, offline=False, data_dir=None, rescore=False, plan=None):
+    """The research step. progress(event) gets {"type": "step", "text", "sub"?} and {"type": "version", "v", "matches", "zones", "rules"}.
+    rescore=True: no GLM and no new market facts, re-test the saved versions and rewrite research.json only (rules.json stays).
+    plan: the plan object, else plan.json. Returns (research, rules_doc), both as written."""
+    data, emit = Path(data_dir or DATA), progress or (lambda e: None)
+    step = lambda text, sub=None: emit({"type": "step", "text": text, **({"sub": sub} if sub else {})})
+    plan = plan or json.loads(Path("plan.json").read_text())
+    raw = sorted(str(f) for f in (data / "raw").glob("*-*-*.json"))
+    if not raw:
+        raise RuntimeError(f"no listings in {data / 'raw'}: run the scrape (research.py) first")
+    if rescore:
+        old, doc = (json.loads((data / f).read_text()) for f in ("research.json", "rules.json"))
+        pln, period, costs = old["pln_per_eur"], old["price_trend_period"], json.loads((data / "costs.json").read_text())
+    else:
+        pln, trend, period = market_facts()
+        costs = {c: {**v, "price_trend": trend[c]} for c, v in COSTS.items()}
+        step(f"Checked the exchange rate (ECB) and house prices (Eurostat {period})",
+             f"1 EUR = {pln:.2f} PLN · prices " + ", ".join(f"{c} {t:+.1f}%" for c, t in trend.items()))
     listings = node("normalize", str(pln), *raw)
-    zones = zone_table(listings)
+    zones = json.loads((data / "zones.json").read_text()) if rescore else zone_table(listings)
     sale = [l for l in listings if l["op"] == "sale"]
-    plan = json.loads(Path("plan.json").read_text())
-    print(f"{len(listings)} listings ({len(sale)} for sale), {len(zones)} neighbourhoods with rent data")
+    step(f"Read {len(listings):,} listings", f"{len(sale):,} for sale, {len(listings) - len(sale):,} for rent")
+    step(f"Matched rent to {len(zones)} neighbourhoods", "median rent and price per m², where there are 3+ rentals and 5+ sales")
 
-    top = sorted(zones.values(), key=lambda z: -z["rent_m2"] * 12 / z["sale_m2"])[:40]
-    context = {
-        "plan": plan, "fields": FIELDS, "ops": OPS, "costs_by_country": costs,
-        "listings_for_sale": len(sale), "neighbourhoods": top,
-        "ask": "Propose 5-7 rules that pick the few best flats for this plan. Rules decide what is good enough; Inky ranks the matches by net yield afterwards, so aim for 15-60 matches spread over at least 2 cities and 4 neighbourhoods so the buyer can compare places. Respect the plan: do not add rules the plan leaves open (like currency).",
-    }
-    history, total_cost = [], 0.0
-    for v in range(1, 4):
-        rules, cost = propose(history, context, args.offline)
-        total_cost += cost
+    def report(v, rules):
+        """Test one version on the listings and tell the caller what it let through."""
         _, known, matches, removed, near = evaluate(sale, rules, zones, costs)
         zones_passed = sorted({(m["city"], m["zone"]) for m in matches})
-        print(f"v{v}: {len(matches)} matches in {len(zones_passed)} neighbourhoods  " + "  ".join(f"{k} -{n}" for k, n in removed.items()))
-        history.append({"v": v, "rules": rules, "matches": len(matches), "zones": len(zones_passed), "feedback": {
-            "result": f"v{v} passed {len(matches)} of {len(known)} listings with rent data, in {len(zones_passed)} neighbourhoods.",
-            "removed_by_rule": removed,
-            "matches_by_city": dict(Counter(m["city"] for m in matches)),
-            "matches_by_neighbourhood": dict(Counter(f'{m["city"]}: {m["zone"]}' for m in matches).most_common(10)),
-            "near_misses": [{k: n[k] for k in ("city", "zone", "price_eur", "bedrooms", "net_yield", "price_vs_zone", "failed")} for n in near],
-            "ask": "Revise for the next version: keep rules that work, fix ones that remove too much or too little. Aim for 15-60 matches over at least 2 cities and 4 neighbourhoods. Change one or two thresholds at a time.",
-        }})
+        worst = max(removed, key=removed.get) if removed else None
+        step(f"{len(matches)} homes in {len(zones_passed)} neighbourhoods pass",
+             f"{len(rules)} rules" + (f" · {rule_text(next(r for r in rules if r['id'] == worst))} removes {removed[worst]:,}" if worst else ""))
+        emit({"type": "version", "v": v, "matches": len(matches), "zones": len(zones_passed), "rules": rules, "removed": removed})
+        return known, matches, removed, near, zones_passed
 
-    final = history[-1]["rules"]
+    if rescore:
+        history, total_cost, calls = doc["versions"], old.get("llm_cost_usd", 0), old.get("llm_calls", 0)
+        for h in history:
+            step(f"Rules v{h['v']}, as GLM-5.3 proposed them", "saved answer, no new GLM call")
+            report(h["v"], h["rules"])
+    else:
+        top = sorted(zones.values(), key=lambda z: -z["rent_m2"] * 12 / z["sale_m2"])[:40]
+        context = {
+            "plan": plan, "fields": FIELDS, "ops": OPS, "costs_by_country": costs,
+            "listings_for_sale": len(sale), "neighbourhoods": top,
+            "ask": "Propose 5-7 rules that pick the few best flats for this plan. Rules decide what is good enough; Inky ranks the matches by net yield afterwards, so aim for 15-60 matches spread over at least 2 cities and 4 neighbourhoods so the buyer can compare places. Respect the plan: do not add rules the plan leaves open (like currency).",
+        }
+        history, total_cost = [], 0.0
+        for v in range(1, 4):
+            step(f"Took the offline rules v{v}" if offline else f"Asked GLM-5.3 for rules v{v}",
+                 "from your plan and the neighbourhood table" if v == 1 else f"with what v{v - 1} let through")
+            rules, cost = propose(history, context, offline)
+            total_cost += cost
+            known, matches, removed, near, zones_passed = report(v, rules)
+            cities = len({m["city"] for m in matches})
+            history.append({"v": v, "rules": rules, "matches": len(matches), "zones": len(zones_passed), "cities": cities, "feedback": {
+                "result": f"v{v} passed {len(matches)} of {len(known)} listings with rent data, in {len(zones_passed)} neighbourhoods.",
+                "verdict": verdict(matches, known, rules) + (" Only one city passes: the buyer wants to compare at least 2." if cities < 2 else ""),
+                "removed_by_rule": removed,
+                "matches_by_city": dict(Counter(m["city"] for m in matches)),
+                "matches_by_neighbourhood": dict(Counter(f'{m["city"]}: {m["zone"]}' for m in matches).most_common(10)),
+                "near_misses": [{k: n[k] for k in ("city", "zone", "price_eur", "bedrooms", "net_yield", "price_vs_zone", "failed")} for n in near],
+                "ask": "Revise for the next version: keep rules that work, fix ones that remove too much or too little. Aim for 15-60 matches over at least 2 cities and 4 neighbourhoods. Change one or two thresholds at a time.",
+            }})
+        calls = 0 if offline else len(history)
+        # ponytail: naive fit score; GLM sometimes loosens instead of tightening, so the last version is not always the best
+        fit = lambda h: max(15 / h["matches"], h["matches"] / 60, 1) * (2 if h["cities"] < 2 else 1) * (1.5 if h["zones"] < 4 else 1) if h["matches"] else 1e9
+        best = min(reversed(history), key=fit)  # 1 = 15-60 homes in 2+ cities and 4+ neighbourhoods; 0 homes is the worst
+        if best is not history[-1]:
+            step(f"Kept rules v{best['v']}", f"closest to 15-60 homes over 2+ cities: {best['matches']} homes in {best['zones']} neighbourhoods")
+        doc = {"versions": [{k: h[k] for k in ("v", "rules", "matches", "zones")} for h in history], "final": best["rules"], "final_v": best["v"]}
+
+    final = doc["final"]
     _, known, matches, _, _ = evaluate(sale, final, zones, costs)
     by_zone = defaultdict(list)
     for m in matches:
@@ -195,20 +294,39 @@ def main():
     top_zones = sorted(({"city": c, "zone": z, "matches": len(ms), "net_yield": round(statistics.median(m["net_yield"] for m in ms), 2),
                          "price_trend": costs[ms[0]["country"]]["price_trend"], "rent_listings": ms[0]["zone_rent_listings"]}
                         for (c, z), ms in by_zone.items()), key=lambda t: -t["net_yield"])
-
-    for name, obj in [("zones", zones), ("costs", costs), ("rules", {"versions": [{k: h[k] for k in ("v", "rules", "matches", "zones")} for h in history], "final": final})]:
-        (DATA / f"{name}.json").write_text(json.dumps(obj, ensure_ascii=False, indent=1))
-    (DATA / "research.json").write_text(json.dumps({
+    research = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "listings_read": len(listings), "for_sale": len(sale), "for_rent": len(listings) - len(sale),
         "neighbourhoods": len(zones), "with_rent_data": len(known), "pln_per_eur": pln, "price_trend_period": period,
-        "versions": [{"v": h["v"], "matches": h["matches"], "zones": h["zones"]} for h in history],
+        "versions": [{"v": h["v"], "matches": h["matches"], "zones": h["zones"]} for h in history], "final_v": doc.get("final_v", history[-1]["v"]),
         "top_zones": top_zones[:3],
         "by_city": {c: {"matches": sum(1 for m in matches if m["city"] == c),
-                        "best_zone": next((t for t in top_zones if t["city"] == c), None)} for c in plan["cities"]}, "matches": [{k: m.get(k) for k in ("title", "city", "zone", "price_eur", "size_m2", "bedrooms", "net_yield", "url")} for m in matches[:200]],
-        "llm_cost_usd": round(total_cost, 4), "llm_calls": 0 if args.offline else len(history),
-    }, ensure_ascii=False, indent=1))
-    print(f"final rules: {len(final)}, {len(matches)} matches. GLM cost ${total_cost:.4f}. Wrote {DATA}/rules.json, {DATA}/research.json")
+                        "best_zone": next((t for t in top_zones if t["city"] == c), None)} for c in plan["cities"]},
+        "best_by_city": best_by_city(known, final, plan["cities"], matches),
+        "costs": costs,
+        "matches": [{**{k: m.get(k) for k in MATCH_KEYS}, **{k: zones[f"{m['city']}|{m['zone']}"][k] for k in ZONE_KEYS}} for m in matches[:200]],
+        "llm_cost_usd": round(total_cost, 4), "llm_calls": calls,
+    }
+    out = [("research", research)] if rescore else [("zones", zones), ("costs", costs), ("rules", doc), ("research", research)]
+    for name, obj in out:
+        f = data / f"{name}.json"
+        if f.exists():  # one version back, so a bad run never loses the rules the live demo uses
+            shutil.copy(f, data / f"{name}.bak.json")
+        f.write_text(json.dumps(obj, ensure_ascii=False, indent=1))
+    step("Saved the rules and the results", f"{len(final)} rules, {len(matches)} matches · GLM cost ${total_cost:.2f}")
+    return research, doc
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--offline", action="store_true")
+    p.add_argument("--rescore", action="store_true", help="no GLM: re-evaluate data/rules.json 'final' and rewrite research.json")
+    args = p.parse_args()
+    load_dotenv()
+    research, doc = run(lambda e: print(e["text"] + (f"  ({e['sub']})" if e.get("sub") else "")) if e["type"] == "step" else None,
+                        offline=args.offline, rescore=args.rescore)
+    print(f"final rules: {len(doc['final'])}, {research['versions'][-1]['matches']} matches. GLM cost ${research['llm_cost_usd']:.4f}. "
+          f"Wrote {'' if args.rescore else f'{DATA}/rules.json, '}{DATA}/research.json")
 
 
 if __name__ == "__main__":

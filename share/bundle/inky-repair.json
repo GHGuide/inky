@@ -1,0 +1,350 @@
+{
+ "name": "Inky · repair one step",
+ "nodes": [
+  {
+   "id": "569fb348-b63a-4e02-a4b1-26a1512a74b3",
+   "name": "On error",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    400
+   ],
+   "parameters": {}
+  },
+  {
+   "id": "52c30456-2f86-49e0-aea2-e35981afa8ef",
+   "name": "Tell me it broke",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    500,
+    160
+   ],
+   "parameters": {
+    "chatId": "INKY_TELEGRAM_CHAT_ID",
+    "additionalFields": {
+     "appendAttribution": false
+    },
+    "text": "={{ 'Inky hit an error in ' + $json.name + ': ' + ($json.error || '?').replace(/[_*\\x60\\[]/g, '\\\\$&') + '. Trying to fix one step.' }}"
+   },
+   "credentials": {
+    "telegramApi": {
+     "id": "INKY_TELEGRAM_CREDENTIAL",
+     "name": "Inky · Telegram"
+    }
+   }
+  },
+  {
+   "id": "3b3e15b8-cd98-4b4a-a3cd-5f162a65775e",
+   "name": "Read the error",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    260,
+    400
+   ],
+   "parameters": {
+    "jsCode": "\nconst e = $json.execution || {};\nconst msg = e.error?.message || '';\n// \"returned 0 homes\": an empty result. \"returned items Inky can't read\": the site changed its format.\nconst m = msg.match(/Step (.+?) returned (?:0 homes|items Inky can't read)/);\nconst state = $getWorkflowStaticData('global');\nstate.fixes = (state.fixes || []).filter((t) => Date.now() - t < 3600e3);\nif (state.fixes.length) return [];  // safety limit: one message and one fix per hour, then a human decides\nstate.fixes.push(Date.now());\nreturn [{ json: { workflowId: $json.workflow.id, name: $json.workflow.name, step: m ? m[1] : e.lastNodeExecuted, error: msg } }];\n"
+   }
+  },
+  {
+   "id": "eb8c761e-ad53-4a66-96aa-65f6d5219f1f",
+   "name": "Get the workflow",
+   "type": "n8n-nodes-base.n8n",
+   "typeVersion": 1,
+   "position": [
+    500,
+    400
+   ],
+   "parameters": {
+    "resource": "workflow",
+    "operation": "get",
+    "workflowId": {
+     "__rl": true,
+     "value": "={{ $json.workflowId }}",
+     "mode": "id"
+    }
+   },
+   "credentials": {
+    "n8nApi": {
+     "id": "INKY_N8N_CREDENTIAL",
+     "name": "Inky · n8n API"
+    }
+   }
+  },
+  {
+   "id": "21379c3b-b43b-48fe-a81d-143451a94b51",
+   "name": "Pick the broken step",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    740,
+    400
+   ],
+   "parameters": {
+    "jsCode": "\nconst SCHEMAS = {\"igolaizola~idealista-scraper\": {\"maxItems\": {\"type\": \"integer\"}, \"operation\": {\"type\": \"string\", \"enum\": [\"sale\", \"rent\"]}, \"propertyType\": {\"type\": \"string\", \"enum\": [\"newDevelopments\", \"homes\", \"bedrooms\", \"vacationRentals\", \"garages\", \"storageRooms\", \"offices\", \"premises\", \"transfers\", \"lands\", \"buildings\"]}, \"country\": {\"type\": \"string\", \"enum\": [\"es\", \"pt\", \"it\", \"fr\"]}, \"location\": {\"type\": \"string\"}, \"locations\": {\"type\": \"array\"}, \"postalCodes\": {\"type\": \"array\"}, \"latitude\": {\"type\": \"number\"}, \"longitude\": {\"type\": \"number\"}, \"distanceKm\": {\"type\": \"integer\"}, \"propertyCodes\": {\"type\": \"array\"}, \"sortBy\": {\"type\": \"string\", \"enum\": [\"relevance\", \"closest\", \"lowestPrice\", \"highestPrice\", \"mostRecent\", \"leastRecent\", \"highestPriceReduction\", \"lowestPriceM2\", \"highestPriceM2\", \"biggest\", \"smallest\", \"highestFloors\"]}, \"fetchDetails\": {\"type\": \"boolean\"}, \"fetchStats\": {\"type\": \"boolean\"}, \"minPrice\": {\"type\": \"string\", \"enum\": [\"0\", \"500\", \"550\", \"600\", \"650\", \"700\", \"750\", \"800\", \"850\", \"900\", \"950\", \"1000\"]}, \"maxPrice\": {\"type\": \"string\", \"enum\": [\"0\", \"500\", \"550\", \"600\", \"650\", \"700\", \"750\", \"800\", \"850\", \"900\", \"950\", \"1000\"]}, \"minSize\": {\"type\": \"string\", \"enum\": [\"0\", \"60\", \"80\", \"100\", \"120\", \"140\", \"160\", \"180\", \"200\", \"220\", \"240\", \"260\"]}, \"maxSize\": {\"type\": \"string\", \"enum\": [\"0\", \"60\", \"80\", \"100\", \"120\", \"140\", \"160\", \"180\", \"200\", \"220\", \"240\", \"260\"]}, \"publicationDate\": {\"type\": \"string\", \"enum\": [\"\", \"Y\", \"T\", \"W\", \"M\"]}, \"rentalTypes\": {\"type\": \"array\"}, \"bedrooms\": {\"type\": \"array\"}, \"bathrooms\": {\"type\": \"array\"}, \"homeType\": {\"type\": \"array\"}, \"condition\": {\"type\": \"array\"}, \"propertyStatus\": {\"type\": \"array\"}, \"floor\": {\"type\": \"array\"}, \"bankOffer\": {\"type\": \"boolean\"}, \"airConditioning\": {\"type\": \"boolean\"}, \"fittedWardrobes\": {\"type\": \"boolean\"}, \"lift\": {\"type\": \"boolean\"}, \"balcony\": {\"type\": \"boolean\"}, \"terrace\": {\"type\": \"boolean\"}, \"exterior\": {\"type\": \"boolean\"}, \"garage\": {\"type\": \"boolean\"}, \"garden\": {\"type\": \"boolean\"}, \"swimmingPool\": {\"type\": \"boolean\"}, \"storageRoom\": {\"type\": \"boolean\"}, \"accessible\": {\"type\": \"boolean\"}, \"seaViews\": {\"type\": \"boolean\"}, \"luxury\": {\"type\": \"boolean\"}, \"plan\": {\"type\": \"boolean\"}, \"virtualTour\": {\"type\": \"boolean\"}, \"agency\": {\"type\": \"string\"}, \"splitLocation\": {\"type\": \"boolean\"}}, \"memo23~immobiliare-scraper\": {\"startUrls\": {\"type\": \"array\"}, \"maxItems\": {\"type\": \"integer\"}, \"monitoringMode\": {\"type\": \"boolean\"}, \"detectPriceChanges\": {\"type\": \"boolean\"}, \"detectRemovedListings\": {\"type\": \"boolean\"}, \"maxConcurrency\": {\"type\": \"integer\"}, \"minConcurrency\": {\"type\": \"integer\"}, \"maxRequestRetries\": {\"type\": \"integer\"}, \"includeAgencyDetails\": {\"type\": \"boolean\"}, \"enrichEmails\": {\"type\": \"boolean\"}, \"qualifyByPayment\": {\"type\": \"boolean\"}, \"outputLanguage\": {\"type\": \"string\", \"enum\": [\"auto\", \"it\", \"en\", \"fr\", \"de\", \"es\", \"pt\", \"ru\", \"el\"]}, \"sortBy\": {\"type\": \"string\", \"enum\": [\"auto\", \"relevance\", \"priceLowToHigh\", \"priceHighToLow\", \"biggest\", \"smallest\", \"mostRecent\", \"oldest\", \"mostRooms\", \"fewestRooms\", \"privateSellers\", \"agenciesOnly\"]}, \"proxy\": {\"type\": \"object\"}, \"maxUnblockerRequests\": {\"type\": \"integer\"}}, \"trev0n~otodom-scraper\": {\"startUrls\": {\"type\": \"array\"}, \"searchType\": {\"type\": \"string\", \"enum\": [\"sprzedaz\", \"wynajem\"]}, \"propertyType\": {\"type\": \"string\", \"enum\": [\"mieszkanie\", \"dom\", \"dzialka\", \"lokal\", \"haleimagazyny\", \"garaz\"]}, \"location\": {\"type\": \"string\"}, \"priceMin\": {\"type\": \"integer\"}, \"priceMax\": {\"type\": \"integer\"}, \"areaMin\": {\"type\": \"integer\"}, \"areaMax\": {\"type\": \"integer\"}, \"roomsMin\": {\"type\": \"integer\"}, \"roomsMax\": {\"type\": \"integer\"}, \"buildYear\": {\"type\": \"integer\"}, \"market\": {\"type\": \"string\", \"enum\": [\"ALL\", \"PRIMARY\", \"SECONDARY\"]}, \"postedDate\": {\"type\": \"string\", \"enum\": [\"\", \"1\", \"3\", \"7\", \"14\"]}, \"maxItems\": {\"type\": \"integer\"}, \"extractDetails\": {\"type\": \"boolean\"}, \"maxConcurrency\": {\"type\": \"integer\"}, \"maxRequestRetries\": {\"type\": \"integer\"}, \"maxRequestsPerMinute\": {\"type\": \"integer\"}, \"proxyConfiguration\": {\"type\": \"object\"}}, \"cavernous_stew~inky-tecnocasa-homes\": {\"maxItems\": {\"type\": \"integer\"}, \"maxPrice\": {\"type\": \"integer\"}, \"city\": {\"type\": \"string\"}}};\nconst err = $('Read the error').first().json;\nconst wf = $json;\nconst step = wf.nodes.find((n) => n.name === err.step);\nconst key = step && ['customBody', 'jsonBody'].find((k) => typeof step.parameters?.[k] === 'string');\nif (!key) throw new Error(`Cannot repair step ${err.step}`);\nconst actor = step.parameters.actorId?.value || (step.parameters.url || '').split('/acts/')[1]?.split('/')[0];\nreturn [{ json: { wf, step: err.step, key, before: step.parameters[key], body: {\n  model: 'z-ai/glm-5.3',\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: 'You repair one step of a scraping workflow. The step runs an Apify actor with a JSON input. ' +\n      'It failed. Return JSON {\"input\": <the corrected actor input>, \"change\": \"<one short sentence>\"}. Change as little as possible.' },\n    { role: 'user', content: JSON.stringify({ step: err.step, actor, error: err.error, input: JSON.parse(step.parameters[key]), input_fields: SCHEMAS[actor] || {} }) },\n  ],\n} } }];\n"
+   }
+  },
+  {
+   "id": "d782e77d-d529-4b3f-b402-e90de440bf65",
+   "name": "GLM-5.3 fixes one step",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    980,
+    400
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($json.body) }}",
+    "options": {}
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "INKY_OPENROUTER_CREDENTIAL",
+     "name": "Inky · OpenRouter"
+    }
+   }
+  },
+  {
+   "id": "c1f388e9-d8c5-4f83-a00e-68895fc482a4",
+   "name": "Patch the step",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1220,
+    400
+   ],
+   "parameters": {
+    "jsCode": "\nconst pick = $('Pick the broken step').first().json;\nconst text = $json.choices[0].message.content;\nconst answer = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\nif (!answer.input || typeof answer.input !== 'object') throw new Error('GLM returned no input');\nconst wf = pick.wf;\nconst step = wf.nodes.find((n) => n.name === pick.step);\nstep.parameters[pick.key] = JSON.stringify(answer.input, null, 2);\nconst keep = [\"saveExecutionProgress\", \"saveManualExecutions\", \"saveDataErrorExecution\", \"saveDataSuccessExecution\", \"executionTimeout\", \"errorWorkflow\", \"timezone\", \"executionOrder\"];\nconst settings = Object.fromEntries(Object.entries(wf.settings || {}).filter(([k]) => keep.includes(k)));\nreturn [{ json: { workflowId: wf.id, step: pick.step, change: answer.change || 'input updated',\n  workflow: { name: wf.name, nodes: wf.nodes, connections: wf.connections, settings } } }];\n"
+   }
+  },
+  {
+   "id": "89fcfb68-4c22-4031-aaea-e421bd5e1e6b",
+   "name": "Save the fix",
+   "type": "n8n-nodes-base.n8n",
+   "typeVersion": 1,
+   "position": [
+    1460,
+    400
+   ],
+   "parameters": {
+    "resource": "workflow",
+    "operation": "update",
+    "workflowId": {
+     "__rl": true,
+     "value": "={{ $json.workflowId }}",
+     "mode": "id"
+    },
+    "workflowObject": "={{ JSON.stringify($json.workflow) }}"
+   },
+   "credentials": {
+    "n8nApi": {
+     "id": "INKY_N8N_CREDENTIAL",
+     "name": "Inky · n8n API"
+    }
+   }
+  },
+  {
+   "id": "342fbaf3-2a7f-417c-b7d6-c33675f4beac",
+   "name": "Publish the fix",
+   "type": "n8n-nodes-base.n8n",
+   "typeVersion": 1,
+   "position": [
+    1700,
+    400
+   ],
+   "parameters": {
+    "resource": "workflow",
+    "operation": "activate",
+    "workflowId": {
+     "__rl": true,
+     "value": "={{ $('Patch the step').first().json.workflowId }}",
+     "mode": "id"
+    }
+   },
+   "credentials": {
+    "n8nApi": {
+     "id": "INKY_N8N_CREDENTIAL",
+     "name": "Inky · n8n API"
+    }
+   }
+  },
+  {
+   "id": "a5c3cf98-6beb-4c82-803b-ff9e048fa8d5",
+   "name": "Tell me it's fixed",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    1940,
+    400
+   ],
+   "parameters": {
+    "chatId": "INKY_TELEGRAM_CHAT_ID",
+    "additionalFields": {
+     "appendAttribution": false
+    },
+    "text": "={{ ('Fixed ' + $('Patch the step').first().json.step + ': ' + $('Patch the step').first().json.change).replace(/[_*\\x60\\[]/g, '\\\\$&') + '. Running it again now.' }}"
+   },
+   "credentials": {
+    "telegramApi": {
+     "id": "INKY_TELEGRAM_CREDENTIAL",
+     "name": "Inky · Telegram"
+    }
+   }
+  },
+  {
+   "id": "e97693f7-185a-4fda-8739-8a2998c2b551",
+   "name": "Run it again",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.2,
+   "position": [
+    2180,
+    400
+   ],
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "value": "INKY_MAIN_WORKFLOW_ID",
+     "mode": "id"
+    },
+    "options": {
+     "waitForSubWorkflow": false
+    }
+   }
+  },
+  {
+   "id": "9149c7dc-4073-40ed-b848-d191c5f17052",
+   "name": "Note · Repair",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -60,
+    -20
+   ],
+   "parameters": {
+    "content": "## Repair\nFixes one broken step, at most once an hour. GLM-5.3 rewrites only that step's Apify input; the fix is saved and published, you get told on Telegram, and the run starts again.",
+    "width": 2360,
+    "height": 580,
+    "color": 2
+   }
+  }
+ ],
+ "connections": {
+  "On error": {
+   "main": [
+    [
+     {
+      "node": "Read the error",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read the error": {
+   "main": [
+    [
+     {
+      "node": "Tell me it broke",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Get the workflow",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get the workflow": {
+   "main": [
+    [
+     {
+      "node": "Pick the broken step",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Pick the broken step": {
+   "main": [
+    [
+     {
+      "node": "GLM-5.3 fixes one step",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "GLM-5.3 fixes one step": {
+   "main": [
+    [
+     {
+      "node": "Patch the step",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Patch the step": {
+   "main": [
+    [
+     {
+      "node": "Save the fix",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save the fix": {
+   "main": [
+    [
+     {
+      "node": "Publish the fix",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Publish the fix": {
+   "main": [
+    [
+     {
+      "node": "Tell me it's fixed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Tell me it's fixed": {
+   "main": [
+    [
+     {
+      "node": "Run it again",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "timezone": "Europe/Amsterdam"
+ }
+}

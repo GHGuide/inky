@@ -1,0 +1,30 @@
+{
+ "at": "2026-09-26T20:00:25+00:00",
+ "seconds": 60,
+ "compiled": {
+  "windows": 8,
+  "listings": 96,
+  "per_second": 4.87,
+  "model_calls": 0,
+  "pages": 7,
+  "per_window": [
+   15,
+   15,
+   15,
+   15,
+   15,
+   15,
+   6,
+   0
+  ],
+  "seconds_used": 19.7
+ },
+ "llm": {
+  "listings": 30,
+  "per_second": 0.5,
+  "model_calls": 5,
+  "cost_usd": 0.0851,
+  "seconds_used": 60
+ },
+ "program": "teach/tecnocasa.program.json"
+}

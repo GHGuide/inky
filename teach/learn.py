@@ -1,10 +1,13 @@
 """Inky learns tecnocasa.it once and writes it down as a typed program.
 
-    .venv/bin/python teach/learn.py              # visible Chrome, 1280x800 (for the video)
-    .venv/bin/python teach/learn.py --headless
+    .venv/bin/python teach/learn.py                  # visible Chrome, page 1440x900
+    .venv/bin/python teach/learn.py --slow           # for the camera: every step held 1.2 s longer
+    .venv/bin/python teach/learn.py --size 1600x900  # another page size
+    .venv/bin/python teach/learn.py --headless --out /tmp/p.json --shots /tmp/shots   # test run, keeps the real program
 
 Uses the site like a person: search Bari, for sale, flats, max price 200000, read the cards, next page.
-Every step is recorded as a typed step and marked on the page with a coral border and a chip.
+Every step is recorded as a typed step and marked on the page with a coral border and a chip (scrolled into view
+first), under a caption bar: "Step 3 of 10 · Pick Bari (tutto il comune)".
 Network traffic is watched: if the cards come from a JSON endpoint, that endpoint is the shortcut.
 GLM-5.3 is called once, at the end, to name and type the card fields and label the steps.
 Writes teach/tecnocasa.program.json (run it with teach/run_program.py).
@@ -13,6 +16,7 @@ import argparse
 import json
 import re
 import sys
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
@@ -24,24 +28,27 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import derive  # noqa: E402  derive.glm: the one GLM-5.3 call
 from run_program import act, dig, typed  # noqa: E402  the same executor replays the program
+from voice.screen import has_screen  # noqa: E402  "Inky has the screen" frame (Hammerspoon), headed runs only
 
 PROGRAM = HERE / "tecnocasa.program.json"
 START = "https://www.tecnocasa.it/"
 CARD = ".estate-card"
 
 # What a person does on the site. The selectors are what they click; Inky records each as a typed step.
+# (caption bar text for the video, do, css, value, type[, "optional"]); the program's labels come from GLM-5.3.
 DEMO = [
-    ("open", None, START, "link"),
-    ("click", ".cookie-banner #close", None, None, "optional"),  # close the banner = only technical cookies
-    ("click", ".contract-buttons .btn:nth-child(1)", None, None),  # Vendita
-    ("fill", "#geo-autocomplete input", "Bari", "text"),
-    ("select", ".geo-autocomplete-results", "Bari (tutto il comune)", "text"),
-    ("select", ".filter-type", "Appartamenti", "text"),
-    ("click", ".filter-price .toggleFilters", None, None),
-    ("fill", ".filter-price .col-6:nth-child(2) input.form-control", "200000", "number"),
-    ("extract", CARD, None, "loop"),
-    ("next_page", "ul.pagination li:has(a.active) + li a", None, "link"),
+    ("Open tecnocasa.it", "open", None, START, "link"),
+    ("Close the cookie banner · technical cookies only", "click", ".cookie-banner #close", None, None, "optional"),
+    ("Choose Vendita · for sale", "click", ".contract-buttons .btn:nth-child(1)", None, None),
+    ("Type Bari", "fill", "#geo-autocomplete input", "Bari", "text"),
+    ("Pick Bari (tutto il comune)", "select", ".geo-autocomplete-results", "Bari (tutto il comune)", "text"),
+    ("Pick Appartamenti · flats", "select", ".filter-type", "Appartamenti", "text"),
+    ("Open the price filter", "click", ".filter-price .toggleFilters", None, None),
+    ("Set max price 200000", "fill", ".filter-price .col-6:nth-child(2) input.form-control", "200000", "number"),
+    ("Read the listing cards", "extract", CARD, None, "loop"),
+    ("Next page", "next_page", "ul.pagination li:has(a.active) + li a", None, "link"),
 ]
+LEARNING = "learning once · 1 AI call"
 WANT = {  # field -> (what it is, the type the program needs)
     "title": ("listing title", "text"), "price": ("asking price in euro", "int"), "size_m2": ("floor area in m²", "int"),
     "rooms": ("number of rooms", "int"), "zone": ("the neighbourhood name only, not the street", "text"),
@@ -49,7 +56,8 @@ WANT = {  # field -> (what it is, the type the program needs)
 }
 
 # Coral border around the element and a chip with the step, drawn above the page (pointer-events: none).
-MARK = """([css, text, option]) => {
+# An element outside the view (under the caption bar, or the next-page link far down) is scrolled to first.
+MARK = """async ([css, text, option]) => {
   document.querySelectorAll('.inky-mark').forEach(e => e.remove());
   if (!document.getElementById('inky-font')) document.head.insertAdjacentHTML('beforeend',
     '<link id="inky-font" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@600&display=swap">');
@@ -59,16 +67,46 @@ MARK = """([css, text, option]) => {
   let el = css && [...document.querySelectorAll(css)].find(e => e.getClientRects().length);
   const opt = el && option && [...el.querySelectorAll('*')].find(e => e.textContent.trim() === option && e.getClientRects().length);
   if (opt) el = opt;
+  const BAR = 64;  // the caption bar
+  if (el) { const b = el.getBoundingClientRect();
+    if (b.top < BAR + 40 || b.bottom > innerHeight - 20) {
+      el.scrollIntoView({block: 'center', behavior: 'smooth'}); await new Promise(ok => setTimeout(ok, 700)); } }
   const r = el ? el.getBoundingClientRect() : null, x = scrollX, y = scrollY;
-  if (r) add(`left:${r.left + x - 4}px;top:${r.top + y - 4}px;width:${r.width + 8}px;height:${r.height + 8}px;` +
-             'border:2px solid #E86F51;border-radius:8px');
-  const chip = add('padding:4px 9px;border-radius:8px;background:#E86F51;color:#111110;white-space:nowrap;' +
-    "font:600 12px/1.4 'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px");
+  if (r) add(`left:${r.left + x - 5}px;top:${r.top + y - 5}px;width:${r.width + 10}px;height:${r.height + 10}px;` +
+             'border:3px solid #E86F51;border-radius:8px');
+  const chip = add('padding:5px 11px;border-radius:8px;background:#E86F51;color:#111110;white-space:nowrap;' +
+    "font:600 15px/1.4 'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px");
   chip.textContent = text;
-  if (r && r.top > 30) { chip.style.left = (r.left + x - 4) + 'px'; chip.style.top = (r.top + y - 30) + 'px'; }
-  else if (r) { chip.style.left = (r.left + x - 4) + 'px'; chip.style.top = (r.bottom + y + 8) + 'px'; }
-  else { chip.style.position = 'fixed'; chip.style.left = '16px'; chip.style.top = '16px'; }
+  if (r && r.top > BAR + 40) { chip.style.left = (r.left + x - 5) + 'px'; chip.style.top = (r.top + y - 38) + 'px'; }
+  else if (r) { chip.style.left = (r.left + x - 5) + 'px'; chip.style.top = (r.bottom + y + 10) + 'px'; }
+  else { chip.style.position = 'fixed'; chip.style.left = '20px'; chip.style.bottom = '24px'; }
 }"""
+
+# The caption bar at the top: "Step 3 of 10 · ..." on the left, "learning once · 1 AI call" on the right.
+# Drawn again on every page the steps load, from what Python last said (__inkyCaptionNow).
+CAPTION = """(() => {
+  if (window.top !== window) return;
+  const draw = ([left, right]) => {
+    if (!document.body) return;
+    let b = document.getElementById('inky-caption');
+    if (!b) {
+      document.head.insertAdjacentHTML('beforeend',
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600&display=swap">');
+      b = document.createElement('div'); b.id = 'inky-caption';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;height:64px;box-sizing:border-box;z-index:2147483647;' +
+        'pointer-events:none;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:0 24px;' +
+        'background:#111110;color:#FFFFFF;border-bottom:4px solid #E86F51;' +
+        'font:600 22px/1.2 Geist,-apple-system,system-ui,sans-serif;letter-spacing:-.2px';
+      b.innerHTML = '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
+        '<span style="color:#E86F51;font-weight:500;font-size:18px;white-space:nowrap"></span>';
+      document.body.appendChild(b);
+    }
+    b.children[0].textContent = left; b.children[1].textContent = right;
+  };
+  window.__inkyCaption = draw;
+  const again = () => window.__inkyCaptionNow && window.__inkyCaptionNow().then(draw).catch(() => {});
+  document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', again) : again();
+})()"""
 
 # Role and accessible name of the element, for the program's target.
 TARGET = """css => { const el = [...document.querySelectorAll(css)].find(e => e.getClientRects().length) || document.querySelector(css);
@@ -224,10 +262,24 @@ def name_fields(steps, cands, items):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--headless", action="store_true")
+    ap.add_argument("--slow", action="store_true", help="hold every step 1.2 s longer, so viewers can follow")
+    ap.add_argument("--size", default="1440x900", help="page size WxH (default 1440x900)")
+    ap.add_argument("--out", type=Path, default=PROGRAM, help=f"where to write the program (default {PROGRAM.name})")
+    ap.add_argument("--shots", type=Path, help="save a screenshot of every step in this folder")
     args = ap.parse_args()
+    size = re.fullmatch(r"(\d+)x(\d+)", args.size.lower())
+    if not size:
+        ap.error("--size must look like 1440x900")
     load_dotenv(HERE.parent / ".env")
     pause = 600 if args.headless else 1600
+    if args.shots:
+        args.shots.mkdir(parents=True, exist_ok=True)
+    with (has_screen("learning tecnocasa.it") if not args.headless else nullcontext()):
+        learn(args, pause, int(size[1]), int(size[2]))
 
+
+def learn(args, pause, width, height):
+    hold = pause + (1200 if args.slow else 0)  # how long each step's mark stays up before the step runs
     seen, steps, hrefs = [], [], set()
 
     def on_response(r):
@@ -239,12 +291,38 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=args.headless)
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page = browser.new_page(viewport={"width": width, "height": height})
+        now = ["", LEARNING]
+        page.expose_binding("__inkyCaptionNow", lambda src: now)
+        page.add_init_script(CAPTION)
+
+        def say(left, right=LEARNING):
+            now[:] = [left, right]
+            try:
+                page.evaluate("c => window.__inkyCaption && window.__inkyCaption(c)", now)
+            except Exception:
+                pass  # mid-navigation: the init script draws it on the new page
+
+        def shot(name):
+            if args.shots:
+                page.screenshot(path=args.shots / f"{name}.png")
+
+        if not args.headless:  # centre the window on the screen, for the camera
+            try:
+                cdp = page.context.new_cdp_session(page)
+                sx, sy, sw, sh = page.evaluate("[screen.availLeft || 0, screen.availTop || 0, screen.availWidth, screen.availHeight]")
+                wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+                b = cdp.send("Browser.getWindowBounds", {"windowId": wid})["bounds"]
+                cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {
+                    "left": sx + max(0, (sw - b["width"]) // 2), "top": sy + max(0, (sh - b["height"]) // 2)}})
+            except Exception:
+                pass  # the window stays where Chrome put it
         page.on("response", on_response)
-        for i, (do, css, value, kind, *optional) in enumerate(DEMO, 1):
+        for i, (caption, do, css, value, kind, *optional) in enumerate(DEMO, 1):
             s = {"n": f"{i:02d}", "do": do, "label": "", "target": None, "value": value, "type": kind}
             if optional:
                 s["optional"] = True
+            say(f"Step {i} of {len(DEMO)} · {caption}")
             if do == "open":
                 act(page, s, pause)
             else:
@@ -265,6 +343,7 @@ def main():
                 cands = page.evaluate(CANDIDATES, css)
                 chip += f"  {len(cards)} cards"
                 s["target"]["name"] = f"{len(cards)} listing cards"
+                say(f"Step {i} of {len(DEMO)} · {caption} · {len(cards)} cards")
             if do == "select":  # autocomplete options still loading: wait, so the chip lands on the one chosen
                 option = page.locator(css).get_by_text(value, exact=True).first
                 if not option.count():
@@ -273,7 +352,8 @@ def main():
                 page.evaluate(MARK, [css, chip, value if do == "select" else None])
             except Exception:
                 pass  # the page is navigating; the chip is only for the video
-            page.wait_for_timeout(pause)
+            page.wait_for_timeout(hold)
+            shot(f"step{s['n']}")
             if do not in ("open", "extract"):
                 act(page, s, pause)
             if do == "next_page":
@@ -282,15 +362,19 @@ def main():
             steps.append(s)
 
         items, sc = shortcut(seen, hrefs, {"max_price": "200000"})
+        clicks = sum(s["do"] in ("click", "fill", "select", "next_page") for s in steps)
         if sc:
-            clicks = sum(s["do"] in ("click", "fill", "select", "next_page") for s in steps)
             page.evaluate(MARK, [None, f"shortcut  {sc['method']} {urlsplit(sc['url']).path}  {clicks} steps became 1 request", None])
         else:
             page.evaluate(MARK, [None, "no JSON shortcut: the program replays the clicks", None])
-        page.wait_for_timeout(pause * 2)
+        say("Naming the steps and fields · the 1 AI call", "GLM-5.3")
+        labels, fields, calls, cost = name_fields(steps, cands, items)  # while the page is still up, so the end is real
+        say(f"Became a program: {len(steps)} steps · " + (f"shortcut found · {clicks} clicks → 1 request" if sc else
+            "no shortcut · it replays the clicks"), f"{calls} AI call{'s' * (calls != 1)} · ${cost:.2f}")
+        page.wait_for_timeout(3000)
+        shot("end")
         browser.close()
 
-    labels, fields, calls, cost = name_fields(steps, cands, items)
     for s in steps:
         s["label"] = labels[s["n"]]
     program = {
@@ -298,9 +382,9 @@ def main():
         "start_url": START, "llm_calls": calls, "llm_cost_usd": round(cost, 5), "shortcut": sc, "steps": steps,
         "item": {"selector": CARD, "fields": fields},
     }
-    PROGRAM.write_text(json.dumps(program, ensure_ascii=False, indent=1))
+    args.out.write_text(json.dumps(program, ensure_ascii=False, indent=1))
     print(f"{len(steps)} steps, {len(fields)} fields, shortcut: {sc['url'] if sc else 'none'}, "
-          f"{calls} GLM call(s) ${cost:.4f} -> {PROGRAM}")
+          f"{calls} GLM call(s) ${cost:.4f} -> {args.out}")
 
 
 if __name__ == "__main__":

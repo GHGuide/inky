@@ -1,0 +1,107 @@
+1
+00:00:00,200 --> 00:00:07,660
+Good flats go in days. At eight, Inky sent
+me the [3] best that fit my plan.
+
+2
+00:00:08,200 --> 00:00:10,048
+I described it once:
+
+3
+00:00:10,088 --> 00:00:16,468
+€200,000, a flat to rent out, prices
+rising, easy for a Dutch buyer.
+
+4
+00:00:16,508 --> 00:00:21,660
+Inky asked what it couldn't guess, then
+wrote the plan.
+
+5
+00:00:22,200 --> 00:00:28,801
+Through Apify it read nearly 18,000 real
+listings in Porto, Bari and Łódź.
+
+6
+00:00:28,841 --> 00:00:33,468
+An open model wrote rules, and the data
+tested them:
+
+7
+00:00:33,508 --> 00:00:39,660
+15, 70, then 46 homes. Porto's prices
+climb, but the rents don't pay.
+
+8
+00:00:40,200 --> 00:00:45,327
+Tecnocasa, Italy's largest agency network,
+had no Apify scraper.
+
+9
+00:00:45,367 --> 00:00:51,301
+Inky used it once, found its data feed,
+and published its own Apify actor.
+
+10
+00:00:51,341 --> 00:00:55,660
+Eight windows, no model: 96 flats in under
+20 seconds.
+
+11
+00:00:56,200 --> 00:01:00,632
+Inky built this n8n workflow itself,
+through the API.
+
+12
+00:01:00,672 --> 00:01:07,298
+Every 15 minutes, five Apify scrapers feed
+compiled scoring. No AI. Last night:
+
+13
+00:01:07,338 --> 00:01:09,660
+[40] runs, [8,000] listings.
+
+14
+00:01:10,200 --> 00:01:12,903
+I broke one step on purpose.
+
+15
+00:01:12,943 --> 00:01:14,961
+n8n caught the error.
+
+16
+00:01:15,001 --> 00:01:22,994
+The open model read it and fixed the input
+in 7 seconds, then published and reran.
+
+17
+00:01:23,034 --> 00:01:24,660
+It told me after.
+
+18
+00:01:25,200 --> 00:01:27,713
+From any app I hold ⌥ Space:
+
+19
+00:01:27,753 --> 00:01:32,089
+"only places with the euro." 46 homes
+become 14.
+
+20
+00:01:32,129 --> 00:01:34,460
+On Telegram I approve one;
+
+21
+00:01:34,500 --> 00:01:40,660
+the email to the agent waits in Gmail, as
+a draft. Inky never sends.
+
+22
+00:01:41,200 --> 00:01:43,660
+Share it in a sentence.
+
+23
+00:01:44,200 --> 00:01:51,660
+Inky. Tell it once. It watches every 15
+minutes; you only decide.
+

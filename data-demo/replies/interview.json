@@ -1,0 +1,66 @@
+[
+ {
+  "done": false,
+  "round": 1,
+  "understood": [
+   {
+    "k": "budget",
+    "v": "about €200,000"
+   },
+   {
+    "k": "goal",
+    "v": "earn rent from a flat abroad"
+   }
+  ],
+  "questions": [
+   {
+    "id": "q1",
+    "text": "Is the €200,000 all your own money, or do you also want a mortgage?",
+    "why": "It changes which homes you can afford."
+   },
+   {
+    "id": "q2",
+    "text": "Do you want to compare Porto, Bari, and Lodz, or focus on one?",
+    "why": "I can read listings in these three cities only."
+   },
+   {
+    "id": "q3",
+    "text": "Would you rent to long-term locals or short-term visitors?",
+    "why": "It changes the rent you can earn and who takes care of the flat."
+   }
+  ]
+ },
+ {
+  "done": true,
+  "plan": {
+   "question": "Where can €200,000 cash earn the most rent from a ready-to-rent 1-2 bedroom flat in Porto, Bari, or Łódź, let to long-term local tenants?",
+   "budget_eur": 200000,
+   "cash": true,
+   "keep_years": 10,
+   "where": "abroad: Porto, Bari, or Łódź",
+   "cities": [
+    "porto",
+    "bari",
+    "lodz"
+   ],
+   "home": "flat, 1-2 bedrooms, ready to rent",
+   "tenants": "long-term, locals",
+   "managed_by": "local agency",
+   "worst_case": "flag homes that need big repairs",
+   "never": [
+    "make an offer",
+    "pay",
+    "sign",
+    "send a message without approval"
+   ],
+   "currency": "any for now: euro or zloty (you can change this later)"
+  },
+  "summary": "Compare €200,000 cash purchases of ready-to-rent 1-2 bedroom flats in Porto, Bari, and Łódź, let to long-term local tenants through a local agency, flagging anything that needs big repairs (I assumed a 10-year hold; you can change this later).",
+  "results_format": [
+   "The three cities ranked by how much yearly rent €200,000 can earn there",
+   "For each city: example flats for sale within budget that are ready to rent",
+   "Typical monthly rent for each example flat, after the agency's cut",
+   "Flats flagged if they look like they need big repairs"
+  ]
+ }
+]

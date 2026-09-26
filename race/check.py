@@ -11,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from race import layout, number, on_page, page_range  # noqa: E402
+from race import layout, number, on_page, page_range, summary  # noqa: E402
 
 assert [page_range(12, i, 8) for i in range(8)] == [[1, 2], [3, 4], [5, 6], [7, 8], [9], [10], [11], [12]]
 assert sum((page_range(64, i, 8) for i in range(8)), []) == list(range(1, 65))
@@ -19,7 +19,7 @@ assert page_range(3, 7, 8) == []
 assert number("€ 240.000") == 240000 and number("99 Mq") == 99 and number("1,5") == 1.5 and number("3 locali, 2 bagni") == 3
 assert number(None) is None and number("n.d.") is None
 # every window on screen and no smaller than Chrome allows (500x375), on a big screen and on laptops
-for scr in [(0, 25, 2560, 1415), (0, 33, 1800, 1071), (0, 25, 1512, 944), (0, 25, 1440, 875), (0, 25, 1280, 775)]:
+for scr in [(0, 25, 2560, 1415), (0, 25, 1920, 1055), (0, 33, 1800, 1071), (0, 25, 1512, 944), (0, 25, 1440, 875), (0, 25, 1280, 775)]:
     rects = layout(*scr, 8)
     assert len(rects) == 9 and all(w >= 500 and h >= 375 and x >= scr[0] and y >= scr[1] and x + w <= scr[0] + scr[2]
                                    and y + h <= scr[1] + scr[3] for x, y, w, h in rects), (scr, rects)
@@ -27,6 +27,11 @@ for scr in [(0, 25, 2560, 1415), (0, 33, 1800, 1071), (0, 25, 1512, 944), (0, 25
 obs = {"url": "https://x.it/list.html", "elements": [[0, "a", "Trilocale in vendita", "https://x.it/vendita/1.html"], [1, "a", "Home", "https://x.it/"]]}
 assert on_page("/vendita/1.html", obs) == on_page("https://x.it/vendita/1.html", obs) == "https://x.it/vendita/1.html"
 assert on_page("https://x.it/fake/2.html", obs) is None and on_page("https://x.it/", obs) is None and on_page("", obs) is None
+# the result card says what the run measured
+last = {"compiled": {"windows": 8, "listings": 96, "seconds_used": 19.7}, "llm": {"listings": 30, "seconds_used": 60.0, "model_calls": 5, "cost_usd": 0.0851}}
+assert summary(last) == ("96 homes · 19.7 s · 0 AI calls", "30 homes · 60 s · 5 AI calls · $0.085"), summary(last)
+last["llm"]["model_calls"] = 1
+assert summary(last)[1] == "30 homes · 60 s · 1 AI call · $0.085"
 
 out = Path(tempfile.mkdtemp()) / "race.json"
 subprocess.run([sys.executable, str(HERE / "race.py"), "--dry-run", "--out", str(out)], check=True, timeout=400)

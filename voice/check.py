@@ -105,7 +105,7 @@ print("ok  app down ->", out["error"])
 
 # init.lua under a fake Hammerspoon: key events in, pill titles out.
 MOCK = r"""
-local pill, timers, task, tap = nil, {}, nil, nil
+local pill, frame, timers, task, tap = nil, nil, {}, nil, nil
 local function obj(t) return setmetatable(t, { __index = function() return function() end end }) end
 hs = {
   fs = { attributes = function(p) return io.open(p) and {} end },
@@ -113,13 +113,14 @@ hs = {
   styledtext = { fontNames = function() return {} end, new = function(s) return { s = s } end,
     defaultFonts = { boldSystem = { name = "B" }, system = { name = "R" } } },
   image = { imageFromPath = function(p) return io.open(p) and { p = p } end },
-  screen = { mainScreen = function() return { frame = function() return { x = 0, y = 0, w = 1440, h = 900 } end } end },
+  screen = { mainScreen = function() return { frame = function() return { x = 0, y = 25, w = 1440, h = 875 } end,
+    fullFrame = function() return { x = 0, y = 0, w = 1440, h = 900 } end } end },
   drawing = { getTextDrawingSize = function(t) return { w = 7 * #t.s, h = 17 } end },
   canvas = { windowLevels = { overlay = 1 }, new = function()
     local c = obj({ els = {} })
     function c:appendElements(...) self.els = { ... } end
-    function c:delete() if pill == self then pill = nil end end
-    function c:show() pill = self end
+    function c:delete() if pill == self then pill = nil end if frame == self then frame = nil end end
+    function c:show() if self.els[1].action == "stroke" then frame = self else pill = self end end
     return setmetatable(c, { __index = function(t, k) return rawget(t, "els")[k] or function() end end }) end },
   timer = { doEvery = function() return obj({}) end, doAfter = function(s)
     local t = obj({ s = s }); t.stop = function() timers[t] = nil end; timers[t] = true; return t end },
@@ -133,7 +134,7 @@ hs = {
   eventtap = { event = { types = { keyDown = 10, keyUp = 11 } }, new = function(_, fn)
     tap = obj({ fn = fn }); function tap:isEnabled() return true end; return tap end },
 }
-dofile(arg[1])
+local M = dofile(arg[1])
 local function key(down, alt, code)
   return tap.fn({ getKeyCode = function() return code or 49 end, getFlags = function() return { alt = alt } end,
     getType = function() return down and 10 or 11 end })
@@ -149,7 +150,9 @@ assert(pill.els[2].image.p, "the pill shows the octopus png")
 assert(key(true, true) and title() == "Listening…", "key repeat")
 assert(key(false, true) and title() == "Thinking…" and not io.open(flag))
 finish(OK)
-assert(title() == "Euro only" and pending() == 4, title())
+assert(title() == "12 → 8 homes" and pill.els[4].text.s == "Euro only" and pending() == 5, title())
+assert(key(true, true) and key(false, true)); finish('{heard = "x", change = "No rules yet"}')
+assert(title() == "No rules yet" and pill.els[4].text.s == "“x”", "no counts: the change sentence")
 
 assert(key(true, true)); finish('{error = "no mic"}')           -- listen.py is done before the key-up
 assert(key(false, true) and title() == "Inky didn't get that", title())
@@ -157,9 +160,16 @@ assert(key(false, true) and title() == "Inky didn't get that", title())
 assert(key(true, true) and key(false, true) and title() == "Thinking…")
 assert(key(true, true) and title() == "Still thinking…", "busy press gives feedback")
 assert(key(true, true) and key(false, true), "its repeat and key-up are swallowed")
-finish(OK); assert(title() == "Euro only")
+finish(OK); assert(title() == "12 → 8 homes")
 assert(not key(true, false) and not key(false, false), "plain Space passes through")
 assert(not key(true, true, 0), "⌥ A passes through")
+
+local screenFlag = os.getenv("TMPDIR") .. "inky-screen.flag"
+M.frameCheck(); assert(not frame, "no flag, no frame")
+local f = io.open(screenFlag, "w"); f:write("learning tecnocasa.it"); f:close()
+M.frameCheck(); assert(frame and frame.els[3].text.s == "Inky has the screen · learning tecnocasa.it", "frame with its tag")
+assert(frame.els[1].frame.w == 1440 and frame.els[1].frame.h == 900, "the whole display, menu bar too")
+os.remove(screenFlag); M.frameCheck(); assert(not frame, "flag gone, frame gone")
 print("mock ok")
 """
 lua, luac = shutil.which("lua"), shutil.which("luac")
@@ -169,9 +179,15 @@ if lua and luac:
     p = subprocess.run([lua, str(tmp / "mock.lua"), str(HERE / "init.lua")], capture_output=True, text=True,
                        env={**os.environ, "TMPDIR": str(tmp) + "/"}, timeout=30)
     assert p.returncode == 0 and "mock ok" in p.stdout, p.stdout + p.stderr
-    print("ok  init.lua: Listening → Thinking → change; done-before-release and busy press show the right pill")
+    print("ok  init.lua: Listening → Thinking → 12 → 8 homes; done-before-release, busy press, screen frame on/off")
 else:
     print("skip lua not installed (brew install lua)")
+
+from screen import FLAG, has_screen  # noqa: E402  the flag learn.py and race.py write for the frame
+with has_screen("racing"):
+    assert FLAG.read_text() == "racing"
+assert not FLAG.exists()
+print("ok  screen flag written while learn/race run, removed after")
 
 shutil.rmtree(tmp)
 print("all checks passed")

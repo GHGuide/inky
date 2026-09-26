@@ -1,9 +1,12 @@
 """Race: the compiled program in 8 Chrome windows (no model) next to one click-by-click LLM agent.
 
     .venv/bin/python race/race.py                  # 60 s: 8 headed windows + 1 agent window (4x2 + agent column, 3x3 on a laptop)
+    .venv/bin/python race/race.py --record         # filming: windows kept inside 1920x1080, the result card stays up 12 s
     .venv/bin/python race/race.py --seconds 90 --program teach/tecnocasa.program.json
     .venv/bin/python race/race.py --dry-run        # 2 headless windows for 15 s, agent for 2 steps
 
+When both sides are done, a small window shows the result with the run's real numbers, e.g.
+"Inky 96 homes · 19.7 s · 0 AI calls" over "Clicking agent 30 homes · 60 s · 5 AI calls · $0.085".
 Writes data/race.json (or --out) and prints one summary line.
 """
 import argparse
@@ -17,16 +20,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
+from contextlib import nullcontext
+
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import derive  # noqa: E402  derive.glm(messages) -> (text, cost_usd)
+from voice.screen import has_screen  # noqa: E402  "Inky has the screen" frame (Hammerspoon), headed runs only
 
 PAGE_GAP = 7.5                      # s between page loads in one window: at most 8 pages a minute
 LLM_CAP_S, LLM_CAP_USD = 180, 0.50
-CORAL, GREY = "#E86F51", "#6B6862"
+CORAL, GREY, INK = "#E86F51", "#6B6862", "#111110"
+RECORD_W, RECORD_H = 1920, 1080     # --record: the windows use at most this much of the screen (a big monitor)
 DESKTOP_W = 1280                    # every window lays the page out this wide, scaled to fit (see place())
 SCALE = {}                          # page -> the scale place() gave it, so the overlay stays readable
 MIN_W, MIN_H = 500, 375             # Chrome will not make a window smaller than this
@@ -36,6 +43,7 @@ BLOCKED = re.compile(r"contatt|contact|invia|send|chiama|call|telefon|whatsapp|m
 
 # The frame is drawn from the state Python keeps per page (OVL), fetched over a binding on every new document, so it
 # shows on every site the window visits (the homepage during the steps too), not only where it was first set.
+# A card in the top left, sized in screen pixels (zoom 1/k undoes the page scale): "window 3" / "42 homes" / "0 AI calls".
 OVERLAY = """(() => {
   if (window.top !== window) return;
   const draw = (o) => {
@@ -43,16 +51,22 @@ OVERLAY = """(() => {
     let f = document.getElementById('inky-frame');
     if (!f) {
       const font = document.createElement('link'); font.rel = 'stylesheet';
-      font.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@600&display=swap'; document.head.appendChild(font);
+      font.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@600;700&display=swap'; document.head.appendChild(font);
       f = document.createElement('div'); f.id = 'inky-frame';
       f.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;box-sizing:border-box';
-      f.innerHTML = '<span style="position:absolute;top:8px;left:8px;padding:5px 12px;border-radius:999px;color:#FFFFFF;font:600 14px/1.3 Geist,-apple-system,system-ui,sans-serif;white-space:nowrap"></span>';
+      f.innerHTML = '<div style="position:absolute;top:10px;left:10px;padding:7px 16px 9px;border-radius:14px;' +
+        'font-family:Geist,-apple-system,system-ui,sans-serif;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,.28)">' +
+        '<div style="font-weight:600;font-size:15px;line-height:1.25;opacity:.8"></div>' +
+        '<div style="font-weight:700;font-size:36px;line-height:1.05;letter-spacing:-.5px;font-variant-numeric:tabular-nums"></div>' +
+        '<div style="font-weight:600;font-size:16px;line-height:1.3"></div></div>';
       document.body.appendChild(f);
     }
-    f.style.border = (4 / o.k) + 'px solid ' + o.color;
-    f.firstChild.style.zoom = 1 / o.k;
-    f.firstChild.style.background = o.color;
-    f.firstChild.textContent = o.text;
+    const card = f.firstChild, [head, big, sub] = card.children;
+    f.style.border = (6 / o.k) + 'px solid ' + o.color;
+    card.style.zoom = 1 / o.k;
+    card.style.background = o.color;
+    card.style.color = o.ink;
+    head.textContent = o.head; big.textContent = o.big; sub.textContent = o.sub;
   };
   window.__inkyDraw = draw;
   document.addEventListener('DOMContentLoaded', () => {
@@ -137,8 +151,13 @@ def page_range(last, i, n):
     return list(range(start + 1, start + k + (i < r) + 1))
 
 
-async def overlay(page, color, text):
-    OVL[page] = {"color": color, "text": text, "k": SCALE.get(page, 1)}
+def ai_calls(n):
+    return f"{n} AI call{'s' * (n != 1)}"
+
+
+async def overlay(page, color, head, big, sub):
+    OVL[page] = {"color": color, "ink": INK if color == CORAL else "#FFFFFF", "head": head, "big": big, "sub": sub,
+                 "k": SCALE.get(page, 1)}
     try:
         await page.evaluate("o => window.__inkyDraw && window.__inkyDraw(o)", OVL[page])
     except Exception:
@@ -232,7 +251,7 @@ async def compiled_window(page, i, n, program, st):
     The first window to reach the right results sets the page plan (st["ref"]) for all of them, so the slices line up;
     a window whose steps fail twice still reads its slice, straight from that plan."""
     who = f"window {i + 1}"
-    label = lambda note="": overlay(page, CORAL, f"{who} · {st['per_window'][i]} homes{note}")
+    label = lambda note="": overlay(page, CORAL, who, f"{st['per_window'][i]} homes", ai_calls(0) + note)
     where = "steps"
     try:
         await label()
@@ -304,7 +323,8 @@ async def llm_agent(page, program, st, deadline, max_steps):
     host = urlparse(program["start_url"]).hostname
     history, fails = [], 0
     page.context.on("page", lambda popup: asyncio.ensure_future(popup.close()))  # no new windows on camera
-    status = lambda note: overlay(page, GREY, f"AI agent · {len(st['seen'])} homes · {st['model_calls']} AI calls · ${st['cost_usd']:.3f}{note}")
+    status = lambda note: overlay(page, GREY, "clicking AI agent", f"{len(st['seen'])} homes",
+                                  f"{ai_calls(st['model_calls'])} · ${st['cost_usd']:.3f}{note}")
     try:
         await status("")
         await page.goto(program["start_url"], wait_until="domcontentloaded")
@@ -319,7 +339,7 @@ async def llm_agent(page, program, st, deadline, max_steps):
         except Exception:
             await page.wait_for_timeout(1000)
             continue
-        await status(" · thinking")
+        await status(" · thinking…")
         try:
             text, cost = await asyncio.to_thread(derive.glm, agent_prompt(goal, obs, history, len(st["seen"])))
         except Exception as e:  # only the type and HTTP status: an httpx header error would print the key
@@ -418,7 +438,70 @@ def layout(x0, y0, sw, sh, n):
     return grid(x0, y0, sw, sh, cols, math.ceil((n + 1) / cols), n + 1)
 
 
-async def race(program, n, seconds, headless, llm_seconds, llm_steps):
+def result(n, seconds, comp, comp_s, llm, llm_seconds, prog_ref):
+    """What data/race.json holds."""
+    llm_s = min(llm_seconds, llm["ran_s"]) or seconds
+    return {
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "seconds": seconds,
+        "compiled": {"windows": n, "listings": len(comp["seen"]), "per_second": round(len(comp["seen"]) / comp_s, 2),
+                     "model_calls": 0, "pages": comp["pages"], "per_window": comp["per_window"], "seconds_used": round(comp_s, 1)},
+        "llm": {"listings": len(llm["seen"]), "per_second": round(len(llm["seen"]) / llm_s, 3), "model_calls": llm["model_calls"],
+                "cost_usd": round(llm["cost_usd"], 4), "seconds_used": round(llm_s, 1)},
+        "program": prog_ref,
+    }
+
+
+def summary(out):
+    """The result card's two lines, from the run's real numbers."""
+    c, l = out["compiled"], out["llm"]
+    return (f"{c['listings']} homes · {c['seconds_used']:g} s · {ai_calls(0)}",
+            f"{l['listings']} homes · {l['seconds_used']:g} s · {ai_calls(l['model_calls'])} · ${l['cost_usd']:.3f}")
+
+
+RESULT_CARD = """<!doctype html><meta charset="utf-8"><title>Inky · race result</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600;700&display=swap">
+<style>
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #111110; color: #FFFFFF;
+         font-family: Geist, -apple-system, system-ui, sans-serif; }
+  main { width: calc(100% - 56px); }
+  p { margin: 0 0 14px 4px; color: #A8A49C; font-size: 17px; font-weight: 500; }
+  section { padding: 14px 22px 16px; border-radius: 16px; margin-top: 12px; }
+  b { display: block; font-size: 17px; font-weight: 600; opacity: .85; }
+  span { display: block; font-size: 38px; font-weight: 700; letter-spacing: -.6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .inky { background: #E86F51; color: #111110; }
+  .agent { background: #2A2926; }
+</style>
+<main><p>@TITLE</p>
+<section class="inky"><b>Inky · @WINDOWS windows replaying the program it learned</b><span>@INKY</span></section>
+<section class="agent"><b>Clicking agent · asks the model before every click</b><span>@AGENT</span></section></main>"""
+
+
+async def show_result(opener, out, host, screen, hold, shots):
+    """A small window centred over the race with the result card, open `hold` seconds."""
+    inky, agent = summary(out)
+    html = (RESULT_CARD.replace("@TITLE", f"Race over · same job on {host}").replace("@WINDOWS", str(out["compiled"]["windows"]))
+            .replace("@INKY", inky).replace("@AGENT", agent))
+    async with opener.context.expect_page() as info:
+        await opener.evaluate("() => { window.open('', 'inky-result', 'popup'); }")
+    card = await info.value
+    await card.set_content(html)
+    x0, y0, sw, sh = screen
+    w, h = min(1040, sw - 40), min(440, sh - 40)
+    try:  # CDP, not window.open's size: the opener's page is scaled (see place())
+        cdp = await card.context.new_cdp_session(card)
+        wid = (await cdp.send("Browser.getWindowForTarget"))["windowId"]
+        await cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {
+            "left": x0 + (sw - w) // 2, "top": y0 + (sh - h) // 2, "width": w, "height": h}})
+    except Exception:
+        pass
+    await card.bring_to_front()
+    await card.wait_for_timeout(800)  # the font
+    if shots:
+        await card.screenshot(path=shots / "result.png")
+    await asyncio.sleep(hold)
+
+
+async def race(program, n, seconds, headless, llm_seconds, llm_steps, prog_ref, record=False, hold=0, shots=None):
     async with async_playwright() as p:
         browser = await p.chromium.launch(channel="chrome", headless=headless, chromium_sandbox=True)
         ctxs, pages = [], []
@@ -428,6 +511,8 @@ async def race(program, n, seconds, headless, llm_seconds, llm_steps):
             await ctxs[-1].add_init_script(OVERLAY)
             pages.append(await ctxs[-1].new_page())
         screen = await pages[0].evaluate("[screen.availLeft || 0, screen.availTop || 0, screen.availWidth, screen.availHeight]")
+        if record:
+            screen = screen[:2] + [min(screen[2], RECORD_W), min(screen[3], RECORD_H)]
         for c, pg, rect in zip(ctxs, pages, layout(*screen, n)):
             await place(c, pg, *rect)
 
@@ -443,11 +528,19 @@ async def race(program, n, seconds, headless, llm_seconds, llm_steps):
         comp_s = min(seconds, max(d - t0 for d in comp["done_at"]) if all(comp["done_at"]) else seconds)
         await asyncio.wait([agent], timeout=max(0.0, t0 + llm_seconds - time.monotonic()))
         if not agent.done():  # still thinking at the bell: that answer is waited for (its cost is real) but its listings do not count
-            await overlay(pages[n], GREY, f"AI agent · {len(llm['seen'])} homes · {llm['model_calls']} AI calls · time is up")
+            await overlay(pages[n], GREY, "clicking AI agent", f"{len(llm['seen'])} homes", f"{ai_calls(llm['model_calls'])} · time is up")
             await agent
+        out = result(n, seconds, comp, comp_s, llm, llm_seconds, prog_ref)
+        if shots:
+            for i, pg in enumerate(pages):
+                await pg.screenshot(path=shots / (f"window{i + 1}.png" if i < n else "agent.png"))
         await asyncio.sleep(0 if headless else 2)  # let the final counters show for the camera
+        try:
+            await show_result(pages[0], out, urlparse(program["start_url"]).hostname, screen, hold, shots)
+        except Exception as e:
+            print(f"  result window: {type(e).__name__}: {str(e)[:120]}", file=sys.stderr)
         await browser.close()
-    return comp, comp_s, llm
+    return out
 
 
 def main():
@@ -457,6 +550,8 @@ def main():
     ap.add_argument("--windows", type=int, default=8)
     ap.add_argument("--out", default=str(ROOT / "data" / "race.json"))
     ap.add_argument("--dry-run", action="store_true", help="2 headless windows for 15 s, agent for 2 steps")
+    ap.add_argument("--record", action="store_true", help=f"filming: windows inside {RECORD_W}x{RECORD_H}, result card up 12 s")
+    ap.add_argument("--shots", type=Path, help="save a screenshot of every window and of the result card here")
     a = ap.parse_args()
     if a.windows < 1 or a.seconds <= 0:
         ap.error("--windows and --seconds must be at least 1")
@@ -469,21 +564,15 @@ def main():
     # dry run: the agent gets its 2 steps however long the model takes (up to the 3 min cap)
     n, seconds, headless, llm_seconds, steps = (2, 15, True, LLM_CAP_S, 2) if a.dry_run else (a.windows, a.seconds, False, a.seconds, 10**6)
     print(f"race: {path} · {n} windows vs 1 AI agent · {seconds:g} s")
-
-    comp, comp_s, llm = asyncio.run(race(program, n, seconds, headless, llm_seconds, steps))
-    llm_s = min(llm_seconds, llm["ran_s"]) or seconds
     try:
         prog_ref = str(path.resolve().relative_to(ROOT))
     except ValueError:
         prog_ref = str(path)
-    out = {
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "seconds": seconds,
-        "compiled": {"windows": n, "listings": len(comp["seen"]), "per_second": round(len(comp["seen"]) / comp_s, 2),
-                     "model_calls": 0, "pages": comp["pages"], "per_window": comp["per_window"], "seconds_used": round(comp_s, 1)},
-        "llm": {"listings": len(llm["seen"]), "per_second": round(len(llm["seen"]) / llm_s, 3), "model_calls": llm["model_calls"],
-                "cost_usd": round(llm["cost_usd"], 4), "seconds_used": round(llm_s, 1)},
-        "program": prog_ref,
-    }
+    if a.shots:
+        a.shots.mkdir(parents=True, exist_ok=True)
+    hold = 0 if headless else 12 if a.record else 6
+    with (nullcontext() if headless else has_screen(f"racing: {n} windows vs 1 clicking agent")):
+        out = asyncio.run(race(program, n, seconds, headless, llm_seconds, steps, prog_ref, a.record, hold, a.shots))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1))
     c, l = out["compiled"], out["llm"]

@@ -20,6 +20,22 @@ function lodzDistrict(lat, lon) {
   return a >= 45 && a < 135 ? 'Bałuty' : a >= -45 && a < 45 ? 'Widzew' : a >= -135 && a < -45 ? 'Górna' : 'Polesie';
 }
 
+// Tecnocasa names its own quarters ("Carrassi Chiesa Russa"), which the rent data does not know.
+// `near` (built by workflow.py from geolocated sale listings) maps a place name to the nearest
+// neighbourhood that has rent data. Longest run of words first: "Quartiere San Paolo" -> "san paolo".
+function nearZone(near, city, zone) {
+  const t = near && near[city];
+  if (!t || !zone) return zone;
+  const w = cityKey(zone).split(/\s+/);
+  for (let n = w.length; n > 0; n--) {
+    for (let i = 0; i + n <= w.length; i++) {
+      const z = t[w.slice(i, i + n).join(' ')];
+      if (z) return z;
+    }
+  }
+  return zone;
+}
+
 function num(v) {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? n : null;
@@ -73,7 +89,8 @@ function normalize(item, plnPerEur, hint = {}) {
     const rooms = num(item.rooms);
     l = {
       source: 'tecnocasa', id: (String(item.url).match(/(\d+)\.html/) || [])[1] || String(item.url),
-      op: item.op || hint.op || 'sale', city: item.city, zone: item.zone || item.city,
+      op: item.op || hint.op || 'sale', city: item.city,
+      zone: nearZone(hint.near, cityKey(item.city), item.zone) || item.city,
       price: num(item.price), currency: 'EUR', size_m2: num(item.size_m2),
       bedrooms: rooms == null ? null : Math.max(rooms - 1, 0),
       url: item.url, title: item.title,
@@ -124,7 +141,7 @@ function score(l, rules, zones, costs) {
 
 // ---- end of compiled program (workflow.py copies everything above this line into n8n) ----
 
-if (typeof module !== 'undefined') module.exports = { normalize, score, economics, cityKey };
+if (typeof module !== 'undefined') module.exports = { normalize, score, economics, cityKey, nearZone };
 
 // CLI, used by derive.py so Python and n8n share one implementation:
 //   node inky.js normalize <plnPerEur> <raw.json>...   raw files named <city>-<sale|rent>-<source>.json

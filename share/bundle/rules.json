@@ -1,0 +1,60 @@
+{
+ "final": [
+  {
+   "id": "R1",
+   "field": "price_eur",
+   "op": "<=",
+   "value": 185000,
+   "why": "Unchanged: with a €200,000 cash budget and 3.5-8% in taxes and fees added on top of the price depending on the country, a €185,000 cap keeps the total purchase inside budget everywhere."
+  },
+  {
+   "id": "R2",
+   "field": "bedrooms",
+   "op": "in",
+   "value": [
+    1,
+    2
+   ],
+   "why": "Unchanged: the plan asks for a small flat with one or two bedrooms, so studios and larger family homes are left out."
+  },
+  {
+   "id": "R3",
+   "field": "net_yield",
+   "op": ">=",
+   "value": 6.2,
+   "why": "The only change this round: v2 found 70 matches, just over the 60 ceiling, so the after-costs return floor rises slightly from 6.0% to 6.2%; this trims the weakest tail while keeping both cities, since fairly-priced Bari flats net in the low 6s and Lodz's best reach about 7%."
+  },
+  {
+   "id": "R4",
+   "field": "price_vs_zone",
+   "op": ">=",
+   "value": 0.7,
+   "why": "Unchanged: the near-miss list confirms it is doing its job by blocking the €5,000-17,000 Bari listings with impossible 19-123% 'yields' that are almost certainly wrecks - exactly the big-repairs homes the buyer wants flagged."
+  },
+  {
+   "id": "R5",
+   "field": "zone_rent_listings",
+   "op": ">=",
+   "value": 20,
+   "why": "Unchanged: an agency needs an active local rental market to find long-term tenants quickly, and all six matching zones have between 26 and 486 rental listings."
+  },
+  {
+   "id": "R6",
+   "field": "price_trend",
+   "op": ">=",
+   "value": 3,
+   "why": "Unchanged guard: only countries where house prices rose at least about 3% last year are allowed, and all three candidates pass (Portugal 17.8%, Poland 5.9%, Italy 5.2%)."
+  },
+  {
+   "id": "R7",
+   "field": "city",
+   "op": "in",
+   "value": [
+    "porto",
+    "bari",
+    "lodz"
+   ],
+   "why": "Unchanged: the search stays inside the three chosen cities, all within three hours' flight of Amsterdam and open to a Dutch buyer without any permit."
+  }
+ ]
+}

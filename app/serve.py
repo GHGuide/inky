@@ -1,24 +1,37 @@
 """Inky app server: the front-end in app/static plus a small JSON API. Stdlib only, besides the repo's own modules.
 
     .venv/bin/python app/serve.py [port]     # from the repo root, default http://127.0.0.1:8765
+    .venv/bin/python app/serve.py --demo     # the committed snapshot in data-demo/, no keys, never calls n8n, Apify or GLM
 
 GET  /api/state        research, rules, plan, n8n links, race, program (null where a file is missing)
 GET  /api/executions   recent runs of the main and repair n8n workflows, newest first (cached 20 s)
-GET  /api/run_detail   items per step of the latest runs, and the latest repair's story (cached 60 s)
+GET  /api/run_detail   items per step of the latest runs, and the latest repair's story with before/after (cached 60 s)
+GET  /api/summary      ?since=<iso>, default the last 24 h: runs, listings, matches, fixes, Apify cost (cached 60 s)
+GET  /api/end          the totals for the end card
 POST /api/interview    {messages}             -> the next 2-3 questions, or the finished plan (GLM-5.3)
 POST /api/command      {text, dry_run?}       -> one rule edit on rules.json 'final', then pushed to n8n
 POST /api/share        {to, text?}            -> plain-language description and a link; nothing is sent
+POST /api/plan         {plan}                 -> checks and saves plan.json (previous one in <data>/plan.backup.json)
+POST /api/best_now     {n?}                   -> the top n matches to the n8n best-now webhook (Telegram), 503 until it exists
+POST /api/research/run {plan?, offline?}      -> Server-Sent Events while derive.run works: step, version, done | error
+POST /api/build/run    {staging?}             -> Server-Sent Events of workflow.deploy(); INKY_SAFE=1 forces staging
 """
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+
+import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)  # derive and workflow use paths relative to the repo root (inky.js, data/)
@@ -33,6 +46,12 @@ import workflow  # noqa: E402
 STATIC = ROOT / "app" / "static"
 DATA = Path(os.environ.get("INKY_DATA", "data"))
 N8N_STATE = ROOT / "data" / "n8n.json"  # workflow.main() always writes here, whatever INKY_DATA is
+PLAN = ROOT / "plan.json"
+DEMO, DEMO_DIR = False, ROOT / "data-demo"  # --demo sets DEMO and points DATA and PLAN at DEMO_DIR
+DEMO_LINKS = {"base": "https://your-n8n.example", "main_url": "https://your-n8n.example/workflow/MAIN",
+              "repair_url": "https://your-n8n.example/workflow/REPAIR", "demo": True}
+REPO = "github.com/GHGuide/inky"
+CITIES = ("porto", "bari", "lodz")
 if os.environ.get("N8N_BASE_URL"):  # also accept a pasted browser URL like https://x.app.n8n.cloud/home/workflows
     _u = os.environ["N8N_BASE_URL"].strip()
     _u = urlsplit(_u if "://" in _u else f"https://{_u}")
@@ -44,6 +63,10 @@ class Bad(Exception):
     """The request is wrong (400), as opposed to GLM or n8n failing (502)."""
 
 
+class Unavailable(Exception):
+    """Something this needs is not set up yet (503), like the best-now webhook before the next deploy."""
+
+
 def read_json(path):
     try:
         return json.loads(Path(path).read_text())
@@ -51,8 +74,21 @@ def read_json(path):
         return None
 
 
+def as_json(text):
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return text
+
+
+def when(text):
+    """ISO time -> aware datetime; a time without a zone is UTC."""
+    t = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
 def plan():
-    return json.loads((ROOT / "plan.json").read_text())
+    return json.loads(PLAN.read_text())
 
 
 def ask(messages, check):
@@ -80,8 +116,9 @@ def n8n_links():
 
 
 def state():
+    program = DATA / "program.json" if DEMO else ROOT / "teach" / "tecnocasa.program.json"
     return {"research": read_json(DATA / "research.json"), "rules": read_json(DATA / "rules.json"), "plan": plan(),
-            "n8n": n8n_links(), "race": read_json(DATA / "race.json"), "program": read_json(ROOT / "teach" / "tecnocasa.program.json")}
+            "n8n": DEMO_LINKS if DEMO else n8n_links(), "race": read_json(DATA / "race.json"), "program": read_json(program)}
 
 
 _runs = {"at": 0.0, "data": []}
@@ -148,12 +185,14 @@ def run_detail():
                 t0 = rep.get("startedAt") or ""
                 failed = next((e for e in runs if (e.get("stoppedAt") or "") <= t0 and e.get("status") == "error"), None)
                 again = next((e for e in reversed(runs) if (e.get("startedAt") or "") > t0), None)
-                err = first_json(rep, "Read the error")
-                out["repair"] = {**summarize(rep), **first_json(rep, "Patch the step"), "error": err.get("error"),
+                err, pick, patch = (first_json(rep, n) for n in ("Read the error", "Pick the broken step", "Patch the step"))
+                fixed = next((n for n in (patch.get("workflow") or {}).get("nodes", []) if n.get("name") == patch.get("step")), {})
+                out["repair"] = {**summarize(rep), **{k: patch[k] for k in ("workflowId", "step", "change") if k in patch},
+                                 "error": err.get("error"),  # before/after: the broken step's actor input, not the whole workflow
+                                 "before": as_json(pick.get("before")), "after": as_json((fixed.get("parameters") or {}).get(pick.get("key"))),
                                  "failed": {"id": str(failed["id"]), "startedAt": failed.get("startedAt")} if failed else None,
                                  "again": {"id": str(again["id"]), "status": again.get("status"), "startedAt": again.get("startedAt"),
                                            "stoppedAt": again.get("stoppedAt")} if again else None}
-                out["repair"].pop("workflow", None)  # the patched workflow itself is not needed on screen
         except Exception as e:
             print(f"n8n run detail: {type(e).__name__}: {e}", file=sys.stderr)
     _detail.update(at=time.time(), data=out)
@@ -386,9 +425,267 @@ def share(body):
             "keeps": ["Your answers and budget", "Your results and matches", "Your messages and Telegram"]}
 
 
+# ---- plan, research and build ----
+
+def check_plan(p):
+    example = plan()
+    if not isinstance(p, dict) or set(p) != set(example):
+        extra = f"; missing {sorted(set(example) - set(p))}, unknown {sorted(set(p) - set(example))}" if isinstance(p, dict) else ""
+        raise Bad(f"plan: an object with exactly the keys of plan.json{extra}")
+    if not isinstance(p["budget_eur"], (int, float)) or isinstance(p["budget_eur"], bool) or p["budget_eur"] <= 0:
+        raise Bad("plan.budget_eur: a number of euro")
+    if not isinstance(p["cities"], list) or not p["cities"] or not set(p["cities"]) <= set(CITIES):
+        raise Bad(f"plan.cities: a non-empty list of {', '.join(CITIES)}")
+    never = p["never"] if isinstance(p["never"], list) else [p["never"]]
+    return {**p, "never": list(dict.fromkeys([*map(str, never), *example["never"]]))}  # the safety limits stay
+
+
+def save_plan(body):
+    p = check_plan(body.get("plan"))
+    if not DEMO:  # the demo snapshot is committed: shown, never written
+        DATA.mkdir(parents=True, exist_ok=True)
+        shutil.copy(PLAN, DATA / "plan.backup.json")
+        PLAN.write_text(json.dumps(p, ensure_ascii=False, indent=2) + "\n")
+    return {"ok": True, "plan": p, **({"demo": True} if DEMO else {})}
+
+
+def research_run(body):
+    """C1: GLM-5.3 derives the rules from the plan on the cached listings (no scraping), streaming each step."""
+    p = check_plan(body["plan"]) if body.get("plan") is not None else None
+
+    def job(send):
+        if p:
+            save_plan({"plan": p})
+            send({"type": "step", "text": "Saved your plan", "sub": f"{', '.join(p['cities'])} · up to €{p['budget_eur']:,.0f}"})
+        research, rules = derive.run(send, offline=bool(body.get("offline")), data_dir=DATA, plan=plan())
+        _sale.clear()  # a new exchange rate re-prices the Łódź listings
+        return {"research": research, "rules": rules}
+    return "research", job
+
+
+def as_step(e, sub=None):
+    """workflow.deploy reports progress(text) or progress(text, sub); a dict passes through as a step."""
+    e = e if isinstance(e, dict) else {"text": str(e), **({"sub": str(sub)} if sub else {})}
+    return {**e, "type": "step"} if e.get("type") in (None, "done", "error") else e
+
+
+def build_run(body):
+    """C2: workflow.deploy() writes and publishes the n8n workflows; its progress becomes steps."""
+    deploy = getattr(workflow, "deploy", None)
+    if not callable(deploy):
+        raise Unavailable("workflow.deploy() is not in this version of workflow.py yet")
+    staging = bool(body.get("staging")) or os.environ.get("INKY_SAFE") == "1"
+    if not staging and DATA.resolve() != N8N_STATE.parent.resolve():  # workflow.deploy builds from $INKY_DATA
+        raise Unavailable(f"not deployed live: this server reads {DATA}, the live workflow runs the rules from {N8N_STATE.parent}")
+
+    def job(send):
+        send({"type": "step", "text": f"Building the {'staging' if staging else 'live'} n8n workflows"})
+        result = deploy(lambda *a: send(as_step(*a)), staging=staging)
+        _runs["at"] = _detail["at"] = 0
+        links = {**({} if staging else n8n_links() or {}), **(result if isinstance(result, dict) else {})}
+        return {"main_url": links.get("main_url"), "repair_url": links.get("repair_url"), "staging": staging,
+                **{k: links[k] for k in ("mode", "active", "gmail") if k in links}}  # never best_url: the webhook path is its only lock
+    return "build", job
+
+
+def best_now(body):
+    """B1: the top n matches of the current rules go to the n8n webhook, which asks on Telegram."""
+    n = body.get("n", 3)
+    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 10:
+        raise Bad("n: 1-10 homes")
+    url_of = getattr(workflow, "best_now_url", None)
+    try:
+        url = url_of() if callable(url_of) else None
+    except Exception as e:
+        raise Unavailable(f"the best-now webhook is not deployed yet ({type(e).__name__}: {e})")
+    if not url:
+        raise Unavailable("the best-now webhook is not deployed yet: build the workflow first")
+    if os.environ.get("INKY_SAFE") == "1" and urlsplit(url).hostname not in ("127.0.0.1", "localhost"):
+        raise Unavailable("INKY_SAFE=1: homes only go to a local test webhook, never to Telegram")
+    final = (read_json(DATA / "rules.json") or {}).get("final")
+    sale, zones, costs = sale_listings(), read_json(DATA / "zones.json"), read_json(DATA / "costs.json")
+    if not (final and sale and zones and costs):
+        raise Unavailable("no rules or listings yet: the research step has not finished")
+    matches = derive.evaluate(sale, final, zones, costs)[2][:n]
+    r = httpx.post(url, json={"matches": matches}, timeout=60)
+    if r.status_code >= 400:  # the webhook URL itself stays out of the error
+        raise RuntimeError(f"the n8n webhook answered {r.status_code}")
+    return {"sent": len(matches), "matches": matches}
+
+
+# ---- summary (B3, B4) and the end card (A8) ----
+
+_summary, _summary_lock = {}, threading.Lock()
+SINCE_START = "2000-01-01T00:00:00Z"  # the end card counts everything
+
+
+def all_executions(api, wid):
+    out, cursor = [], None
+    while True:
+        r = api.call("GET", "/executions", params={"workflowId": wid, "limit": 250, **({"cursor": cursor} if cursor else {})})
+        out += r.get("data", [])
+        cursor = r.get("nextCursor")
+        if not cursor:
+            return out
+
+
+def run_numbers(e):
+    """One execution with its data -> what run-cache.json keeps: items per source step, matches, the fix, and short hashes
+    of the listings read (for 'new'). Source steps are the ones wired into a Merge node, so a new source counts too."""
+    rd = (((e.get("data") or {}).get("resultData")) or {}).get("runData") or {}
+    wd = e.get("workflowData") or {}
+    merges = {n["name"] for n in wd.get("nodes", []) if n.get("type") == "n8n-nodes-base.merge"}
+    srcs = [a for a, c in (wd.get("connections") or {}).items() if any(t.get("node") in merges for o in c.get("main", []) for t in (o or []))]
+    items = lambda name: [i.get("json") or {} for o in (((rd[name][-1].get("data") or {}).get("main")) or []) for i in (o or [])]
+    sources = {s: len(items(s)) for s in srcs if s in rd}
+    keys = sorted({hashlib.sha1(f"{s}:{j.get('propertyCode') or j.get('id') or j.get('propertyUrl') or j.get('url')}".encode()).hexdigest()[:10]
+                   for s in sources for j in items(s)})
+    patch = first_json(e, "Patch the step")
+    return {"sources": sources, "scored": workflow.SCORE in rd, "matches": len(items(workflow.SCORE)) if workflow.SCORE in rd else 0,
+            "keys": keys, "fixed": "Save the fix" in rd and not rd["Save the fix"][-1].get("error"),
+            "step": patch.get("step"), "change": patch.get("change")}
+
+
+def apify_runs(since):
+    """Apify runs started since `since`, newest first: [(start, usd)]."""
+    out, offset = [], 0
+    while True:
+        r = httpx.get("https://api.apify.com/v2/actor-runs", params={"desc": 1, "limit": 1000, "offset": offset},
+                      headers={"Authorization": f"Bearer {os.environ['APIFY_TOKEN']}"}, timeout=30)
+        if r.status_code >= 400:
+            raise RuntimeError(f"Apify runs list: {r.status_code}")
+        d = r.json()["data"]
+        for i in d["items"]:
+            if when(i["startedAt"]) < since:
+                return out
+            out.append((when(i["startedAt"]), i.get("usageTotalUsd") or 0))
+        offset += len(d["items"])
+        if not d["items"] or offset >= d["total"]:
+            return out
+
+
+def summary(since=None):
+    try:
+        t0 = when(since) if since else datetime.now(timezone.utc) - timedelta(hours=24)
+    except (ValueError, AttributeError):
+        raise Bad("since: an ISO time like 2026-09-26T20:00:00Z")
+    with _summary_lock:  # one fetch at a time; the first one reads every run once (about 4 MB each), then run-cache.json has it
+        hit = _summary.get(since)
+        if hit and time.time() - hit[0] < 60:
+            return hit[1]
+        s, research, errors = read_json(N8N_STATE) or {}, read_json(DATA / "research.json") or {}, []
+        cache_file = N8N_STATE.with_name("run-cache.json")
+        cache, main, reps, saved = read_json(cache_file) or {}, [], [], None
+        if s.get("main") and os.environ.get("N8N_BASE_URL") and os.environ.get("N8N_API_KEY"):
+            try:
+                api = workflow.N8n()
+                # the workflow's own counters, the ones its 08:00 digest reports (they count only listings Inky could read)
+                saved = ((api.call("GET", f"/workflows/{s['main']}").get("staticData") or {}).get("global") or {}).get("stats")
+                main = all_executions(api, s["main"])
+                reps = all_executions(api, s["repair"]) if s.get("repair") else []
+                todo = [e for e in main + reps if str(e["id"]) not in cache and e.get("status") not in (None, "new", "running", "unknown")]
+                with ThreadPoolExecutor(4) as pool:
+                    for e, full in zip(todo, pool.map(lambda e: api.call("GET", f"/executions/{e['id']}", params={"includeData": "true"}), todo)):
+                        cache[str(e["id"])] = run_numbers(full)
+                if todo:
+                    cache_file.write_text(json.dumps(cache))
+            except Exception as e:
+                errors.append(f"n8n: {type(e).__name__}: {e}")
+        apify = []
+        if os.environ.get("APIFY_TOKEN"):
+            try:
+                apify = apify_runs(t0)
+            except Exception as e:
+                errors.append(f"Apify: {type(e).__name__}: {e}")
+        seen, rows, checked = set(), [], 0
+        for e in sorted(main, key=lambda e: e.get("startedAt") or ""):
+            c = cache.get(str(e["id"]))
+            if not c or not c["sources"]:  # the 08:00 digest, a best-now send, or still running
+                continue
+            fresh = [k for k in c["keys"] if k not in seen] if c["scored"] else []
+            seen.update(fresh)  # like n8n: a listing is only marked seen when the Score step ran
+            start = when(e["startedAt"])
+            if start < t0:
+                continue
+            stop = when(e["stoppedAt"]) if e.get("stoppedAt") else None
+            listings = sum(c["sources"].values())
+            checked += listings if c["scored"] else 0
+            rows.append({"id": str(e["id"]), "startedAt": e["startedAt"], "status": e.get("status"), "mode": e.get("mode"),
+                         "listings": listings, "new": len(fresh), "matches": c["matches"],
+                         "secs": round((stop - start).total_seconds(), 1) if stop else None, "sources": c["sources"],
+                         # the Apify runs this n8n run started: they begin within its time window
+                         "apify_usd": round(sum(u for at, u in apify if start <= at <= (stop or start + timedelta(minutes=10)) + timedelta(seconds=30)), 4)})
+        fixes = [{"id": str(e["id"]), "startedAt": e["startedAt"], "step": cache[str(e["id"])]["step"], "change": cache[str(e["id"])]["change"]}
+                 for e in reps if str(e["id"]) in cache and cache[str(e["id"])]["fixed"] and when(e["startedAt"]) >= t0]
+        in_runs = sum(r["apify_usd"] for r in rows)
+        out = {"since": t0.isoformat(timespec="seconds"), "runs": len(rows),
+               "ok": sum(r["status"] in ("success", "waiting") for r in rows), "failed": sum(r["status"] in ("error", "crashed") for r in rows),
+               "waiting": sum(r["status"] == "waiting" for r in rows), "repairs": len(fixes), "fixes": fixes,
+               "listings_checked": checked, "new_listings": sum(r["new"] for r in rows), "matches": sum(r["matches"] for r in rows),
+               "apify_usd": round(sum(u for _, u in apify), 2), "apify_usd_runs": round(in_runs, 2),
+               "apify_usd_per_run": round(in_runs / len(rows), 3) if rows else None,
+               "ai_calls": 0, "glm_usd_research": research.get("llm_cost_usd"), "n8n_stats": saved, "per_run": rows[::-1], "errors": errors}
+        _summary[since] = (time.time(), out)
+        return out
+
+
+def end():
+    """Totals since the start. Listings and matches: the workflow's own counters when n8n answers, so the end card and the
+    Telegram digest say the same; else counted from the run data (raw items, a few more than Inky could read)."""
+    s, r = summary(SINCE_START), read_json(DATA / "research.json") or {}
+    n = s.get("n8n_stats") or {}
+    return {"listings_read": r.get("listings_read"), "runs": s["runs"], "listings_checked": n.get("checked", s["listings_checked"]),
+            "new_listings": n.get("fresh", s["new_listings"]), "matches": n.get("matches", s["matches"]), "research_matches": len(r.get("matches") or []),
+            "fixes": s["repairs"], "apify_usd_total": s["apify_usd"], "apify_usd_per_run": s["apify_usd_per_run"],
+            "glm_usd_research": r.get("llm_cost_usd"), "ai_calls_per_run": 0, "repo": REPO}
+
+
+# ---- demo mode (K4): the committed snapshot in data-demo/, made by app/make_demo.py ----
+
+def demo_file(name):
+    d = read_json(DATA / name)
+    if d is None:
+        raise Unavailable(f"the demo snapshot has no {name}: run app/make_demo.py")
+    return d
+
+
+def demo_interview(body):
+    replies = demo_file("replies/interview.json")  # recorded rounds of a real interview, in order
+    asked = sum(isinstance(m, dict) and m.get("role") == "assistant" for m in body.get("messages") or [])
+    return replies[min(asked, len(replies) - 1)]
+
+
+def demo_best_now(body):
+    n = body.get("n", 3) if isinstance(body.get("n", 3), int) else 3
+    return {"sent": 0, "matches": demo_file("research.json")["matches"][:n], "demo": True, "note": "demo mode: nothing is sent"}
+
+
+DEMO_PACE = 1.0  # seconds per replayed step; the self-check sets 0
+
+
+def replay(name):
+    events = demo_file(f"replies/{name}.json")
+
+    def job(send):
+        for e in events[:-1]:
+            time.sleep(DEMO_PACE * (0.5 if e.get("type") == "step" else 0.2))
+            send(e)
+        return {k: v for k, v in events[-1].items() if k != "type"}
+    return job
+
+
 # ---- HTTP ----
 
-POSTS = {"/api/interview": interview, "/api/command": command, "/api/share": share}
+GETS = {"/api/state": lambda q: state(), "/api/executions": lambda q: executions(), "/api/run_detail": lambda q: run_detail(),
+        "/api/summary": lambda q: summary((q.get("since") or [None])[0]), "/api/end": lambda q: end()}
+POSTS = {"/api/interview": interview, "/api/command": command, "/api/share": share, "/api/plan": save_plan, "/api/best_now": best_now}
+STREAMS = {"/api/research/run": research_run, "/api/build/run": build_run}
+DEMO_GETS = {**GETS, "/api/executions": lambda q: demo_file("executions.json"), "/api/run_detail": lambda q: demo_file("run_detail.json"),
+             "/api/summary": lambda q: demo_file("summary.json"), "/api/end": lambda q: demo_file("end.json")}
+DEMO_POSTS = {"/api/interview": demo_interview, "/api/command": lambda b: demo_file("replies/command.json"),
+              "/api/share": lambda b: demo_file("replies/share.json"), "/api/plan": save_plan, "/api/best_now": demo_best_now}
+DEMO_STREAMS = {"/api/research/run": lambda b: ("research", replay("research_run")), "/api/build/run": lambda b: ("build", replay("build_run"))}
+JOBS = {"research": threading.Lock(), "build": threading.Lock()}  # one research run and one build at a time
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -412,25 +709,50 @@ class Handler(SimpleHTTPRequestHandler):
             return True
         return False
 
+    def stream(self, job):
+        """Server-Sent Events: job(send) calls send(event) per step and returns the done event. A closed tab does not stop the job."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        gone = False
+
+        def send(e):
+            nonlocal gone
+            if not gone:
+                try:
+                    self.wfile.write(f"data: {json.dumps(e, ensure_ascii=False)}\n\n".encode())
+                    self.wfile.flush()
+                except OSError:
+                    gone = True
+        try:
+            send({"type": "done", **job(send)})
+        except Exception as e:
+            print(f"{self.path}: {type(e).__name__}: {e}", file=sys.stderr)
+            send({"type": "error", "text": f"{type(e).__name__}: {e}"})
+
     def do_GET(self):
         if self.foreign():
             return
-        path = self.path.split("?")[0]
-        if path == "/api/state":
-            return self.reply(state())
-        if path == "/api/executions":
-            return self.reply(executions())
-        if path == "/api/run_detail":
-            return self.reply(run_detail())
+        path, _, query = self.path.partition("?")
+        route = (DEMO_GETS if DEMO else GETS).get(path)
+        if route:
+            try:
+                return self.reply(route(parse_qs(query)))
+            except Bad as e:
+                return self.reply({"error": str(e)}, 400)
+            except Unavailable as e:
+                return self.reply({"error": str(e)}, 503)
         if path.startswith("/api/"):
             return self.reply({"error": "not found"}, 404)
         super().do_GET()
 
     def do_POST(self):
-        route = POSTS.get(self.path.split("?")[0])
+        path = self.path.split("?")[0]
+        route, streamed = (DEMO_POSTS if DEMO else POSTS).get(path), (DEMO_STREAMS if DEMO else STREAMS).get(path)
         if self.foreign():
             return
-        if not route:
+        if not (route or streamed):
             return self.reply({"error": "not found"}, 404)
         if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
             return self.reply({"error": "send Content-Type: application/json"}, 415)
@@ -442,9 +764,19 @@ class Handler(SimpleHTTPRequestHandler):
         if not isinstance(body, dict):
             return self.reply({"error": "send one JSON object, up to 1 MB"}, 400)
         try:
+            if streamed:
+                kind, job = streamed(body)
+                if not JOBS[kind].acquire(blocking=False):
+                    return self.reply({"error": f"a {kind} run is already going"}, 409)
+                try:
+                    return self.stream(job)
+                finally:
+                    JOBS[kind].release()
             result = route(body)
         except Bad as e:
             return self.reply({"error": str(e)}, 400)
+        except Unavailable as e:
+            return self.reply({"error": str(e)}, 503)
         except Exception as e:
             print(f"{self.path}: {type(e).__name__}: {e}", file=sys.stderr)
             return self.reply({"error": f"{type(e).__name__}: {e}"}, 502)
@@ -452,6 +784,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    print(f"Inky on http://127.0.0.1:{port}  (data: {DATA})", flush=True)
+    if "--demo" in sys.argv:
+        DEMO, DATA, PLAN = True, DEMO_DIR, DEMO_DIR / "plan.json"
+    port = int(next((a for a in sys.argv[1:] if a.isdigit()), 8765))
+    print(f"Inky on http://127.0.0.1:{port}  (data: {DATA}{', demo mode: no keys, nothing leaves this computer' if DEMO else ''})", flush=True)
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
