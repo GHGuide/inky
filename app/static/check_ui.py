@@ -6,12 +6,14 @@ fail on any console error, uncaught exception or broken layout, and save a scree
 Passes: full fixtures (data-offline/ + the shapes below), every state field null (the empty states), full
 fixtures at 1280x720 with a workflow that has no runs yet and reduced motion, full fixtures at 1920x1080, and ?rec=1 at 1920x1080.
 The empty and 1280 passes answer 404 for the newer endpoints (summary, end, plan, research/run, build/run,
-best_now), so the quiet fallbacks are tested too. Walks a 2-round interview, the live research and build
-streams, "send me the best 3", a command, "Why 6.8%?", the filters, the new-since-last-time markers, a
-share and the interview replay through the stub. Layout: no card squashed by its flex column, nothing wider
+best_now, bundles), so the quiet fallbacks are tested too. Walks a 2-round interview, the mic popover, editing the
+plan (with a bad budget and no city first), the live research and build streams, the yield strip per city,
+"send me the best 3", a command, "Why 6.8%?" with its ten-year estimate, the filters, the new-since-last-time
+markers, last night's run strip, the real marketplace bundles, a share and the interview replay through the stub. Layout: no card squashed by its flex column, nothing wider
 than its panel.
 """
 import json
+import re
 import sys
 import threading
 import time
@@ -28,13 +30,13 @@ LAYOUT = """() => {
   const bad = [], name = (el) => el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : '');
   for (const el of document.querySelectorAll('.body > *, .msgs > *'))
     if (el.scrollHeight > el.clientHeight + 2) bad.push(`${name(el)} squashed to ${el.clientHeight}px of ${el.scrollHeight}px`);
-  for (const el of document.querySelectorAll('.body, .msgs, .home, .market, .canvas'))
+  for (const el of document.querySelectorAll('.body, .msgs, .home, .market, .canvas, .body .card'))
     if (el.scrollWidth > el.clientWidth + 1) bad.push(`${name(el)} is ${el.scrollWidth}px wide in ${el.clientWidth}px`);
   if (document.documentElement.scrollWidth > innerWidth) bad.push('the page scrolls sideways');
   return bad;
 }"""
 ROUTES = ["home", "task", "confirm", "research", "screen", "fast", "results", "workflow", "activity", "share", "market", "end"]
-NEW_API = ("/api/summary", "/api/end", "/api/plan", "/api/research/run", "/api/build/run", "/api/best_now")
+NEW_API = ("/api/summary", "/api/end", "/api/plan", "/api/research/run", "/api/build/run", "/api/best_now", "/api/bundles")
 
 research = json.loads((ROOT / "data-offline" / "research.json").read_text())
 ZONES = json.loads((ROOT / "data-offline" / "zones.json").read_text())
@@ -121,8 +123,13 @@ DETAIL["repair"]["after"] = {"actor": "trev0n~otodom-scraper", "input": {"search
 SOURCE_ITEMS = {n: 40 for n in _ok_nodes}
 SUMMARY = {"since": (NOW - timedelta(hours=24)).isoformat(), "runs": 96, "ok": 92, "failed": 4, "repairs": 1, "listings_checked": 4210, "new_listings": 312, "matches": 3,
            "apify_usd": 1.92, "ai_calls": 0, "glm_usd_research": 0.14,
-           "per_run": [{"id": r["id"], "startedAt": r["startedAt"], "status": r["status"], "mode": r["mode"], "listings": 160, "new": 12, "matches": 1 if i == 1 else 0, "secs": 116, "apify_usd": 0.02,
+           "per_run": [{"id": r["id"], "startedAt": r["startedAt"], "status": r["status"], "mode": r["mode"], "listings": [160, 294, 120, 0, 158, 60][i], "new": 12, "matches": 1 if i == 1 else 0, "secs": 116, "apify_usd": 0.02,
                         "sources": SOURCE_ITEMS} for i, r in enumerate(RUNS) if r["workflow"] == "main"]}
+BUNDLES = {"bundles": [  # the shape GET /api/bundles answers (share/export.py bundles)
+    {"id": "inky-buy-to-let", "title": "Buy-to-let abroad", "description": "Homes in Porto, Bari and Łódź that earn the most after costs, checked every 15 minutes.",
+     "author": "Team Inky", "cities": ["porto", "bari", "lodz"], "rules": 7, "sources": ["idealista", "immobiliare", "otodom", "tecnocasa"], "created_at": "2026-09-27T00:43:00Z", "example": True},
+    {"id": "flat-finder-spain", "title": "Flat Finder Spain", "description": "The same agent, changed to Valencia and €150,000.", "author": "Sanne",
+     "cities": ["valencia"], "rules": [{"id": "R1"}, {"id": "R2"}], "sources": 2, "created_at": "2026-09-27T09:10:00Z", "example": False}]}
 END = {"listings_read": 48312, "runs": 96, "listings_checked": 4210, "matches": 3, "fixes": 1, "apify_usd_total": 1.92, "apify_usd_per_run": 0.02, "ai_calls_per_run": 0, "repo": "https://github.com/GHGuide/inky"}
 RESEARCH_RUN = [{"type": "step", "text": "Saved your plan", "sub": "porto, bari, lodz · up to €200,000"},
                 {"type": "step", "text": "Read listings with Apify", "sub": "1,312 homes: 820 for sale, 492 for rent"},
@@ -176,11 +183,14 @@ class Stub(SimpleHTTPRequestHandler):
             return self.reply(SUMMARY if self.server.runs else {**SUMMARY, **{k: 0 for k in SUMMARY if k not in ("since", "per_run")}, "per_run": []})
         if path == "/api/end":
             return self.reply(END)
+        if path == "/api/bundles":
+            return self.reply(BUNDLES)
         super().do_GET()
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         self.server.calls[self.path] = self.server.calls.get(self.path, 0) + 1
+        self.server.bodies[self.path] = body
         if self.path in NEW_API and not self.server.new_api:
             return self.send_error(404)
         if self.path == "/api/plan":
@@ -209,7 +219,7 @@ class Stub(SimpleHTTPRequestHandler):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
-    srv.calls, srv.delay, srv.new_api = {}, 0, True
+    srv.calls, srv.bodies, srv.delay, srv.new_api = {}, {}, 0, True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}/"
     errors, shots = [], 0
@@ -279,7 +289,19 @@ def main():
             for route in ROUTES:
                 go(route)
                 if not label and route == "home":
+                    expect("Good listings go in days. Inky watches every 15 minutes, you only decide." in page.inner_text(".home"), "the problem line (E7)")
                     shot(route)
+                    page.click("form.prompt .ibtn.mic")  # F5: the mic explains ⌥ Space instead of recording in the browser
+                    tip, btn = page.locator("#mic-tip"), page.locator("form.prompt .ibtn.mic")
+                    expect(tip.is_visible() and "Hold ⌥ Space anywhere to talk to Inky" in tip.inner_text(), "the mic popover")
+                    tb, bb = tip.bounding_box(), btn.bounding_box()
+                    expect(tb["y"] >= bb["y"] + bb["height"] - 1 and tb["x"] + tb["width"] <= bb["x"] + bb["width"] + 1, f"the popover under the mic button, got {tb} for {bb}")
+                    where["route"] = "home-mic"
+                    page.wait_for_timeout(400)  # the popover rises in
+                    shot("home-mic")
+                    page.keyboard.press("Escape")
+                    expect(not tip.is_visible(), "Esc closes the mic popover")
+                    where["route"] = "home"
                     page.click("form.prompt button[type=submit]")  # Start -> #task -> round 1 from the stub
                     page.wait_for_selector("form.round")
                     where["route"] = "task"
@@ -302,6 +324,26 @@ def main():
                     where["route"] = "confirm"
                     expect("Did I get it right?" in page.inner_text("body"), "the plan summary")
                     shot("confirm")
+                    # F5: the plan is editable; a bad budget or no city stops the research, the edited plan is what it sends
+                    expect(page.locator("#plan-form .pin").count() >= 8 and page.locator(".pcity input:checked").count() == 3, "an editable plan with 3 cities on")
+                    page.fill("#plan-budget_eur", "")
+                    page.click("[data-act=research]")
+                    page.wait_for_timeout(300)
+                    expect(not srv.calls.get("/api/research/run") and page.evaluate("document.activeElement.id") == "plan-budget_eur", "an empty budget stops the research at the field")
+                    page.fill("#plan-budget_eur", "150000")
+                    for c in ("porto", "bari", "lodz"):
+                        page.click(f".pcity:has(input[value={c}])")
+                    page.click("[data-act=research]")
+                    page.wait_for_timeout(300)
+                    expect(not srv.calls.get("/api/research/run"), "no city stops the research")
+                    for c in ("bari", "lodz"):
+                        page.click(f".pcity:has(input[value={c}])")
+                    page.fill("#plan-home", "flat, 2 bedrooms,\n ready to rent")
+                    page.select_option("#plan-cash", "")
+                    where["route"] = "confirm-edit"
+                    page.wait_for_timeout(400)  # the chips fade to their new state
+                    layout()
+                    shot("confirm-edit")
                     # C1: the research streams into the chat, then the app moves to #research; a second click does nothing
                     page.click("[data-act=research]")
                     page.click("[data-act=research]", force=True, no_wait_after=True)
@@ -312,6 +354,9 @@ def main():
                     shot("confirm-research")
                     page.wait_for_url("**#research", timeout=20000)
                     expect(srv.calls.get("/api/research/run") == 1 and not srv.calls.get("/api/plan"), f"one research run, which saves the plan itself, got {srv.calls}")
+                    sent = srv.bodies.get("/api/research/run", {}).get("plan") or {}
+                    expect(set(sent) == set(FULL["plan"]) and sent["budget_eur"] == 150000 and sent["cities"] == ["bari", "lodz"] and sent["cash"] is False
+                           and sent["home"] == "flat, 2 bedrooms, ready to rent" and sent["keep_years"] == FULL["plan"]["keep_years"], f"the edited plan sent to research, got {sent}")
                     continue
                 if not label and route in ("task", "confirm"):
                     continue  # already shot during the interview
@@ -332,6 +377,8 @@ def main():
                         expect("isn’t on this server" in page.inner_text("#toasts"), "a quiet toast for a missing /api/best_now")
                     if route == "end":
                         expect("Tell it once." in text and "Last night" not in text, "the end card without numbers when /api/end is missing")
+                    if route == "market":
+                        expect(page.locator(".bundle").count() == 0 and page.locator("h1 .tag.preview").count() == 1 and "The agents below are samples" in text, "today's sample cards, marked Preview, when /api/bundles is a 404")
                 elif label:
                     if route in ("research", "screen", "fast", "results", "workflow", "activity"):
                         expect(page.locator(".empty").count() >= 1, "an empty state")
@@ -340,6 +387,21 @@ def main():
                     cities_text = page.inner_text(".cities")
                     expect(page.locator(".city").count() == 3 and "Prices +17.8% a year, but the best yield after costs is only 3.1%" in cities_text and "misses R4" in cities_text,
                            f"best per city, with why nothing passes in Porto: {cities_text!r}")
+                    # E4: no coordinates in the data, so a yield strip per city: one dot per saved home plus each city's best
+                    city_rows = page.locator(".ystrip .ys-row:not(.ys-top):not(.ys-ax)")
+                    want = len(research["matches"]) + 2  # plus the best homes of Porto and Bari, which miss a rule
+                    expect(city_rows.count() == 3 and page.locator(".yd").count() == want, f"3 city strips with {want} dots, got {page.locator('.yd').count()}")
+                    expect("15 pass" in page.locator(".ys-row", has_text="Łódź").inner_text(), "the same Łódź count as Best per city")
+                    porto = page.locator(".ys-row", has_text="Porto").locator(".yd")
+                    expect(porto.count() == 1 and "Bonfim · 3.1% after costs" in (porto.get_attribute("data-tip") or "") and "misses R3" in porto.get_attribute("data-tip")
+                           and "miss" in porto.get_attribute("class"), "Porto's best home as a hollow dot that misses R3")
+                    expect("districts approximate" in page.locator(".ys-row", has_text="Łódź").inner_text() and "none pass" in page.locator(".ys-row", has_text="Porto").inner_text(), "Łódź labelled approximate, Porto 'none pass'")
+                    expect(page.locator(".ys-rule").count() == 3 and "R3 · 5.5%+" in page.inner_text(".ystrip"), "the yield rule as a line")
+                    page.locator(".ys-row", has_text="Łódź").locator(".yd").last.hover()
+                    page.wait_for_timeout(300)
+                    where["route"] = "research-strip"
+                    shot("research-strip")
+                    where["route"] = "research"
                     page.click("button[data-v='0']")
                     expect("From your plan" in page.inner_text("body"), "v1 selected")
                     shot(route)
@@ -375,9 +437,19 @@ def main():
                     where["route"] = "results-why"
                     expect(page.locator(".why-row").count() == 1 and shown_pct in page.inner_text(".why-row .tot.hot"), f"the breakdown to end at {shown_pct}")
                     expect("estimate" in page.inner_text(".why-row") and "Eurostat" in page.inner_text(".why-row"), "estimate labels")
+                    # E5: ten years = rent after costs + price growth (capped at 3% a year) - buying costs
+                    ten = page.locator(".why-row .ten .mono").all_inner_texts()
+                    vals = [int(re.sub(r"\D", "", t)) * (-1 if t.startswith("−") else 1) for t in ten]
+                    expect(len(vals) == 4 and abs(vals[0] + vals[1] + vals[2] - vals[3]) <= 3, f"the ten years to add up, got {ten}")
+                    why = page.inner_text(".why-row")
+                    expect("estimate, not advice" in why and "capped at 3%" in why, "the ten-year labels: estimate, not advice; the trend capped at 3%")
                     layout()
                     shot("results-why")
                     first.click()
+                    page.click("form.composer .ibtn.mic")  # the composer's popover has no room below, so it flips above
+                    tb, bb = page.locator("#mic-tip").bounding_box(), page.locator("form.composer .ibtn.mic").bounding_box()
+                    expect(page.locator("#mic-tip").is_visible() and tb["y"] + tb["height"] <= bb["y"] + 1, f"the composer's mic popover above the button, got {tb}")
+                    page.keyboard.press("Escape")
                     # F2: city filter
                     page.click(".fchip[data-v='bari']")
                     cities = page.locator(".tbl tbody tr:not(.why-row) td:nth-child(2) .sub").all_inner_texts()
@@ -411,6 +483,9 @@ def main():
                     expect(page.locator(".diff .del").count() == 1 and page.locator(".diff .add").count() == 1, "one changed key in the repair diff")
                 elif route == "activity":
                     expect(page.locator(".event").count() == len(RUNS), "one row per execution")
+                    ticks = page.locator(".lapse .beat")  # F9: one tick per run, height = listings
+                    heights = page.evaluate("[...document.querySelectorAll('.lapse .beat')].map((b) => b.style.height)")
+                    expect(ticks.count() == len(SUMMARY["per_run"]) and len(set(heights)) > 2 and page.locator(".lapse .beat.bad").count() == 1, f"last night's strip, got {heights}")
                     expect("4,210" in page.inner_text(".stats"), "24 h totals from /api/summary")
                     page.click("details.runrow summary >> nth=0")
                     expect(page.locator("details.runrow[open] .srcs > div").count() == len(SOURCE_ITEMS), "listings per site in an opened run")
@@ -436,6 +511,8 @@ def main():
                     expect(page.locator(".qr img, .qr-none").count() == 1, "the QR code or its placeholder")
                 elif route == "market":
                     expect("Preview" in text, "the Preview label on sample agents")
+                    expect(page.locator(".bundle").count() == 2 and page.locator(".bundles .tag.preview").count() == 0 and page.locator("h1 .tag.preview").count() == 0
+                           and page.locator(".bundle .tag", has_text="example").count() == 1 and "Flat Finder Spain" in text and "2 rules · 2 sources" in text, "the real bundles, no Preview on them, the example tagged")
                 shot(route)
             if not label:  # A5: replay the interview saved in this tab, then land on the plan
                 where["route"] = "replay"

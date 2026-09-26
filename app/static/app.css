@@ -489,3 +489,74 @@ html.rec .btn:hover, html.rec .suggest:hover, html.rec .newtask:hover, html.rec 
 html.rec .btn.dark:hover::after { animation: none; }
 html.rec .tbl tbody tr:hover { background: transparent; }
 html.rec .tbl tbody tr.best:hover td, html.rec .why-row td { background: var(--blush); }
+
+/* ---------- home: the problem in one quiet line (E7) ---------- */
+.home .problem { margin: -14px 0 2px; font-size: 14px; color: var(--grey); text-align: center; }
+
+/* ---------- mic: voice is ⌥ Space through Hammerspoon, the button says so (native popover, anchored where supported) ---------- */
+.ibtn.mic { anchor-name: --mic; }
+.mictip { width: 290px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #FFFFFF; color: var(--ink); box-shadow: 0 10px 30px rgba(17, 17, 16, .14); font-size: 13.5px; line-height: 1.45; }
+.mictip:popover-open { display: flex; flex-direction: column; gap: 4px; animation: rise .25s var(--ease) both; }
+.mictip b { font-size: 14px; font-weight: 600; }
+.mictip span { color: var(--grey); }
+@supports (position-area: top) { .mictip { position-anchor: --mic; position-area: bottom span-left; inset: auto; margin: 10px 0; position-try-fallbacks: flip-block; } }
+
+/* ---------- confirm: the plan is a form (F5) ---------- */
+.pform fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.pform fieldset:disabled { opacity: .6; }
+.kv.pk { grid-template-columns: 110px minmax(0, 1fr); align-items: center; padding: 5px 0; }
+.pview { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 1400px) { .kv.pk { grid-template-columns: 84px minmax(0, 1fr); } .pview { width: 236px; } }
+.pin { width: 100%; min-width: 0; min-height: 32px; padding: 5px 10px; border: 1px solid var(--edge); border-radius: 8px; background: #FFFFFF; font-size: 14px; line-height: 1.4; transition: border-color .15s; }
+textarea.pin { display: block; resize: none; field-sizing: content; }
+.pin:hover { border-color: var(--faint); }
+.pin:focus { border-color: var(--ink); }
+.pin:user-invalid { border-color: var(--coral-ink); background: var(--blush); }
+.pnum { display: flex; align-items: center; gap: 8px; color: var(--grey); }
+.pnum .pin { flex: 1 1 auto; width: auto; min-width: 0; max-width: 150px; color: var(--ink); font-family: var(--mono); font-size: 13.5px; }
+.pcities { display: flex; gap: 6px; flex-wrap: wrap; }
+.pcity { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--edge); background: #FFFFFF; font-size: 13.5px; cursor: pointer; transition: background-color .15s, color .15s, border-color .15s; }
+.pcity input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pcity:has(input:checked) { background: var(--ink); border-color: var(--ink); color: #FFFFFF; }
+.pcity:has(input:checked)::before { content: '✓'; font-size: 12px; }
+.pcity:has(input:focus-visible) { outline: 2px solid var(--coral-ink); outline-offset: 2px; }
+
+/* ---------- research: every saved home on one yield scale, per city (E4) ---------- */
+.ystrip { display: flex; flex-direction: column; gap: 10px; }
+.ys-row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: end; }
+.ys-row + .ys-row:not(.ys-ax) { border-top: 1px solid var(--row); }
+.ys-l { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 0 6px; font-size: 14px; }
+.ys-t { position: relative; min-height: 26px; }
+.ys-g { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--row); }
+.ys-rule { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--coral-ink); }
+.ys-top .ys-t, .ys-ax .ys-t { height: 18px; min-height: 0; }
+.ys-rl, .ys-ax .ys-t span { position: absolute; transform: translateX(-50%); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.ys-rl { bottom: 2px; color: var(--coral-text); }
+.ys-ax .ys-t span { top: 2px; color: var(--grey); }
+.yd { position: absolute; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px #FFFFFF; }
+.yd.miss { background: #FFFFFF; border: 2px solid var(--c); }
+.yd::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; }  /* a 24px hit area */
+.yd::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%); z-index: 3; padding: 5px 9px; border-radius: 8px; background: var(--ink); color: #FFFFFF; font-size: 12.5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.yd.l::after { left: -6px; transform: none; }
+.yd.r::after { left: auto; right: -6px; transform: none; }
+.yd:hover { z-index: 2; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--ink); }
+.yd:hover::after { opacity: 1; }
+.enter .yd { animation: pop .4s var(--spring) both; animation-delay: calc(350ms + var(--i, 0) * 40ms); }
+.legend i.yk { width: 9px; height: 9px; border-radius: 50%; background: var(--coral-ink); vertical-align: -1px; }
+.legend i.yk.miss { background: #FFFFFF; border: 2px solid var(--coral-ink); }
+.legend i.yk.ramp { width: 26px; border-radius: 4px; background: linear-gradient(90deg, #EC8B70, #6E2A16); }
+
+/* ---------- results: the ten-year estimate under "why?" (E5) ---------- */
+.sum.ten { padding: 2px 0 0; }
+
+/* ---------- marketplace: real bundles (I2) ---------- */
+.bundles { padding: 14px 20px 8px; border-radius: 18px; background: var(--panel); }
+.bundle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
+.bundle { border-top: 1px solid var(--line); padding: 8px 0; }
+.bundle .who .mono { font-size: 12px; }
+
+/* ---------- activity: last night, run by run (F9) ---------- */
+.lapse { display: flex; flex-direction: column; gap: 10px; }
+.lapse .beats { height: 64px; padding: 0; border: 0; border-radius: 0; gap: 3px; border-bottom: 1px solid var(--line); }
+.lapse .beat { max-width: 22px; border-radius: 3px 3px 0 0; animation: none; }
+.enter .lapse .beat { animation: growy .6s var(--ease) both; animation-delay: calc(250ms + var(--i, 0) * 40ms); }

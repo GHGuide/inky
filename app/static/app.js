@@ -56,7 +56,7 @@ const critter = (size, kind = 'octopus', color = CORAL, acc = 'none') =>
 
 // ---------- state ----------
 const S = { state: {}, runs: [], detail: null, summary: null, end: null, loaded: false, log: [], busy: false, v: null, shared: null, shareBusy: false, shareErr: '',
-  job: null, f: { city: '', min: 0 }, why: new Set(), seenBase: null };
+  job: null, f: { city: '', min: 0 }, why: new Set(), seenBase: null, edit: null, bundles: undefined };
 const box = (area) => ({ get(k) { try { return JSON.parse(area().getItem(k)); } catch { return null; } }, set(k, v) { try { area().setItem(k, JSON.stringify(v)); } catch { /* private mode */ } } });
 const store = box(() => sessionStorage), keep = box(() => localStorage);
 const freshIv = (prompt = '') => ({ prompt, messages: [], rounds: [], done: null, busy: false, error: '' });
@@ -145,7 +145,9 @@ function matchTotal() {
 const TEST = { '<=': (a, b) => a <= b, '>=': (a, b) => a >= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b, in: (a, b) => [].concat(b).includes(a), not_in: (a, b) => ![].concat(b).includes(a) };
 const HOME_FIELD = { price_eur: (m) => m.price_eur, size_m2: (m) => m.size_m2, bedrooms: (m) => m.bedrooms, net_yield: (m) => m.net_yield, city: (m) => m.city,
   currency: (m) => (m.city ? (m.city === 'lodz' ? 'PLN' : 'EUR') : null), price_m2: (m) => (m.price_eur && m.size_m2 ? m.price_eur / m.size_m2 : null) };
-const passes = (m) => finalRules().every((r) => { const x = (HOME_FIELD[r.field] || ((h) => h[r.field]))(m); return x == null || !TEST[r.op] || TEST[r.op](x, r.value); });
+const passRule = (m) => (r) => { const x = (HOME_FIELD[r.field] || ((h) => h[r.field]))(m); return x == null || !TEST[r.op] || TEST[r.op](x, r.value); };
+const passes = (m) => finalRules().every(passRule(m));
+const failsOf = (m) => finalRules().filter((r) => !passRule(m)(r)).map((r) => r.id);
 
 // ---------- rule text ----------
 const FIELD = {
@@ -213,12 +215,15 @@ const TAB_OF = { task: 'task', confirm: 'task', research: 'research', screen: 's
 function tabs(k) {
   return h`<nav class="tabs" aria-label="Task views">${TABS.map(([label, r]) => h`<a class="tab" href="${r === 'task' && iv.done ? '#confirm' : '#' + r}" ${raw(TAB_OF[k] === r ? 'aria-current="page"' : '')}>${label}</a>`)}</nav>`;
 }
+// F5: the real voice path is Hammerspoon (hold ⌥ Space, whisper.cpp on this Mac, voice/README.md); the mic button only says so.
+const micBtn = (size) => h`<button type="button" class="ibtn mic" popovertarget="mic-tip" aria-label="Talk to Inky">${icon(P.mic, size)}</button>
+  <div id="mic-tip" class="mictip" popover><b>Hold ⌥ Space anywhere to talk to Inky</b><span>In any app. whisper.cpp turns your voice into text on this Mac, so it never leaves it. Set up once with Hammerspoon, see voice/README.md.</span></div>`;
 function composer(ph, act) {
   return h`<form class="composer" data-act="${act}"><div class="cbox">
     <label class="sr" for="msg">Message Inky</label>
     <input id="msg" name="text" type="text" autocomplete="off" placeholder="${ph}">
     <div class="cbar"><span class="hint">enter to send</span><div class="row" style="gap:6px">
-      <button type="button" class="ibtn" data-act="mic" aria-label="Talk">${icon(P.mic, 17)}</button>
+      ${micBtn(17)}
       <button type="submit" class="ibtn dark" aria-label="Send">${icon(P.send, 17, 2.2)}</button></div></div></div></form>`;
 }
 const skeleton = () => h`<div class="skel" style="height:44px;width:40%"></div><div class="skel" style="height:120px"></div><div class="skel" style="height:220px"></div><div class="skel" style="height:90px"></div>`;
@@ -303,7 +308,10 @@ const stepEvents = (j) => async (ev) => {
 };
 async function runResearch() {
   if (jobOn()) return;
-  const plan = (iv.done && iv.done.plan) || S.state.plan || null;
+  const plan = formPlan();
+  if (document.getElementById('plan-form') && !plan) return;  // not valid yet: the browser points at the field
+  if (plan && iv.done) { iv.done.plan = plan; saveIv(); }  // the edited plan is the plan from now on
+  S.edit = null;
   const j = S.job = { kind: 'research', acc: 'glasses', lines: [], state: 'run', last: 0 };
   render();
   const go = async () => { j.state = 'done'; render(); await sleep(1100 * SLOW); if (route() === 'confirm') location.hash = '#research'; };
@@ -380,7 +388,7 @@ async function askInterview() {
   iv.busy = true; iv.error = ''; render();
   try {
     const r = await api('/api/interview', { messages: iv.messages });
-    if (r.done) iv.done = r;
+    if (r.done) { iv.done = r; S.edit = null; }
     else iv.rounds.push({ round: r.round ?? iv.rounds.length + 1, questions: r.questions || [], understood: r.understood || [], answers: null });
   } catch (e) { iv.error = e.message; }
   iv.busy = false; saveIv();
@@ -407,11 +415,12 @@ function home() {
     ${critter(84)}
     <h1>What should Inky do for you?</h1>
     <p class="lead">Say it in your own words. Inky asks a few questions, learns the job once, then does it on its own.</p>
+    <p class="problem">Good listings go in days. Inky watches every 15 minutes, you only decide.</p>
     <form class="prompt" data-act="start">
       <label class="sr" for="home-prompt">Describe the task</label>
       <textarea id="home-prompt" name="prompt" rows="3">${iv.prompt || text}</textarea>
-      <div class="cbar"><span class="hint">click the mic to talk</span><div class="row">
-        <button type="button" class="ibtn" data-act="mic" aria-label="Talk">${icon(P.mic, 18)}</button>
+      <div class="cbar"><span class="hint">hold ⌥ Space to talk</span><div class="row">
+        ${micBtn(18)}
         <button type="submit" class="btn dark big">Start</button></div></div>
     </form>
     <div class="row" style="justify-content:center">
@@ -502,8 +511,40 @@ function planValue(k, v) {
   if (v && typeof v === 'object') return Object.entries(v).map(([a, b]) => `${a}: ${b}`).join(' · ');
   return String(v ?? '');
 }
+// F5: the plan on #confirm is a form. Edits live in S.edit (the whole edited plan) until research starts; that plan is what
+// /api/research/run gets. serve.py checks it again (the same keys as plan.json, a budget above 0, 1+ known cities).
+const planBase = () => (iv.done && iv.done.plan) || S.state.plan || null;
+const NUMS = { budget_eur: { min: 1000, max: 100000000, step: 1000, pre: '€' }, keep_years: { min: 1, max: 60, step: 1, post: 'years' } };
+function planField(k, v, base) {
+  const id = 'plan-' + k, lab = h`<label for="${id}">${label(k)}</label>`, on = (x) => raw(x ? 'selected' : '');
+  if (k === 'cities' && Array.isArray(base)) return h`<span id="${id}">${label(k)}</span><div class="pcities" role="group" aria-labelledby="${id}">${Object.keys(CITY).map((c) => h`<label class="pcity"><input type="checkbox" name="cities" value="${c}" ${raw([].concat(v).includes(c) ? 'checked' : '')}>${city(c)}</label>`)}</div>`;
+  if (typeof base === 'boolean') return h`${lab}<select id="${id}" name="${k}" data-type="bool" class="pin"><option value="1" ${on(v)}>${k === 'cash' ? 'Cash' : 'Yes'}</option><option value="" ${on(!v)}>${k === 'cash' ? 'With a mortgage' : 'No'}</option></select>`;
+  if (typeof base === 'number') {
+    const n = NUMS[k] || { min: 0, step: 'any' };
+    return h`${lab}<span class="pnum">${n.pre ? h`<span aria-hidden="true">${n.pre}</span>` : ''}<input id="${id}" name="${k}" type="number" class="pin" required min="${n.min}" ${raw(n.max ? `max="${n.max}"` : '')} step="${n.step}" value="${v}">${n.post ? h`<span>${n.post}</span>` : ''}</span>`;
+  }
+  if (typeof base === 'string') return h`${lab}<textarea id="${id}" name="${k}" class="pin" rows="1" maxlength="300">${v ?? ''}</textarea>`;
+  return h`<span>${label(k)}</span><span>${planValue(k, v)}</span>`;  // lists and objects stay as they are
+}
+function readPlan(f) {
+  const p = { ...planBase() };
+  for (const el of f.elements) {
+    if (!el.name || el.name === 'cities') continue;
+    p[el.name] = el.dataset.type === 'bool' ? el.value === '1' : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value.replace(/\s+/g, ' ').trim();
+  }
+  if (f.elements.cities) p.cities = [...f.querySelectorAll('input[name=cities]:checked')].map((x) => x.value);
+  return p;
+}
+// null: the form is not on screen, or not valid (the browser shows what to fix)
+function formPlan() {
+  const f = document.getElementById('plan-form');
+  if (!f) return planBase();
+  const box = f.querySelector('input[name=cities]');
+  if (box) box.setCustomValidity(f.querySelector('input[name=cities]:checked') ? '' : 'Pick at least one city.');
+  return f.reportValidity() ? readPlan(f) : null;
+}
 function confirm() {
-  const d = iv.done || {}, plan = d.plan || S.state.plan;
+  const d = iv.done || {}, plan = S.edit || planBase();
   const answers = iv.rounds.reduce((n, r) => n + (r.answers ? r.answers.length : 0), 0);
   const fmt = Array.isArray(d.results_format) ? d.results_format : [];
   const never = (plan && [].concat(plan.never || []).join(', ')) || 'make an offer, pay, sign, log in as you';
@@ -515,12 +556,14 @@ function confirm() {
         <p style="font-weight:600">Did I get it right?</p>
         <div class="row"><button type="button" class="btn dark big" data-act="research" ${raw(jobOn() ? 'disabled' : '')}>${jobOn('research') ? 'Researching…' : 'Yes, start research'}</button><a class="btn big" href="#task">Change something</a></div>`)}
       ${jobView('research')}`;
-  const rows = plan ? Object.entries(plan).filter(([k]) => k !== 'never' && k !== 'question') : [];
+  const rows = plan ? Object.entries(plan).filter(([k]) => k !== 'never' && k !== 'question') : [], base = planBase() || {};
   const panel = !plan ? empty('No plan yet', 'Start a new task and answer a few questions.') : h`<div class="row" style="align-items:stretch;gap:16px;flex-wrap:nowrap;flex:1">
     <div class="card big" style="flex:1;min-width:0">
       <div class="between"><h2 class="h2">Your plan</h2><span class="muted" style="font-size:14px"><b style="color:var(--ink)">${rows.length} of ${rows.length}</b> clear</span></div>
       <div class="bar"><div class="grow" style="width:100%"></div></div>
-      <div class="stagger">${rows.map(([k, v]) => h`<div class="kv" style="grid-template-columns:110px 1fr"><span>${label(k)}</span><span>${planValue(k, v)}</span></div>`)}</div>
+      <span class="note" style="margin-top:-4px">Change anything here. The research uses what you see.</span>
+      <form id="plan-form" class="pform" novalidate><fieldset ${raw(jobOn() ? 'disabled' : '')}><legend class="sr">Your plan</legend>
+        <div class="stagger">${rows.map(([k, v]) => h`<div class="kv pk">${planField(k, v, base[k])}</div>`)}</div></fieldset></form>
       <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px">
         <span class="h3">What I may do</span>
         <div class="may"><b>On my own</b><span>Read listings, run every 15 min, fix one broken step</span></div>
@@ -528,7 +571,7 @@ function confirm() {
         <div class="may"><b>Never</b><span>${never[0].toUpperCase() + never.slice(1)}</span></div>
       </div>
     </div>
-    <div style="width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:10px">
+    <div class="pview">
       <span class="h3">How your results will look</span>
       <div class="card" style="padding:0;overflow:hidden;border-radius:18px">
         <div class="between" style="padding:10px 14px;background:var(--chip);font-size:12.5px;color:var(--grey)"><span>Telegram</span><span>one message per match</span></div>
@@ -590,6 +633,7 @@ function researchView() {
       <tbody>${zones.map((z) => h`<tr><td><b>${city(z.city)} · ${z.zone}</b></td><td class="num">${pct(z.net_yield)}</td><td class="num">${trend(z.price_trend)}</td><td>${num(z.rent_listings)}</td><td>${num(z.matches)}</td><td style="text-align:right" class="${money(z.city) === 'złoty' ? 'hot' : 'muted'}">${money(z.city)}</td></tr>`)}</tbody>
     </table></div>` : ''}
     ${bestPerCity(r)}
+    ${yieldStrips(r)}
     <span class="note">${honest(r)}</span>`;
   return page('research', { status: jobOn('build') ? pill('Building in n8n', 'coral', true) : pill('Research done', 'coral', true), acc: 'glasses', thread, panel, placeholder: 'Ask why a rule is there…' });
 }
@@ -614,6 +658,44 @@ function bestPerCity(r) {
       return h`<div class="city ${has(n) && !Number(n) ? 'none' : ''}" title="${x.reason || ''}"><div class="between"><b>${city(c)}</b><span class="mono small">${has(t) ? `prices ${trend(t)}` : ''}</span></div>
         <span class="city-n">${has(yv) ? pct(yv) : '–'}</span><span class="small">best yield after costs${zone ? ' · ' + zone : ''}</span>${why ? h`<span class="note">${why}</span>` : ''}</div>`;
     })}</div></div>`;
+}
+
+// E4: every saved home per city on one yield scale. A map needs coordinates and the research keeps none per home,
+// so this is a strip: one dot per home, darker = higher yield after costs, hollow = misses a rule. Hover for zone and yield.
+const RAMP = ['#EC8B70', '#E06547', '#C2502F', '#9A3D22', '#6E2A16'];  // one hue, light to dark (dataviz ordinal check passes)
+function yieldStrips(r) {
+  const saved = (r.matches || []).map((m) => ({ ...m, miss: failsOf(m) }));
+  const urls = new Set(saved.map((m) => m.url).filter(Boolean));
+  const best = Object.entries(r.best_by_city || {}).filter(([, b]) => b && has(b.net_yield) && !(b.url && urls.has(b.url)))
+    .map(([c, b]) => ({ ...b, city: b.city || c, miss: [...new Set([...[].concat(b.failed || []), ...failsOf(b)])] })).filter((b) => b.miss.length);  // a passing best is a saved home already
+  const homes = [...saved, ...best].filter((m) => has(m.net_yield) && m.city).map((m) => ({ ...m, y: Number(m.net_yield), ok: !m.miss.length }));
+  if (!homes.length) return '';
+  const rule = finalRules().find((x) => x.field === 'net_yield' && x.op === '>=' && has(x.value));
+  const ys = homes.map((m) => m.y).concat(rule ? [Number(rule.value)] : []);
+  const lo = Math.floor(Math.min(...ys) - 0.3), hi = Math.ceil(Math.max(...ys) + 0.3), at = (y) => (100 * (y - lo)) / (hi - lo);
+  const ticks = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter((t, i, a) => a.length <= 9 || i % 2 === 0);
+  const cities = [...new Set([...Object.keys(r.best_by_city || {}), ...Object.keys(r.by_city || {}), ...homes.map((m) => m.city)])];
+  const BINS = 60, STEP = 9;  // ponytail: dots stack in 60 bins across the strip; a real beeswarm if they ever collide badly
+  const row = (c) => {
+    const hs = homes.filter((m) => m.city === c).sort((a, b) => b.ok - a.ok || a.y - b.y), n = hs.filter((m) => m.ok).length, stack = {};
+    const dots = hs.map((m) => {
+      const bin = Math.round((at(m.y) / 100) * BINS), k = (stack[bin] = (stack[bin] ?? -1) + 1), x = (100 * bin) / BINS;
+      const tip = `${m.zone || city(c)} · ${pct(m.y)} after costs${has(m.price_eur) ? ' · ' + eur(m.price_eur) : ''}${m.ok ? '' : ` · misses ${m.miss.join(', ')}`}`;
+      return h`<span class="yd ${m.ok ? '' : 'miss'} ${x > 70 ? 'r' : x < 30 ? 'l' : ''}" style="left:${x}%;bottom:${6 + k * STEP}px;--c:${RAMP[Math.min(4, Math.floor(((m.y - lo) / (hi - lo)) * 5))]};--i:${k}" data-tip="${tip}"></span>`;
+    });
+    const tall = Math.max(0, ...Object.values(stack)) * STEP + 26;
+    return h`<div class="ys-row"><div class="ys-l"><b>${city(c)}</b><span class="small">${hs.length ? (n ? `${num(n)} ${n === 1 ? 'passes' : 'pass'}` : 'none pass') : 'no homes'}</span>${c === 'lodz' ? h`<span class="tag">districts approximate</span>` : ''}</div>
+      <div class="ys-t" style="height:${tall}px">${ticks.map((t) => h`<i class="ys-g" style="left:${at(t)}%"></i>`)}${rule ? h`<i class="ys-rule" style="left:${at(Number(rule.value))}%"></i>` : ''}${dots}</div></div>`;
+  };
+  const say = cities.map((c) => { const hs = homes.filter((m) => m.city === c), n = hs.filter((m) => m.ok).length, ys2 = hs.map((m) => m.y);
+    return `${city(c)}: ${n ? plural(n, 'home passes', 'homes pass') : 'none pass'}${ys2.length ? `, ${pct(Math.min(...ys2))} to ${pct(Math.max(...ys2))} after costs` : ''}`; }).join('. ');
+  return h`<div class="card ystrip"><div class="between"><span class="h3">Every saved home, by yield after costs</span><span class="mono small">one dot per home · estimates</span></div>
+    <div role="img" aria-label="${say}.">
+      ${rule ? h`<div class="ys-row ys-top" aria-hidden="true"><span></span><div class="ys-t"><span class="ys-rl" style="left:${at(Number(rule.value))}%">${rule.id} · ${pct(rule.value)}+</span></div></div>` : ''}
+      ${cities.map(row)}
+      <div class="ys-row ys-ax" aria-hidden="true"><span></span><div class="ys-t">${ticks.map((t) => h`<span style="left:${at(t)}%">${t}%</span>`)}</div></div>
+    </div>
+    <div class="legend"><span><i class="yk"></i>passes your rules</span><span><i class="yk miss"></i>best home there, misses a rule</span><span><i class="yk ramp"></i>darker = higher yield</span></div></div>`;
 }
 
 // Program: teach/learn.py writes {site, start_url, learned_at, llm_calls, llm_cost_usd, shortcut, steps: [{n, do, label, target: {css}}], item: {selector, fields: {name: {css, attr, type}}}}
@@ -705,8 +787,12 @@ function breakdown(m) {
   if (!has(perM2)) return null;
   const month = perM2 * size, year = month * 12, vac = year * c.vacancy, got = year - vac;
   const agency = got * c.management, tax = got * c.rent_tax, upkeep = price * c.upkeep, net = got - agency - tax - upkeep, paid = price * (1 + c.buy_costs);
-  return { c, perM2, month, year, vac, agency, tax, upkeep, net, paid, pct: (100 * net) / paid, n: pick(m, 'n_rent', 'zone_rent_listings'), nation: NATION[m.country || COUNTRY[m.city]] || '' };
+  // E5: ten years of that rent (kept flat) plus the price growing at the country's Eurostat trend, at most GROWTH_CAP a year
+  const g = has(c.price_trend) ? Math.min(GROWTH_CAP, Number(c.price_trend)) : null, gain = has(g) ? price * ((1 + g / 100) ** 10 - 1) : null, buy = price * c.buy_costs;
+  const ten = { rent: net * 10, g, gain, buy, total: net * 10 + (gain || 0) - buy };
+  return { c, perM2, month, year, vac, agency, tax, upkeep, net, paid, ten, pct: (100 * net) / paid, n: pick(m, 'n_rent', 'zone_rent_listings'), nation: NATION[m.country || COUNTRY[m.city]] || '' };
 }
+const GROWTH_CAP = 3;  // % a year: one year's Eurostat change (Portugal +17.8%) is not a ten-year forecast
 const share100 = (x) => `${+(x * 100).toFixed(1)}%`;
 function whyRow(m, b) {
   const line = (k, v, cls = '') => h`<div class="${cls}"><span>${k}</span><span class="mono">${v}</span></div>`;
@@ -724,8 +810,20 @@ function whyRow(m, b) {
       ${line(`Price ${eur(m.price_eur)} + buying costs ${share100(b.c.buy_costs)}`, eur(b.paid))}
       ${line('Yield after costs', pct(b.pct), 'tot hot')}
     </div>
+    ${tenYears(b)}
     <span class="note">${has(b.c.price_trend) ? `The price trend, ${b.c.price_trend >= 0 ? '+' : ''}${b.c.price_trend}% a year, is for all of ${b.nation || 'the country'} (Eurostat${research().price_trend_period ? ' ' + research().price_trend_period : ''}), not this street. ` : ''}Rent and costs are estimates, not quotes.${m.city === 'lodz' ? ' Łódź districts are approximate.' : ''}</span>
   </div></td></tr>`;
+}
+function tenYears(b) {
+  const t = b.ten, signed = (x) => (x < 0 ? '−' : '+') + eur(Math.abs(x)), trendTxt = `${b.c.price_trend >= 0 ? '+' : ''}${b.c.price_trend}%`;
+  return h`<div class="between" style="margin-top:4px"><span class="h3">Ten years, roughly</span><span class="tag">estimate, not advice</span></div>
+    <div class="sum ten">
+      <div><span>Rent left after costs, 10 × ${eur(b.net)}</span><span class="mono">${eur(t.rent)}</span></div>
+      ${has(t.g) ? h`<div><span>Price ${t.g >= 0 ? 'growth' : 'change'}, ${t.g >= 0 ? '+' : ''}${+t.g.toFixed(1)}% a year${Number(b.c.price_trend) > GROWTH_CAP ? ` (Eurostat says ${trendTxt}, capped at ${GROWTH_CAP}%)` : ' (Eurostat)'}</span><span class="mono">${signed(t.gain)}</span></div>` : ''}
+      <div><span>Buying costs, paid once</span><span class="mono">−${eur(t.buy)}</span></div>
+      <div class="tot hot"><span>Ahead after ten years, on ${eur(b.paid)} paid</span><span class="mono">${signed(t.total)}</span></div>
+    </div>
+    <span class="note">Rent stays at today’s level; the price follows the country’s trend, at most ${GROWTH_CAP}% a year${has(t.g) ? '' : ' (no trend known here, so no growth)'}. Before tax on a sale and selling costs.</span>`;
 }
 const seenUrls = () => { if (!S.seenBase) { S.seenBase = keep.get('inky.seen') || []; } return S.seenBase; };
 const chip = (act, v, on, text) => h`<button type="button" class="fchip" data-act="${act}" data-v="${v}" aria-pressed="${String(on)}">${text}</button>`;
@@ -892,6 +990,17 @@ function runTag(s) {
   if (s === 'running' || s === 'new') return ['running', false];
   return [s || 'unknown', false];
 }
+// F9: last night's runs as a strip, one tick per run: height = listings read, colour = how it went. Rises in once per visit.
+function lapse(sm) {
+  const rs = (sm && Array.isArray(sm.per_run) ? sm.per_run : []).filter((x) => x.startedAt).sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+  if (!rs.length) return '';
+  const max = Math.max(1, ...rs.map((x) => Number(x.listings) || 0)), cls = (x) => { const [t] = runTag(x.status); return t === 'failed' ? 'bad' : t === 'needs you' ? 'wait' : t === 'ok' ? 'ok' : 'run'; };
+  const bad = rs.filter((x) => cls(x) === 'bad').length;
+  return h`<div class="card lapse"><div class="between"><span class="h3">Last night, run by run</span><span class="mono small">${clock(rs[0].startedAt)} → ${clock(rs[rs.length - 1].startedAt)} · height = listings read</span></div>
+    <div class="beats" role="img" aria-label="${plural(rs.length, 'run')} from ${clock(rs[0].startedAt)} to ${clock(rs[rs.length - 1].startedAt)}, ${num(bad)} failed, up to ${plural(max, 'listing')} a run">${rs.map((x, i) => h`<span class="beat ${cls(x)}" style="--i:${i};height:${Math.max(8, Math.round((100 * (Number(x.listings) || 0)) / max))}%" title="${clock(x.startedAt)} · ${has(x.listings) ? plural(x.listings, 'listing') : 'no count'}${Number(x.matches) ? ' · ' + plural(x.matches, 'match', 'matches') : ''} · ${runTag(x.status)[0]}"></span>`)}</div>
+    <div class="legend">${[['ok', 'var(--green)', 'worked'], ['bad', 'var(--coral)', 'failed'], ['wait', '#E9A23B', 'waiting for you'], ['run', 'var(--edge)', 'running']]
+      .filter(([c]) => rs.some((x) => cls(x) === c)).map(([, bg, t]) => h`<span><i style="background:${bg}"></i>${t}</span>`)}</div></div>`;
+}
 function activity() {
   const nn = n8n(), runs = S.runs, main = safeUrl(nn.main_url), sm = S.summary;
   const tally = (f) => runs.filter(f).length;
@@ -919,6 +1028,7 @@ function activity() {
       ${runs.length ? h`<span class="mono small">${day(runs[runs.length - 1].startedAt)} ${clock(runs[runs.length - 1].startedAt)} → ${day(runs[0].startedAt)} ${clock(runs[0].startedAt)}</span>` : ''}</div>
     ${!runs.length ? (main ? empty('No runs yet', 'The workflow is built in n8n. Its runs show up here.') : empty()) : h`
       <div class="stats">${stats.filter(([, v]) => v != null).map(([k, v, hot]) => h`<div class="stat"><span>${k}</span><span class="${hot && Number(v) ? 'hot' : ''}">${typeof v === 'string' ? v : count(v, 'act-' + k)}</span></div>`)}</div>
+      ${lapse(sm)}
       <div class="card stagger" style="padding:6px 18px">${runs.map(row)}</div>
       <span class="note">${secs.length ? `Average run: ${(secs.reduce((a, b) => a + b, 0) / secs.length).toFixed(1)} s. ` : ''}Every run is an n8n execution you can open.</span>`}`;
   return page('activity', { nav: 'activity', status: livePill(), thread, panel, placeholder: 'Ask about any run, or change a rule…' });
@@ -961,8 +1071,18 @@ function share() {
   return page('share', { status: livePill(), share: true, bare: true, thread, panel, label: 'Share this agent', placeholder: 'Change a rule…' });
 }
 
+// I2: real bundles from GET /api/bundles ({bundles: [{id, title, description, author, cities, rules, sources, created_at, example}]}).
+// undefined = still asking, null = not on this server (404) or failed: then the page is today's sample cards, marked Preview.
+const KINDS = [['octopus', '#E86F51'], ['blob', '#2BA59B'], ['cat', '#7C6CF2'], ['octopus', '#E9A23B'], ['blob', '#3B5BDB']];
+const many = (x) => (Array.isArray(x) ? x.length : has(x) ? Number(x) : null);
+function bundleRow(b, i) {
+  const [kind, color] = KINDS[i % KINDS.length], nr = many(b.rules), ns = many(b.sources);
+  const meta = [[].concat(b.cities || []).map(city).join(', '), has(nr) && plural(nr, 'rule'), has(ns) && plural(ns, 'source'), b.created_at && day(b.created_at)].filter(Boolean).join(' · ');
+  return h`<div class="mrow bundle">${critter(40, kind, color)}<div class="who"><span><b>${b.title || b.id || 'An agent'}</b> ${b.author ? h`<span class="muted">by ${b.author}</span>` : ''}${b.example ? h` <span class="tag">example</span>` : ''}</span>
+    ${b.description ? h`<small title="${b.description}">${b.description}</small>` : ''}${meta ? h`<span class="mono small">${meta}</span>` : ''}</div></div>`;
+}
 function market() {
-  // Static sample agents: the marketplace is a design mock for the demo.
+  // The sample agents below the real bundles are a design mock for the demo, marked Preview.
   const cats = ['All', 'Shared with me', 'From Team Inky', 'Property', 'Buying & selling', 'Shops', 'Money & admin'];
   const add = ['Add', 'dark'], manage = ['Manage', ''];
   const shared = [
@@ -971,18 +1091,24 @@ function market() {
   ];
   const featured = [['Yield Hunter', 'Mila', 'M', 'octopus', '#E9A23B', 'glasses'], ['Rent Radar', 'Team Inky', 'TI', 'octopus', '#E86F51', 'beanie'], ['Invoice Chaser', 'Jonas', 'J', 'cat', '#7C6CF2', 'none'], ['Price Watch', 'Priya', 'P', 'blob', '#2BA59B', 'headphones']];
   const property = [['Yield Hunter', 'Mila', 'octopus', '#E9A23B', 'glasses', 'Finds homes abroad that rent well and are rising in price. Never makes an offer.'], ['Rent Radar', 'Team Inky', 'octopus', '#E86F51', 'beanie', 'New rentals in your city minutes after they go live. Never pays or signs.'], ['Mortgage Rate Watch', 'Sem', 'blob', '#3B5BDB', 'none', 'Checks 12 banks every morning and tells you when your rate can drop.'], ['Viewing Booker', 'Noor', 'cat', '#F07BA8', 'bow', 'Finds viewing slots that fit your calendar. Asks before booking any.']];
-  return h`<div class="shell">${nav('market')}<main class="market">
-    <div class="between" style="align-items:flex-end"><h1>Marketplace <span class="tag preview big">Preview</span></h1><a class="btn dark" href="#share">Share an agent</a></div>
-    <p class="note" style="margin:-8px 0 0;font-size:14px">A preview of where shared agents will live. The agents below are samples.</p>
-    <div class="row">${cats.map((c, i) => h`<button type="button" class="cat" aria-pressed="${String(i === 0)}">${c}</button>`)}</div>
-    <div class="search"><label class="sr" for="store-search">Search agents</label>${icon(P.search, 17, 2, '#6B6862')}<input id="store-search" type="search" placeholder="Search by creator or agent name"></div>
-    <section class="shared" aria-label="Shared agents">${shared.map(([title, note, rows]) => h`<div style="display:flex;flex-direction:column">
+  const bs = S.bundles, real = Array.isArray(bs), pv = real ? h` <span class="tag preview">Preview</span>` : '';
+  const sharedSamples = h`<section class="shared" aria-label="Shared agents">${shared.map(([title, note, rows]) => h`<div style="display:flex;flex-direction:column">
       <div class="between" style="padding-bottom:4px"><h2 style="margin:0;font-size:16px;font-weight:600">${title}</h2><span class="small" style="font-size:13px">${note}</span></div>
       ${rows.map(([name, by, kind, color, acc, who, blurb, [action, cls], href]) => h`<div class="mrow">${critter(40, kind, color, acc)}<div class="who"><span><b>${name}</b> <span class="muted">${by}</span></span><small>${blurb}</small></div>
-        <span class="pill" style="background:#fff;border:1px solid var(--line);font-size:12px;padding:3px 9px">${who}</span><a class="btn ${cls}" style="min-height:34px" href="${href}">${action}</a></div>`)}</div>`)}</section>
-    <h2 style="margin:4px 0 0;font-size:16px;font-weight:600">Featured</h2>
+        <span class="pill" style="background:#fff;border:1px solid var(--line);font-size:12px;padding:3px 9px">${who}</span><a class="btn ${cls}" style="min-height:34px" href="${href}">${action}</a></div>`)}</div>`)}</section>`;
+  const bundles = bs === undefined ? h`<div class="skel" style="height:150px"></div>`
+    : !real ? sharedSamples
+    : h`<section class="bundles" aria-label="Shared agents"><div class="between" style="padding-bottom:4px"><h2 style="margin:0;font-size:16px;font-weight:600">Shared agents</h2><span class="small" style="font-size:13px">${bs.length ? `${plural(bs.length, 'bundle')} · a plan, its rules and two n8n workflows, no keys` : 'nothing shared yet'}</span></div>
+      ${bs.length ? h`<div class="bundle-grid">${bs.map(bundleRow)}</div>` : h`<p class="note" style="margin:6px 0 4px">Share this agent and it shows up here. <a href="#share">Share it</a></p>`}</section>`;
+  return h`<div class="shell">${nav('market')}<main class="market">
+    <div class="between" style="align-items:flex-end"><h1>Marketplace ${bs === null ? h`<span class="tag preview big">Preview</span>` : ''}</h1><a class="btn dark" href="#share">Share an agent</a></div>
+    <p class="note" style="margin:-8px 0 0;font-size:14px">${real ? 'Agents people shared: each one is a plan, its rules and two n8n workflows, set up in your own n8n. The ones marked Preview are samples.' : bs === null ? 'A preview of where shared agents will live. The agents below are samples.' : ' '}</p>
+    <div class="row">${cats.map((c, i) => h`<button type="button" class="cat" aria-pressed="${String(i === 0)}">${c}</button>`)}</div>
+    <div class="search"><label class="sr" for="store-search">Search agents</label>${icon(P.search, 17, 2, '#6B6862')}<input id="store-search" type="search" placeholder="Search by creator or agent name"></div>
+    ${bundles}
+    <h2 style="margin:4px 0 0;font-size:16px;font-weight:600">Featured${pv}</h2>
     <div class="featured stagger">${featured.map(([name, by, ini, kind, color, acc]) => h`<a class="feat" href="#market"><div class="av">${critter(80, kind, color, acc)}<span class="ini">${ini}</span></div><span style="font-size:15px;font-weight:600">${name}</span><span class="small" style="font-size:13px">by ${by}</span></a>`)}</div>
-    <div class="between" style="padding:10px 0 0"><h2 style="margin:0;font-size:16px;font-weight:600">Property</h2><a class="muted" href="#market" style="font-size:14px">View all</a></div>
+    <div class="between" style="padding:10px 0 0"><h2 style="margin:0;font-size:16px;font-weight:600">Property${pv}</h2><a class="muted" href="#market" style="font-size:14px">View all</a></div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:40px">${property.map(([name, by, kind, color, acc, blurb]) => h`<div class="mrow">${critter(40, kind, color, acc)}<div class="who"><span><b>${name}</b> <span class="muted">by ${by}</span></span><small>${blurb}</small></div><a class="btn" style="min-height:34px;background:var(--chip);border-color:var(--chip);font-weight:500" href="#market">Add</a></div>`)}</div>
   </main></div>`;
 }
@@ -1032,6 +1158,8 @@ function render() {
   fit();
   motion(app, enter);
   if (k === 'task') startInterview();
+  if (k === 'market' && enter) api('/api/bundles').then((d) => (d && Array.isArray(d.bundles) ? d.bundles : null), () => null)
+    .then((b) => { if (JSON.stringify(b) === JSON.stringify(S.bundles)) return; S.bundles = b; if (route() === 'market') render(); });
   if (k === 'end' && !S.endAsked) { S.endAsked = true; api('/api/end').then((d) => { if (d && typeof d === 'object') { S.end = d; if (route() === 'end') { shown = null; render(); } } }, () => {}); }
 }
 
@@ -1086,19 +1214,8 @@ function recZoom() { document.documentElement.style.setProperty('--z', String(Ma
 if (REC) { document.documentElement.classList.add('rec'); recZoom(); window.addEventListener('resize', recZoom); }
 
 // ---------- actions ----------
-function mic(btn) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const input = btn.closest('form').querySelector('input[type=text], textarea');
-  if (!SR) { input.placeholder = 'Voice input needs Chrome'; return; }
-  const rec = new SR();
-  rec.lang = 'en-US'; rec.interimResults = true;
-  btn.classList.add('rec');
-  rec.onresult = (e) => { input.value = [...e.results].map((x) => x[0].transcript).join(''); };
-  rec.onend = rec.onerror = () => btn.classList.remove('rec');
-  rec.start();
-}
 const ACT = {
-  start(f) { const t = f.elements.prompt.value.trim(); if (!t) return; iv = freshIv(t); saveIv(); location.hash = '#task'; },
+  start(f) { const t = f.elements.prompt.value.trim(); if (!t) return; iv = freshIv(t); S.edit = null; saveIv(); location.hash = '#task'; },
   fill(el) { const i = $('#home-prompt') || $('#msg'); i.value = el.dataset.text; i.focus(); },
   focus() { $('#msg').focus(); },
   command(f) { const t = f.elements.text.value.trim(); if (!t || S.busy) return; f.elements.text.value = ''; if (BEST.test(t)) bestNow(t); else sendCommand(t); },
@@ -1134,7 +1251,6 @@ const ACT = {
     S.shareBusy = false; render();
   },
   copy(el) { navigator.clipboard?.writeText(el.dataset.text).then(() => { el.textContent = 'Copied'; }, () => {}); },
-  mic,
 };
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
@@ -1145,7 +1261,11 @@ document.addEventListener('keydown', (e) => {
   else if (/^[1-5]$/.test(e.key) && TAB_OF[k]) { const r = TABS[Number(e.key) - 1][1]; location.hash = r === 'task' && iv.done ? '#confirm' : '#' + r; }
   else if ((e.key === 'f' || e.key === 'F') && k === 'end') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); }
 });
-document.addEventListener('input', (e) => { if (e.target.id === 'share-desc' && S.shared) S.shared.description = e.target.value; });
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'share-desc' && S.shared) S.shared.description = e.target.value;
+  const f = e.target.form;
+  if (f && f.id === 'plan-form') { if (e.target.name === 'cities') f.querySelector('input[name=cities]').setCustomValidity(''); S.edit = readPlan(f); }
+});
 document.addEventListener('submit', (e) => { e.preventDefault(); const a = ACT[e.target.dataset.act]; if (a) a(e.target); });
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');

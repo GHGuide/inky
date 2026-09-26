@@ -31,7 +31,7 @@ Overnight rules I follow:
 - [x] B5 P1 me: Better 08:00 digest: new listings checked, matches, any fix, and the best current home when there's nothing new.
 - [x] B6 P1 me: Quiet hours. Matches found at night wait for the 07:00 message instead of waking you.
 - [x] B7 P1 me: More fresh listings per run (60 newest per site) and Inky's own Tecnocasa actor as a 5th source (D2).
-- [ ] B8 P2 me: "Almost" tier: homes that miss one rule by a little, marked as such, only in the digest.
+- [x] B8 P2 me: "Almost" tier: homes that miss one rule by a little, marked as such, only in the digest.
 
 ## C. Autonomy (25%)
 - [x] C1 P0 me: "Yes, start research" in the app really runs the research. GLM derives the rules from the plan you just gave, on the scraped data, and streams each step into the chat live (like Claude Code). Results then follow your answers.
@@ -40,7 +40,7 @@ Overnight rules I follow:
 - [x] C4 P1 me: More failures it can repair: a site returns items Inky can't read (schema drift), as well as bad requests and empty results.
 - [x] C5 P1 me: Repair audit trail: before/after of every fix, shown as a diff in the app.
 - [x] C6 P1 me: Visible guardrails: a daily Apify spend cap in the workflow, at most one fix per hour (exists), asks before any draft (exists).
-- [ ] C7 P2 me: Re-learn path: when the Tecnocasa program breaks, the repair re-runs learn.py headless.
+- [ ] C7 P2 me: Re-learn path: when the Tecnocasa program breaks, the repair re-runs learn.py headless. (Not possible on n8n Cloud: learn.py needs the local Mac and Chrome. Noted in docs/architecture.md.)
 
 ## D. Apify & n8n (20%)
 - [ ] D1 P0 you: Install the Apify node (Inky workflow → N → "Apify" → Install). The next deploy switches to it automatically.
@@ -55,21 +55,21 @@ Overnight rules I follow:
 - [x] E1 P1 me: "Why 6.8%?" on every home: rent estimate (from N rentals nearby at €X/m²) minus agency 9%, vacancy 8%, upkeep, rent tax, buying costs.
 - [x] E2 P1 me: Honest labels: price trend is per country (Eurostat 2026-Q1), Łódź districts are approximate, yields are estimates.
 - [x] E3 P1 me: Best per city, even where nothing passes. "Porto: prices +17.8% a year, but the best yield after costs is only X%."
-- [ ] E4 P2 me: Neighbourhood map per city (plain SVG from the coordinates), coloured by yield.
-- [ ] E5 P2 me: Ten-year view per home: rent income plus price growth, clearly marked as an estimate.
-- [ ] E6 P2 me: Evidence that speed matters: how fast listings disappear or get replaced, from the listing dates.
-- [ ] E7 P1 me: One sharp problem line on the home screen and in the README: "Good listings go in days. Inky watches every 15 minutes, you only decide."
+- [x] E4 P2 me: Neighbourhood map per city (plain SVG from the coordinates), coloured by yield. (Built as a yield strip per city: the saved matches carry no coordinates.)
+- [x] E5 P2 me: Ten-year view per home: rent income plus price growth, clearly marked as an estimate.
+- [x] E6 P2 me: Evidence that speed matters: how fast listings disappear or get replaced, from the listing dates. (Łódź: median listing 19 days old, 19% under a week; Bari 134 days, 5%; idealista gives no dates, so no Porto numbers.)
+- [x] E7 P1 me: One sharp problem line on the home screen and in the README: "Good listings go in days. Inky watches every 15 minutes, you only decide."
 
 ## F. App: UX and UI
 - [x] F1 P1 me: Workflow stages show totals since the start and the last match, not a dead "0 · 0 · 0".
 - [x] F2 P1 me: Results: what's new since you last looked, city and yield filters, "best now" pinned on top.
 - [x] F3 P1 me: "Preview" labels on mock parts (marketplace, sample agents), so they don't cast doubt on the real parts.
 - [x] F4 P1 me: Race wording: "all 96 Bari flats under €200k in 19.7 s". Explain or hide empty windows.
-- [ ] F5 P1 me: Interview: show the defaults that "Skip" picks. Voice button works. Editable plan before research.
+- [x] F5 P1 me: Interview: show the defaults that "Skip" picks. Voice button works. Editable plan before research.
 - [x] F6 P1 me: Loading skeletons (shimmer) instead of empty flashes on first load.
 - [x] F7 P1 me: Toasts for things that happen ("Saved to n8n ✓", "Sent to Telegram ✓").
 - [x] F8 P1 me: Activity: expand a run to see listings per site, matches, time and cost (replay idea, as in Manus).
-- [ ] F9 P2 me: "Last night" time-lapse on Activity.
+- [x] F9 P2 me: "Last night" time-lapse on Activity.
 - [x] F10 P1 me: Home suggestion chips lead somewhere real, or are removed.
 - [x] F11 P1 me: Layout check at 1280, 1440 and 1920 wide.
 - [x] F12 P1 me: Accessibility: focus rings, aria-live chat, contrast.
@@ -87,14 +87,14 @@ Overnight rules I follow:
 - [x] H3 P1 me: Voice troubleshooting steps in voice/README.md, for the morning.
 
 ## I. Sharing
-- [ ] I1 P1 me: Real sharing. "Share" creates a bundle: plan, rules, both workflows without credentials, and a README. `share/import.py` sets it up in another n8n through the API. Tested with a copy in your n8n.
-- [ ] I2 P2 me: The marketplace lists real bundles from a folder instead of hard-coded cards.
+- [x] I1 P1 me: Real sharing. "Share" creates a bundle: plan, rules, both workflows without credentials, and a README. `share/import.py` sets it up in another n8n through the API. Tested with a copy in your n8n.
+- [x] I2 P2 me: The marketplace lists real bundles from a folder instead of hard-coded cards.
 
 ## J. Reliability, safety and cost
 - [x] J1 P0 me: A staging copy of both workflows for every test. The live one is deployed once, keeping its saved state (seen listings, counters).
 - [x] J2 P1 me: Telegram questions expire after 24 h, so waiting runs don't pile up.
 - [x] J3 P1 me: The same flat on two sites counts once (city, price, size).
-- [ ] J4 P2 me: The repair checks that the fixed step works before it publishes.
+- [x] J4 P2 me: The repair checks that the fixed step works before it publishes.
 
 ## K. Repo and open source
 - [ ] K1 P0 you: Decide on the MIT license (the end card says MIT). Then me: add LICENSE.
