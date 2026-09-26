@@ -229,6 +229,10 @@ return [{{ json: {{ workflowId: wf.id, step: pick.step, change: answer.change ||
         "workflowId": {"__rl": True, "value": "={{ $json.workflowId }}", "mode": "id"},
         "workflowObject": "={{ JSON.stringify($json.workflow) }}",
     }, (1460, 400), n8n))
+    publish = add(node("Publish the fix", "n8n-nodes-base.n8n", 1, {
+        "resource": "workflow", "operation": "activate",
+        "workflowId": {"__rl": True, "value": "={{ $('Patch the step').first().json.workflowId }}", "mode": "id"},
+    }, (1700, 560), n8n))
     told = add(node("Tell me it's fixed", "n8n-nodes-base.telegram", 1.2, {
         "chatId": chat_id, "additionalFields": {},
         "text": "={{ 'Fixed ' + $('Patch the step').first().json.step + ': ' + $('Patch the step').first().json.change + '. Running it again now.' }}",
@@ -237,7 +241,7 @@ return [{{ json: {{ workflowId: wf.id, step: pick.step, change: answer.change ||
         "source": "database", "workflowId": {"__rl": True, "value": main_id, "mode": "id"},
         "options": {"waitForSubWorkflow": False},
     }, (1940, 400)))
-    for a, b in [(on_error, broke), (on_error, read), (read, get), (get, pick), (pick, fix), (fix, patch), (patch, save), (save, told), (told, rerun)]:
+    for a, b in [(on_error, broke), (on_error, read), (read, get), (get, pick), (pick, fix), (fix, patch), (patch, save), (save, publish), (publish, told), (told, rerun)]:
         link(conns, a, b)
     return {"name": "Inky · repair one step", "nodes": nodes, "connections": conns,
             "settings": {"executionOrder": "v1", "timezone": "Europe/Amsterdam"}}
@@ -354,6 +358,11 @@ def main():
         hint = ""
         raise SystemExit(f"Created, but could not activate: {e}.{hint}")
     print("active: runs every 15 minutes, digest at 08:00")
+    try:  # n8n 2.x only runs a published error workflow
+        api.call("POST", f"/workflows/{repair_id}/activate")
+        print("repair: published, runs when a step fails")
+    except RuntimeError as e:
+        print(f"repair workflow could not be published: {e}")
     if not creds.get("gmail"):
         print("Gmail drafts are paused: set N8N_GMAIL_CREDENTIAL_ID in .env (see .env.example) and run again.")
 
