@@ -7,9 +7,11 @@
 
 Main:   every 15 min -> daily cap -> 5 Apify actors -> merge -> score (inky.js + derived rules; 23:00-07:00 matches
         wait for the morning) -> one home at a time: Telegram approval -> Gmail draft (never sent).
-        A webhook "Send me the best now" feeds the same questions. Plus an 08:00 digest.
-Repair: on error -> GLM-5.3 rewrites the one broken Apify input -> saves it via the n8n node -> publishes it ->
-        tells you on Telegram -> runs the main workflow again. At most one fix per hour.
+        A webhook "Send me the best now" feeds the same questions. Plus an 08:00 digest, which also lists up to 3
+        "almost" homes (new, missing exactly one rule by a little; never asked about, never drafted).
+Repair: on error -> GLM-5.3 rewrites the one broken Apify input -> checks it against the actor's input schema on
+        Apify -> saves it via the n8n node -> publishes it -> tells you on Telegram -> runs the main workflow again.
+        A fix that fails the check is not published; you get told what GLM proposed and why. At most one fix per hour.
 IDs of what it created are kept in data/n8n.json (staging: data/n8n-staging.json), so a second run updates instead
 of duplicating. An update keeps the node ids, webhook ids and saved state (seen listings, counters) of the workflow.
 """
@@ -71,6 +73,17 @@ def node(name, type_, version, params, pos, creds=None, **extra):
     return n
 
 
+def if_true(name, expr, pos):
+    """n8n's IF node: output 0 when expr is true, output 1 otherwise."""
+    return node(name, "n8n-nodes-base.if", 2.2, {
+        "conditions": {"options": {"caseSensitive": True, "leftValue": "", "typeValidation": "strict", "version": 2},
+                       "conditions": [{"id": str(uuid.uuid4()), "leftValue": expr, "rightValue": "",
+                                       "operator": {"type": "boolean", "operation": "true", "singleValue": True}}],
+                       "combinator": "and"},
+        "options": {},
+    }, pos)
+
+
 def note(name, text, pos, width, height, color=7):
     return node(name, "n8n-nodes-base.stickyNote", 1, {"content": text, "width": width, "height": height, "color": color}, pos)
 
@@ -91,6 +104,7 @@ function inkyState() {
   s.seen = s.seen || {};
   s.flats = s.flats || {};
   s.held = s.held || [];
+  s.almost = s.almost || [];
   s.stats = s.stats || { runs: 0, checked: 0, fresh: 0, matches: 0, since: new Date().toISOString() };
   // Counters since the last digest. The first time, they start from everything so far.
   s.night = s.night || { runs: s.stats.runs, checked: s.stats.checked, fresh: s.stats.fresh, matches: s.stats.matches, fixes: 0, since: s.stats.since };
@@ -126,6 +140,22 @@ function texts(s, label, i, n) {
 
 SCORE_JS = r"""
 const state = inkyState();
+// "Almost": a new home that misses exactly one rule, by a little. Never asked about, only listed in the 08:00 digest.
+// "A little" depends on the field: percentages (yields, the price trend) 0.3 points, about the error of a rent
+// estimate from a neighbourhood median; the price against the neighbourhood 0.05; money and counts 5% of the
+// threshold (EUR 185,000 -> up to 194,250, about what a seller gives in a negotiation). A list rule (city, bedrooms)
+// has no "a little", so a miss there never counts.
+const ALMOST = { net_yield: 0.3, gross_yield: 0.3, price_trend: 0.3, price_vs_zone: 0.05 };
+function almost(s) {
+  const r = s.failed.length === 1 && RULES.find((x) => x.id === s.failed[0]);
+  const v = r && s[r.field];
+  if (!r || !['<=', '>='].includes(r.op) || typeof v !== 'number') return null;
+  const by = +Math.abs(v - r.value).toFixed(2);
+  if (by > (ALMOST[r.field] ?? Math.abs(r.value) * 0.05)) return null;
+  const unit = r.field === 'price_eur' ? `€${by.toLocaleString('en')}` : /yield|trend/.test(r.field) ? `${by} points` : by;
+  return { title: s.title, city: s.city, zone: s.zone, price_eur: s.price_eur, net_yield: s.net_yield, url: s.url,
+    rule: r.id, by, miss: `misses ${r.id} (${r.field} ${r.op} ${r.value}) by ${unit}` };
+}
 const siteOf = (item) => { const t = JSON.stringify(item); return Object.keys(SITES).find((k) => t.includes(SITES[k])); };
 const read = {};  // per step: [items, items Inky could read]
 const listings = [];
@@ -147,7 +177,7 @@ const empty = Object.keys(STEPS).filter((k) => !(read[k] && read[k][1]));
 if (empty.length) throw new Error(`Step ${STEPS[empty[0]]} returned 0 homes`);
 
 const now = Date.now();
-const found = [];
+const found = [], near = [];
 for (const l of listings) {
   state.stats.checked++;
   state.night.checked++;
@@ -161,8 +191,12 @@ for (const l of listings) {
   state.stats.fresh++;
   state.night.fresh++;
   const s = score(l, RULES, ZONES, COSTS);
+  const a = s.match ? null : almost(s);
   if (s.match) found.push(s);
+  if (a) near.push(a);
 }
+// Only new homes get here, so a near miss is listed once. The digest shows the best 3 since the last one.
+state.almost = [...state.almost, ...near].sort((a, b) => b.net_yield - a.net_yield).slice(0, 3);
 state.stats.runs++;
 state.night.runs++;
 state.stats.matches += found.length;
@@ -204,9 +238,11 @@ const n = s.night;
 const lines = [`Good morning. While you slept: ${plural(n.runs, 'run', 'runs')} · ${n.checked.toLocaleString('en')} listings checked · ` +
   `${n.fresh} new · ${plural(n.matches, 'match', 'matches')} · ${plural(n.fixes, 'fix', 'fixes')}`];
 for (const m of s.held.slice(0, 3)) lines.push(`Waiting for you: ${md(m.title)} · ${md(m.zone)} · ${m.net_yield}% after costs`);
+for (const a of s.almost) lines.push(`Almost: ${md(a.miss)} · ${md(a.title)} · ${md(a.zone)} · ${a.net_yield}% after costs\n${md(a.url)}`);
 const best = [s.best, BEST].filter(Boolean).sort((a, b) => b.net_yield - a.net_yield)[0];
 if (!n.matches && best) lines.push(`Best home right now: ${md(best.title)}, ${md(best.zone)}, ${best.net_yield}% after costs\n${md(best.url)}`);
 s.night = { runs: 0, checked: 0, fresh: 0, matches: 0, fixes: 0, since: new Date().toISOString() };
+s.almost = [];
 return [{ json: { text: lines.join('\n') } }];
 """
 
@@ -224,6 +260,42 @@ const homes = (Array.isArray(body.matches) ? body.matches : [])
   .sort((a, b) => (b.net_yield ?? 0) - (a.net_yield ?? 0))
   .slice(0, 3);
 return homes.map((s, i) => ({ json: { ...s, ...texts(s, 'Best so far', i, homes.length) } }));
+"""
+
+CHECK_JS = r"""
+// GLM's input against the actor's own input schema (its default build, read from Apify just now), before anything
+// is saved: a required field missing (with no default), a value outside the allowed list, a wrong type, or a field
+// the actor doesn't have that the fix added. Anything wrong, or no schema to check against: not published.
+const patch = $('Patch the step').first().json;
+const build = $json.data || {};
+let schema = build.actorDefinition?.input;
+try { schema = schema || JSON.parse(build.inputSchema); } catch (e) {}
+const props = schema?.properties || {};
+const input = patch.input;
+const TYPES = { string: (v) => typeof v === 'string', integer: Number.isInteger, number: Number.isFinite, boolean: (v) => typeof v === 'boolean',
+  array: Array.isArray, object: (v) => v !== null && typeof v === 'object' && !Array.isArray(v) };
+const problems = [];
+if (!schema) problems.push(`Apify gave no input schema for ${patch.actor}${$json.error ? ` (${$json.error.message || $json.error})` : ''}`);
+for (const k of schema?.required || []) if (input[k] == null && !('default' in (props[k] || {}))) problems.push(`${k} is required`);
+for (const [k, v] of Object.entries(input)) {
+  const p = props[k];
+  if (!p) {
+    if (schema && !(k in patch.before)) problems.push(`${k} is not an input field of ${patch.actor}`);
+  } else if (v === null) {
+    if (!p.nullable) problems.push(`${k} can't be empty`);
+  } else if (TYPES[p.type] && !TYPES[p.type](v)) {
+    problems.push(`${k} must be of type ${p.type}, not ${JSON.stringify(v)}`);
+  } else if (p.enum && !p.enum.includes(v)) {
+    problems.push(`${k} can't be ${JSON.stringify(v)}, only ${p.enum.join(', ')}`);
+  } else if (Array.isArray(v) && p.items?.enum && v.some((x) => !p.items.enum.includes(x))) {
+    problems.push(`${k} may only hold ${p.items.enum.join(', ')}`);
+  }
+}
+const esc = (t) => String(t).replace(/[_*`\[]/g, '\\$&');
+const proposed = JSON.stringify(input);
+return [{ json: { ...patch, ok: !problems.length, problems, text: problems.length ? esc(`Inky did not publish the fix for ${patch.step}: ` +
+  `${problems.join('; ')}. GLM proposed (${patch.change}): ${proposed.length > 600 ? proposed.slice(0, 600) + '…' : proposed}. ` +
+  'The step is unchanged; at most one fix an hour, so a human decides.') : null } }];
 """
 
 KEEP_JS = f"""
@@ -310,13 +382,7 @@ def main_workflow(rules, zones, costs, pln, creds, chat_id, repair_id=None, mode
     link(conns, loop, ask, out=1)  # output 0 is "done", output 1 is the next home
     keep = add(node("Keep approved", "n8n-nodes-base.code", 2, {"jsCode": KEEP_JS}, (1580, 360)))
     link(conns, ask, keep)
-    approved = add(node("Approved?", "n8n-nodes-base.if", 2.2, {
-        "conditions": {"options": {"caseSensitive": True, "leftValue": "", "typeValidation": "strict", "version": 2},
-                       "conditions": [{"id": str(uuid.uuid4()), "leftValue": "={{ $json.approved }}", "rightValue": "",
-                                       "operator": {"type": "boolean", "operation": "true", "singleValue": True}}],
-                       "combinator": "and"},
-        "options": {},
-    }, (1800, 360)))
+    approved = add(if_true("Approved?", "={{ $json.approved }}", (1800, 360)))
     link(conns, keep, approved)
     gmail_creds = {"gmailOAuth2": creds["gmail"]} if creds.get("gmail") else None
     draft = add(node("Gmail draft to the agent", "n8n-nodes-base.gmail", 2.1, {
@@ -384,7 +450,7 @@ const step = wf.nodes.find((n) => n.name === err.step);
 const key = step && ['customBody', 'jsonBody'].find((k) => typeof step.parameters?.[k] === 'string');
 if (!key) throw new Error(`Cannot repair step ${{err.step}}`);
 const actor = step.parameters.actorId?.value || (step.parameters.url || '').split('/acts/')[1]?.split('/')[0];
-return [{{ json: {{ wf, step: err.step, key, before: step.parameters[key], body: {{
+return [{{ json: {{ wf, step: err.step, key, actor, before: step.parameters[key], body: {{
   model: '{MODEL}',
   response_format: {{ type: 'json_object' }},
   messages: [
@@ -409,30 +475,46 @@ const step = wf.nodes.find((n) => n.name === pick.step);
 step.parameters[pick.key] = JSON.stringify(answer.input, null, 2);
 const keep = {json.dumps(SETTINGS_KEYS)};
 const settings = Object.fromEntries(Object.entries(wf.settings || {{}}).filter(([k]) => keep.includes(k)));
-return [{{ json: {{ workflowId: wf.id, step: pick.step, change: answer.change || 'input updated',
-  workflow: {{ name: wf.name, nodes: wf.nodes, connections: wf.connections, settings }} }} }}];
+return [{{ json: {{ workflowId: wf.id, step: pick.step, change: answer.change || 'input updated', actor: pick.actor,
+  input: answer.input, before: JSON.parse(pick.before), workflow: {{ name: wf.name, nodes: wf.nodes, connections: wf.connections, settings }} }} }}];
 """}, (1220, 400)))
+    # The actor's input schema, from its default build (the one a run uses), with the Apify credential the steps use.
+    apify = creds["apify"]
+    auth = ({"authentication": "predefinedCredentialType", "nodeCredentialType": "apifyApi"}, {"apifyApi": apify}) \
+        if apify.get("type") == "apifyApi" else ({"authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth"}, {"httpHeaderAuth": apify})
+    fields = add(node("Read the actor's input schema", "n8n-nodes-base.httpRequest", 4.2, {
+        "method": "GET", "url": "=https://api.apify.com/v2/acts/{{ $json.actor }}/builds/default", **auth[0], "options": {},
+    }, (1460, 400), auth[1], onError="continueRegularOutput"))  # no schema: the check below rejects the fix
+    check = add(node("Check the fix", "n8n-nodes-base.code", 2, {"jsCode": CHECK_JS}, (1700, 400)))
+    valid = add(if_true("Fix checks out?", "={{ $json.ok }}", (1940, 400)))
+    rejected = add(node("Tell me the fix was rejected", "n8n-nodes-base.telegram", 1.2, {
+        "chatId": chat_id, "text": "={{ $json.text }}", "additionalFields": {"appendAttribution": False},
+    }, (2180, 160), tg))
     save = add(node("Save the fix", "n8n-nodes-base.n8n", 1, {
         "resource": "workflow", "operation": "update",
         "workflowId": {"__rl": True, "value": "={{ $json.workflowId }}", "mode": "id"},
         "workflowObject": "={{ JSON.stringify($json.workflow) }}",
-    }, (1460, 400), n8n))
+    }, (2180, 400), n8n))
     publish = add(node("Publish the fix", "n8n-nodes-base.n8n", 1, {
         "resource": "workflow", "operation": "activate",
         "workflowId": {"__rl": True, "value": "={{ $('Patch the step').first().json.workflowId }}", "mode": "id"},
-    }, (1700, 400), n8n))
+    }, (2420, 400), n8n))
     told = add(node("Tell me it's fixed", "n8n-nodes-base.telegram", 1.2, {
         "chatId": chat_id, "additionalFields": {"appendAttribution": False},
         "text": r"={{ ('Fixed ' + $('Patch the step').first().json.step + ': ' + $('Patch the step').first().json.change).replace(/[_*\x60\[]/g, '\\$&') + '. Running it again now.' }}",
-    }, (1940, 400), tg))
+    }, (2660, 400), tg))
     rerun = add(node("Run it again", "n8n-nodes-base.executeWorkflow", 1.2, {
         "source": "database", "workflowId": {"__rl": True, "value": main_id, "mode": "id"},
         "options": {"waitForSubWorkflow": False},
-    }, (2180, 400)))
-    for a, b in [(on_error, read), (read, broke), (read, get), (get, pick), (pick, fix), (fix, patch), (patch, save), (save, publish), (publish, told), (told, rerun)]:
+    }, (2900, 400)))
+    for a, b in [(on_error, read), (read, broke), (read, get), (get, pick), (pick, fix), (fix, patch), (patch, fields), (fields, check),
+                 (check, valid), (valid, save), (save, publish), (publish, told), (told, rerun)]:
         link(conns, a, b)
+    link(conns, valid, rejected, out=1)
     nodes.append(note("Note · Repair", "## Repair\nFixes one broken step, at most once an hour. GLM-5.3 rewrites only that step's Apify input; "
-                      "the fix is saved and published, you get told on Telegram, and the run starts again.", (-60, -20), 2360, 580, 2))
+                      "the fix is checked against the actor's input schema on Apify, then saved and published, you get told on Telegram, "
+                      "and the run starts again. A fix that fails the check is not published: you get told what GLM proposed and why.",
+                      (-60, -20), 3200, 580, 2))
     return {"name": "Inky · repair one step", "nodes": nodes, "connections": conns,
             "settings": {"executionOrder": "v1", "timezone": "Europe/Amsterdam"}}
 

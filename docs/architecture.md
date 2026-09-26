@@ -14,8 +14,8 @@ Inky turns one sentence into a watcher that runs by itself. It uses a model wher
 | Run a program (`teach/run_program.py`, `teach/actor/`) | laptop, or Apify as the actor `cavernous_stew/inky-tecnocasa-homes` | no | Replays the program with no model: the shortcut (one request per page), or the recorded clicks in Chrome. |
 | Race (`race/race.py`) | laptop, 9 Chrome windows | the agent window only | 8 windows replay the compiled program; 1 click-by-click GLM agent does the same task, for comparison. Writes `data/race.json`. |
 | Workflow builder (`workflow.py`) | laptop → n8n API | no | Creates the credentials and both workflows, links the repair workflow as the main one's error workflow, and activates them. Keeps the ids in `data/n8n.json`, so a second run updates instead of duplicating. |
-| Main workflow | n8n Cloud | no | Every 15 min: 5 Apify steps (the 4 Store actors plus Inky's own Tecnocasa actor; the newest 60 listings per source, a USD cap on each) → Merge → Score (Code node with `inky.js` and the rules) → Telegram question with “Save as draft” / “Skip” buttons (`sendAndWait`) → Gmail draft to the agent, never sent. Plus an 08:00 digest. Quiet hours: matches found between 23:00 and 07:00 wait for the first run after 07:00. |
-| Repair workflow | n8n Cloud → OpenRouter | GLM-5.3, 1 call per fix | On an error: tells you on Telegram, finds the broken step, sends GLM-5.3 the error, the step's input and the actor's real input fields, patches only that input, saves and publishes the workflow, tells you what changed, and runs the main workflow again. At most one fix an hour. |
+| Main workflow | n8n Cloud | no | Every 15 min: 5 Apify steps (the 4 Store actors plus Inky's own Tecnocasa actor; the newest 60 listings per source, a USD cap on each) → Merge → Score (Code node with `inky.js` and the rules) → Telegram question with “Save as draft” / “Skip” buttons (`sendAndWait`) → Gmail draft to the agent, never sent. Plus an 08:00 digest, which also lists up to 3 “almost” homes: new ones that miss exactly one rule by a little (0.3 points on a yield or the price trend, 0.05 on price against the neighbourhood, 5% on price or counts). They are never asked about and never drafted. Quiet hours: matches found between 23:00 and 07:00 wait for the first run after 07:00. |
+| Repair workflow | n8n Cloud → OpenRouter | GLM-5.3, 1 call per fix | On an error: tells you on Telegram, finds the broken step, sends GLM-5.3 the error, the step's input and the actor's real input fields, and patches only that input. Before saving, it checks the new input against the actor's input schema, read from Apify (the actor's default build): required fields, allowed values, types, no new fields the actor doesn't have. A fix that fails the check is not published, and you get told on Telegram what GLM proposed and why it was rejected. A fix that passes is saved and published, you get told what changed, and the main workflow runs again. At most one fix an hour. |
 | App (`app/serve.py` + `app/static/`) | laptop, 127.0.0.1:8765 | only through the interview, rule commands and share | Shows research, the program, the race, results, the workflow and its runs. `/api/command` turns a sentence into one rule edit, keeps one version back, and pushes the rules to the main workflow. |
 | Voice (`voice/`) | laptop | no model for speech (whisper.cpp is local); the command goes to `/api/command` | Hold ⌥ Space in any app: ffmpeg records, whisper.cpp transcribes on the Mac, the text becomes a rule edit. |
 
@@ -50,8 +50,13 @@ sequenceDiagram
     n8n->>TG: "it broke, trying to fix one step"
     n8n->>GLM: error + input + the actor's fields
     GLM-->>n8n: corrected input + one-line change
-    n8n->>n8n: save, publish, rerun
-    n8n->>TG: "Fixed", and what changed
+    n8n->>Apify: the actor's input schema
+    alt the fix fits the schema
+      n8n->>n8n: save, publish, rerun
+      n8n->>TG: "Fixed", and what changed
+    else it doesn't
+      n8n->>TG: "Not published": what GLM proposed and why
+    end
   end
   You->>App: hold ⌥ Space: "only places with the euro"
   App->>n8n: updated rules
@@ -94,4 +99,5 @@ A model never picks clicks at run time. We tested Laya, a small local model for 
 - The price trend is per country (Eurostat, 2026-Q1), not per city.
 - Łódź districts are approximated from coordinates, because otodom returns none.
 - The repair fixes a step's input (a bad request, or a step that returned nothing). It doesn't yet handle a site that changes the shape of its data.
-- The marketplace screen is a preview. Sharing writes a description and a link; importing into another n8n is not built yet.
+- Re-learning a broken site (running `teach/learn.py` again) can't start from n8n Cloud: it needs Chrome on your Mac. You run it yourself.
+- The marketplace lists real bundles from `share/bundle/` and `data/shared/`; the sample agents on it are marked Preview. `share/export.py` writes a credential-free bundle and `share/import.py` sets it up in another n8n (tested live with `--test`: an inactive copy without credentials, deleted afterwards). The Share button in the app writes a description and a link, not a bundle.

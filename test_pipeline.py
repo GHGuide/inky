@@ -111,6 +111,7 @@ def test_score(nodes, sale, tmp):
     assert r1["statics"]["stats"]["runs"] == 1 and r1["statics"]["night"]["runs"] == 1
     r2 = run_code(score, sale, statics=r1["statics"])  # nothing new: only the matches that did not fit in 3 questions
     assert r2["statics"]["stats"]["fresh"] == r1["statics"]["stats"]["fresh"], "dedupe failed"
+    assert r2["statics"]["almost"] == r1["statics"]["almost"], "a near miss is listed once"
     assert [m["url"] for m in r2["out"]] == [m["url"] for m in r1["statics"]["held"][:3]], "held matches"
     r3 = run_code(score, [i for i in sale if "propertyUrl" not in i])
     assert r3.get("error") == "Step otodom · Łódź returned 0 homes", r3
@@ -131,6 +132,24 @@ def test_score(nodes, sale, tmp):
     one = run_code(score, sale)["statics"]["stats"]["fresh"]
     two = run_code(score, sale + [other])["statics"]["stats"]["fresh"]
     assert one == two, (one, two)
+
+    # Almost: a new home that misses exactly one rule by a little is kept for the digest only (best 3), never asked.
+    near, rules = r1["statics"]["almost"], {r["id"]: r for r in json.loads((tmp / "rules.json").read_text())["final"]}
+    assert 1 <= len(near) <= 3 and [a["net_yield"] for a in near] == sorted((a["net_yield"] for a in near), reverse=True), near
+    for a in near:
+        r = rules[a["rule"]]
+        assert r["op"] in ("<=", ">=") and 0 < a["by"] <= max(0.3, abs(r["value"]) * 0.05), a
+        assert a["miss"].startswith(f"misses {r['id']} ({r['field']} {r['op']} {r['value']}) by "), a
+    # A flat 3% over the budget is almost, 8% over is not. Price and size scale together, so €/m² and the yield stay the same.
+    budget = rules["R1"]["value"]
+    best = next(h for h in r1["out"] + r1["statics"]["held"] if h["source"] == "idealista")
+    raw = next(i for i in sale if i.get("propertyCode") == best["id"])
+    over = lambda code, f: {**raw, "propertyCode": code, "price": round(budget * f), "size": raw["size"] * budget * f / raw["price"]}
+    a = run_code(score, sale + [over("near", 1.03), over("far", 1.08)])
+    prices = [x["price_eur"] for x in a["statics"]["almost"]]
+    assert round(budget * 1.03) in prices and round(budget * 1.08) not in prices, a["statics"]["almost"]
+    assert next(x for x in a["statics"]["almost"] if x["rule"] == "R1")["miss"] == f"misses R1 (price_eur <= {budget}) by €{budget * 3 // 100:,}"
+    assert not {x["price_eur"] for x in a["out"] + a["statics"]["held"]} & set(prices), "an almost home is never asked about"
 
     # Quiet hours: at 01:00 matches are held, the 07:15 run asks them (best first, 3 at most, the rest wait).
     night = run_code(score, sale, now="2026-09-26T23:00:00Z")
@@ -159,6 +178,9 @@ def test_main_nodes(nodes, r1):
     text = d1["out"][0]["text"]
     assert text.startswith("Good morning. While you slept: 1 run · ") and "0 fixes" in text and "Best home" not in text, text
     assert d1["statics"]["night"]["runs"] == 0
+    almost = [line for line in text.split("\n") if line.startswith("Almost: ")]
+    assert len(almost) == len(r1["statics"]["almost"]) and almost[0].startswith("Almost: " + r1["statics"]["almost"][0]["miss"].replace("_", "\\_")), text
+    assert d1["statics"]["almost"] == [] and "Almost" not in run_code(digest, statics=d1["statics"])["out"][0]["text"], "listed once"
     d2 = run_code(digest, statics=d1["statics"])
     assert "Best home right now: " in d2["out"][0]["text"], d2
     old = {"stats": {"runs": 30, "checked": 4000, "fresh": 200, "matches": 0, "since": "x"}, "seen": {}}
@@ -229,6 +251,34 @@ def test_repair(nodes, main_wf, repair, r3):
     fixed = next(n for n in patch["out"][0]["workflow"]["nodes"] if n["name"] == "otodom · Łódź")
     assert json.loads(fixed["parameters"]["jsonBody"] if "jsonBody" in fixed["parameters"] else fixed["parameters"]["customBody"])["location"] == "lodzkie/lodz/lodz/lodz"
     assert set(patch["out"][0]["workflow"]) == {"name", "nodes", "connections", "settings"}
+
+    # Before it is saved, the fix is checked against the actor's input schema, read from Apify (its default build).
+    to = lambda a, out=0: [x["node"] for x in repair["connections"][a]["main"][out]]
+    assert to("Patch the step") == ["Read the actor's input schema"] and to("Read the actor's input schema") == ["Check the fix"]
+    assert to("Check the fix") == ["Fix checks out?"] and to("Fix checks out?") == ["Save the fix"] and to("Save the fix") == ["Publish the fix"]
+    assert to("Fix checks out?", 1) == ["Tell me the fix was rejected"] and "Tell me the fix was rejected" not in repair["connections"]
+    http = nodes["Read the actor's input schema"]
+    assert http["parameters"]["url"] == "=https://api.apify.com/v2/acts/{{ $json.actor }}/builds/default" and http["onError"] == "continueRegularOutput"
+    assert list(http["credentials"]) == ["httpHeaderAuth"] and "Bearer" not in json.dumps(http["parameters"]), "the key stays in the credential"
+    p = patch["out"][0]
+    assert p["actor"] == "trev0n~otodom-scraper" and p["before"]["searchType"] == "sprzedaz" and p["input"]["maxItems"] == 40, p
+    build = {"data": {"actorDefinition": {"input": {"required": ["location"], "properties": {  # the shape of the real otodom build
+        "searchType": {"type": "string", "enum": ["sprzedaz", "wynajem"], "default": "sprzedaz"},
+        "propertyType": {"type": "string", "enum": ["mieszkanie", "dom"], "default": "mieszkanie"},
+        "location": {"type": "string"}, "maxItems": {"type": "integer", "default": 100}}}}}}
+    check = nodes["Check the fix"]["parameters"]["jsCode"]
+    ok = run_code(check, json_=build, refs={"Patch the step": [p]})["out"][0]
+    assert ok["ok"] and ok["problems"] == [] and ok["text"] is None and ok["workflow"] == p["workflow"] and ok["workflowId"] == "W1", ok
+    bad = {**p, "change": "set sale_type", "input": {"searchType": "sale", "propertyType": "mieszkanie", "maxItems": "40", "city": "Łódź"}}
+    no = run_code(check, json_=build, refs={"Patch the step": [bad]})["out"][0]
+    assert not no["ok"] and no["problems"] == ["location is required", 'searchType can\'t be "sale", only sprzedaz, wynajem',
+                                               'maxItems must be of type integer, not "40"', "city is not an input field of trev0n~otodom-scraper"], no["problems"]
+    assert no["text"].startswith("Inky did not publish the fix for otodom · Łódź: location is required; ") and "(set sale\\_type)" in no["text"], no["text"]
+    assert '{"searchType":"sale","propertyType":"mieszkanie","maxItems":"40","city":"Łódź"}' in no["text"] and "a human decides" in no["text"]
+    kept = {**bad, "input": {**p["input"], "startUrls": None}, "before": {**p["before"], "startUrls": []}}  # a field the step already had
+    assert run_code(check, json_=build, refs={"Patch the step": [kept]})["out"][0]["problems"] == [], "old fields are not the fix's fault"
+    gone = run_code(check, json_={"error": {"message": "404 Not Found"}}, refs={"Patch the step": [p]})["out"][0]
+    assert not gone["ok"] and gone["problems"] == ["Apify gave no input schema for trev0n~otodom-scraper (404 Not Found)"], gone
 
 
 def test_zone_near(tmp):
@@ -333,7 +383,7 @@ def test_deploy(tmp, main_wf_dry):
         assert sm["name"] == "Inky · staging main" and sr["name"] == "Inky · staging repair" and sm["settings"]["errorWorkflow"] == st["repair"]
         off = {n["name"] for n in sm["nodes"] + sr["nodes"] if n.get("disabled")}
         assert off == {"Every 15 min", "Every day 08:00", "Ask me on Telegram", "Gmail draft to the agent", "Send the digest",
-                       "Tell me it broke", "Tell me it's fixed", "Run it again"}, off
+                       "Tell me it broke", "Tell me it's fixed", "Tell me the fix was rejected", "Run it again"}, off
         assert next(n for n in sr["nodes"] if n["name"] == "Run it again")["parameters"]["workflowId"]["value"] == st["main"]
     finally:
         workflow.N8n, workflow.STATE_DIR, workflow.DATA, workflow.actor_schemas = real[:4]
@@ -407,7 +457,7 @@ def main():
 
     print(f"ok: {research['listings_read']} fixture listings, rules v1-v3 "
           f"{' -> '.join(str(v['matches']) for v in research['versions'])} matches, n8n Code nodes run (score, quiet hours, drift, "
-          f"daily cap, digest, best now), repair patches the right step, deploy keeps ids and saved state, staging stays quiet, share bundle has no secrets")
+          f"daily cap, digest, best now), almost tier in the digest, repair patches the right step and publishes only a fix that fits the actor's schema, deploy keeps ids and saved state, staging stays quiet, share bundle has no secrets")
 
 
 if __name__ == "__main__":
