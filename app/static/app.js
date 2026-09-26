@@ -20,6 +20,11 @@ const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-GB', { weekday:
 const short = (s, n = 44) => { const t = String(s).replace(/^https?:\/\/(www\.)?/i, ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 const pick = (o, ...keys) => { for (const k of keys) if (o && o[k] != null) return o[k]; return undefined; };
 const CORAL = '#E86F51';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ?rec=1: recording mode (1440-wide design scaled to the window, slower motion). ?replay=1: replay the last interview (?replay=4 = 4× faster).
+const Q = new URLSearchParams(location.search);
+const REC = Q.has('rec'), REPLAY = Q.has('replay') ? Math.max(0.1, Number(Q.get('replay')) || 1) : 0;
+const SLOW = REC ? 1.3 : 1;
 
 // ---------- icons and critters (copied from Nav.dc.html / Critter.dc.html) ----------
 const P = {
@@ -50,24 +55,72 @@ const critter = (size, kind = 'octopus', color = CORAL, acc = 'none') =>
   raw(`<svg class="critter" width="${size}" height="${size}" viewBox="0 0 120 120" aria-hidden="true">${BODY[kind](color)}${ACC[acc] || ''}</svg>`);
 
 // ---------- state ----------
-const S = { state: {}, runs: [], detail: null, log: [], busy: false, v: null, shared: null, shareBusy: false, shareErr: '' };
-const store = { get(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } }, set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } } };
+const S = { state: {}, runs: [], detail: null, summary: null, end: null, loaded: false, log: [], busy: false, v: null, shared: null, shareBusy: false, shareErr: '',
+  job: null, f: { city: '', min: 0 }, why: new Set(), seenBase: null };
+const box = (area) => ({ get(k) { try { return JSON.parse(area().getItem(k)); } catch { return null; } }, set(k, v) { try { area().setItem(k, JSON.stringify(v)); } catch { /* private mode */ } } });
+const store = box(() => sessionStorage), keep = box(() => localStorage);
 const freshIv = (prompt = '') => ({ prompt, messages: [], rounds: [], done: null, busy: false, error: '' });
 let iv = { ...freshIv(), ...store.get('inky.iv'), busy: false };
-const saveIv = () => store.set('inky.iv', iv);
+const saveIv = () => { store.set('inky.iv', iv); if (iv.done) keep.set('inky.iv.last', iv); };  // the last finished interview, for ?replay=1 in a new tab
 const current = () => { const r = iv.rounds[iv.rounds.length - 1]; return r && !r.answers ? r : null; };
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((data && data.error) || `${r.status} ${r.statusText}`);
+  if (!r.ok) throw Object.assign(new Error((data && data.error) || `${r.status} ${r.statusText}`), { status: r.status });
   return data;
 }
+// POST that answers with Server-Sent Events: calls on(event) for every `data: {json}` block, in order.
+async function sse(path, body, on) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  if (!r.ok) { const d = await r.json().catch(() => null); throw Object.assign(new Error((d && d.error) || `${r.status} ${r.statusText}`), { status: r.status }); }
+  if (!/event-stream/.test(r.headers.get('Content-Type') || '')) return on({ type: 'done', ...(await r.json().catch(() => ({}))) });
+  const rd = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await rd.read();
+    buf += dec.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buf.split(/\r?\n\r?\n/);
+    buf = done ? '' : blocks.pop();
+    for (const b of blocks) {
+      const data = b.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n');
+      let ev = null;
+      try { ev = data && JSON.parse(data); } catch { /* not JSON: skip */ }
+      if (ev && typeof ev === 'object') await on(ev);
+    }
+    if (done) return;
+  }
+}
+const since = () => new Date(Date.now() - 24 * 3600e3).toISOString();
+const usd = (x) => '$' + Number(x).toFixed(2);
+const usdRun = (sm) => (has(sm.apify_usd_per_run) ? `${usd(sm.apify_usd_per_run)} a run on Apify` : has(sm.apify_usd) ? `${usd(sm.apify_usd)} on Apify` : '');
+const okSummary = (x) => (x && typeof x === 'object' && has(x.runs) ? x : null);  // null: not on this server yet (404), or no n8n
 async function refresh() {
+  // The summary reads every n8n run once (slow the first time, then cached), so it never holds up the rest of the screen.
+  const sum = api('/api/summary?since=' + encodeURIComponent(since())).then(okSummary, () => null);
   const [st, runs, detail] = await Promise.all([api('/api/state').catch(() => null), api('/api/executions').catch(() => null), api('/api/run_detail').catch(() => null)]);
   S.state = st && typeof st === 'object' ? st : {};
   S.runs = Array.isArray(runs) ? runs : [];
   S.detail = detail && typeof detail === 'object' ? detail : null;
+  S.loaded = true;
+  const quick = await Promise.race([sum, sleep(1200).then(() => undefined)]);
+  if (quick !== undefined) { S.summary = quick; return; }
+  sum.then((x) => {  // arrived late: show it where it is used
+    if (JSON.stringify(x) === JSON.stringify(S.summary)) return;
+    S.summary = x;
+    if (['workflow', 'activity', 'end'].includes(route()) && !S.busy && !jobOn() && !dirty()) render();
+  });
+}
+
+// ---------- toasts ----------
+function toast(text, bad) {
+  let t = document.getElementById('toasts');
+  if (!t) { t = document.createElement('div'); t.id = 'toasts'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.append(t); }
+  const el = document.createElement('div');
+  el.className = 'toast' + (bad ? ' bad' : '');
+  el.textContent = text;
+  t.append(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 3600 * SLOW);
 }
 const research = () => S.state.research || null;
 const finalRules = () => (S.state.rules && S.state.rules.final) || [];
@@ -92,7 +145,7 @@ function matchTotal() {
 const TEST = { '<=': (a, b) => a <= b, '>=': (a, b) => a >= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b, in: (a, b) => [].concat(b).includes(a), not_in: (a, b) => ![].concat(b).includes(a) };
 const HOME_FIELD = { price_eur: (m) => m.price_eur, size_m2: (m) => m.size_m2, bedrooms: (m) => m.bedrooms, net_yield: (m) => m.net_yield, city: (m) => m.city,
   currency: (m) => (m.city ? (m.city === 'lodz' ? 'PLN' : 'EUR') : null), price_m2: (m) => (m.price_eur && m.size_m2 ? m.price_eur / m.size_m2 : null) };
-const passes = (m) => finalRules().every((r) => { const get = HOME_FIELD[r.field], x = get && get(m); return x == null || !TEST[r.op] || TEST[r.op](x, r.value); });
+const passes = (m) => finalRules().every((r) => { const x = (HOME_FIELD[r.field] || ((h) => h[r.field]))(m); return x == null || !TEST[r.op] || TEST[r.op](x, r.value); });
 
 // ---------- rule text ----------
 const FIELD = {
@@ -168,10 +221,12 @@ function composer(ph, act) {
       <button type="button" class="ibtn" data-act="mic" aria-label="Talk">${icon(P.mic, 17)}</button>
       <button type="submit" class="ibtn dark" aria-label="Send">${icon(P.send, 17, 2.2)}</button></div></div></div></form>`;
 }
+const skeleton = () => h`<div class="skel" style="height:44px;width:40%"></div><div class="skel" style="height:120px"></div><div class="skel" style="height:220px"></div><div class="skel" style="height:90px"></div>`;
 function page(k, o) {
+  if (!S.loaded && !(k === 'task' || (k === 'confirm' && iv.done))) o = { ...o, status: pill('Loading'), thread: inky(typing()), panel: o.bare ? h`<div class="body">${skeleton()}</div>` : skeleton() };  // first load: shimmer, not a flash of empty states
   const panel = o.bare ? o.panel : h`${tabs(k)}<div class="body">${o.panel}</div>`;
   return h`<div class="shell">${nav(o.nav || 'task')}<div class="col">${header(o.status, o.acc, o.share)}<div class="split">
-    <section class="thread" aria-label="Conversation"><div class="msgs">${o.thread}${k === 'task' ? '' : commandLog()}</div>${composer(o.placeholder || 'Change a rule…', k === 'task' ? 'free' : 'command')}</section>
+    <section class="thread" aria-label="Conversation"><div class="msgs" role="log" aria-live="polite">${o.thread}${k === 'task' ? '' : commandLog()}</div>${composer(o.placeholder || 'Change a rule…', k === 'task' ? 'free' : 'command')}</section>
     <section class="panel" aria-label="${o.label || k}">${panel}</section></div></div></div>`;
 }
 
@@ -186,7 +241,116 @@ function reply(r) {
   ])}`;
 }
 const isFresh = (t) => Date.now() - (t || 0) < 1500;
-const commandLog = () => S.log.map((x) => h`<div class="${isFresh(x.t) ? 'fresh' : ''}" style="display:flex;flex-direction:column;gap:16px">${me(x.me)}</div>${x.res ? h`<div class="${isFresh(x.done) ? 'fresh' : ''}">${inky(reply(x.res))}</div>` : x.err ? inky(h`<p class="hot">That did not work: ${x.err}</p>`) : inky(typing())}`);
+const commandLog = () => S.log.map((x) => h`<div class="${isFresh(x.t) ? 'fresh' : ''}" style="display:flex;flex-direction:column;gap:16px">${me(x.me)}</div>${x.res ? h`<div class="${isFresh(x.done) ? 'fresh' : ''}">${inky(reply(x.res))}</div>`
+  : x.say ? h`<div class="${isFresh(x.done) ? 'fresh' : ''}">${inky(x.say)}</div>` : x.err ? inky(h`<p class="hot">That did not work: ${x.err}</p>`) : inky(typing())}`);
+// "Send me the best ones now": the top homes go to Telegram with buttons (the n8n webhook), so there is a real approval to tap.
+const BEST = /\b(send|give|text|message)\b.*\bbest\b/i;
+async function bestNow(text = 'Send me the best 3 now.') {
+  if (S.busy) return;
+  const entry = { me: text, t: Date.now() };
+  S.log.push(entry); S.busy = true; render();
+  try {
+    const r = await api('/api/best_now', { n: 3 }), ms = Array.isArray(r.matches) ? r.matches : [];
+    const n = has(r.sent) ? Number(r.sent) : ms.length;
+    entry.say = h`<p>Sent ${plural(n, 'home')} to your Telegram. Tap one there and I save a Gmail draft to the agent. Nothing is sent without you.</p>
+      ${ms.length ? logLines(ms.slice(0, 3).map((m) => [m.title || 'A flat', [m.zone, city(m.city), has(m.net_yield) && pct(m.net_yield) + ' after costs'].filter(Boolean).join(' · ')])) : ''}`;
+    toast(`Sent ${plural(n, 'home')} to your Telegram ✓`);
+  } catch (e) {
+    entry.err = e.status === 404 ? 'this server can’t send to Telegram yet.' : e.message;
+    toast(e.status === 404 ? 'Sending isn’t on this server yet' : `Not sent: ${e.message}`, true);
+  }
+  entry.done = Date.now(); S.busy = false; render();
+}
+
+// ---------- live jobs: research and the n8n build stream their steps into the chat, one line at a time ----------
+const jobOn = (kind) => !!S.job && S.job.state === 'run' && (!kind || S.job.kind === kind);
+const jobMax = (j) => Math.max(1, ...j.lines.filter((l) => l.v).map((l) => Number(l.v.matches) || 0));
+function jobLine(l, max, fresh) {
+  if (l.v) return h`<div class="jv ${fresh ? 'fresh' : ''}"><span>v${l.v.v ?? ''}</span><div class="track"><div class="${fresh ? 'grow' : ''}" style="width:${Math.max(2, Math.round((100 * (Number(l.v.matches) || 0)) / max))}%"></div></div><span>${plural(l.v.matches ?? 0, 'home')}${has(l.v.zones) ? ' · ' + plural(l.v.zones, 'area') : ''}</span></div>`;
+  return h`<div class="${fresh ? 'fresh' : ''}"><div><span class="b ${l.bad ? 'hot' : l.ok ? 'ok' : ''}">●</span> ${l.text || ''}</div>${l.sub ? h`<div class="sub">└ ${l.sub}</div>` : ''}</div>`;
+}
+function jobView(kind) {
+  const j = S.job;
+  if (!j || j.kind !== kind) return '';
+  const max = jobMax(j);
+  return h`<div class="inky job ${j.state === 'run' ? 'live' : ''}">${critter(26, 'octopus', CORAL, j.acc)}<div class="inky-body">
+    <div class="log" id="job-lines">${j.lines.map((l) => { const f = !l.shown; l.shown = true; return jobLine(l, max, f); })}</div>
+    ${j.state === 'run' ? typing() : ''}
+    ${j.state === 'err' ? h`<p class="hot">That did not work: ${j.err}</p><div class="row"><button type="button" class="btn" data-act="${kind}">Try again</button></div>` : ''}
+    ${j.links ? h`<div class="row">${ext(j.links.main, 'Open in n8n', 'btn dark')}${ext(j.links.repair, 'Open repair', 'btn')}</div>` : ''}</div></div>`;
+}
+// Lines come in bursts; show them one by one, like a terminal. Append to the DOM so the typing dots keep going.
+async function jobPush(j, line) {
+  const wait = j.last + (calm.matches ? 60 : 420 * SLOW) - Date.now();
+  if (wait > 0) await sleep(wait);
+  j.last = line.t = Date.now();
+  const grew = line.v && (Number(line.v.matches) || 0) > jobMax(j);
+  j.lines.push(line);
+  const lines = document.getElementById('job-lines');
+  if (S.job !== j || !lines) return;  // on another screen: the line is kept and shows when you come back
+  if (grew) return render();  // a longer bar: redraw so every bar keeps the same scale
+  lines.insertAdjacentHTML('beforeend', jobLine(line, jobMax(j), true).__raw);
+  line.shown = true;  // a later full render shows it without rising in again
+  const m = $('.msgs');
+  if (m) m.scrollTop = m.scrollHeight;
+  slowDown();
+}
+const stepEvents = (j) => async (ev) => {
+  if (ev.type === 'step') await jobPush(j, { text: ev.text, sub: ev.sub });
+  else if (ev.type === 'version') await jobPush(j, { v: ev });
+  else if (ev.type === 'error') throw new Error(ev.text || 'it stopped.');
+  else if (ev.type === 'done') j.fin = ev;
+};
+async function runResearch() {
+  if (jobOn()) return;
+  const plan = (iv.done && iv.done.plan) || S.state.plan || null;
+  const j = S.job = { kind: 'research', acc: 'glasses', lines: [], state: 'run', last: 0 };
+  render();
+  const go = async () => { j.state = 'done'; render(); await sleep(1100 * SLOW); if (route() === 'confirm') location.hash = '#research'; };
+  try {
+    // research/run saves the plan itself (plan.json, the old one as plan.backup.json). /api/plan only when streaming research isn't there.
+    try { await sse('/api/research/run', plan ? { plan } : {}, stepEvents(j)); }
+    catch (e) {
+      if (e.status === 404 && plan) await api('/api/plan', { plan }).then(() => jobPush(j, { text: 'Saved your plan', sub: 'plan.json, the old one kept as a backup' }), () => {});
+      throw e;
+    }
+    if (!j.fin) throw new Error('the research stopped before it finished.');
+    await refresh();
+    if (j.fin.research && typeof j.fin.research === 'object') S.state.research = j.fin.research;
+    if (j.fin.rules && typeof j.fin.rules === 'object') S.state.rules = j.fin.rules;
+    store.set('inky.counts', {});  // new research, new counts
+    S.v = null;
+    const lv = versions()[versions().length - 1];
+    await jobPush(j, { text: 'Research done', sub: lv ? `version ${lv.v} keeps ${plural(lv.matches, 'home')} in ${plural(lv.zones, 'neighbourhood')}` : 'saved', ok: true });
+    toast('Research done ✓');
+    await go();
+  } catch (e) {
+    if (e.status === 404) { await jobPush(j, { text: 'Live research isn’t on this server yet', sub: 'here is the last research instead' }); return go(); }
+    j.state = 'err'; j.err = e.message; render();
+  }
+}
+async function runBuild() {
+  if (jobOn()) return;
+  const j = S.job = { kind: 'build', acc: 'none', lines: [], state: 'run', last: 0 };
+  render();
+  const go = async () => { j.state = 'done'; render(); await sleep(2200 * SLOW); if (route() === 'research') location.hash = '#workflow'; };
+  try {
+    await sse('/api/build/run', Q.has('staging') ? { staging: true } : {}, stepEvents(j));
+    if (!j.fin) throw new Error('the build stopped before it finished.');
+    j.links = { main: j.fin.main_url, repair: j.fin.repair_url };
+    await jobPush(j, { text: 'Published in your n8n', sub: 'it runs every 15 minutes from now, without me', ok: true });
+    await refresh();
+    toast('Saved to n8n ✓');
+    await go();
+  } catch (e) {
+    if (e.status === 404 && built()) {
+      j.links = { main: n8n().main_url, repair: n8n().repair_url };
+      await jobPush(j, { text: 'The workflow is already in your n8n', sub: 'live building isn’t on this server yet', ok: true });
+      return go();
+    }
+    j.state = 'err'; j.err = e.status === 404 ? 'building isn’t on this server yet.' : e.message; render();
+  }
+}
 async function sendCommand(text) {
   const entry = { me: text, t: Date.now() };
   S.log.push(entry); S.busy = true; render();
@@ -207,6 +371,7 @@ async function sendCommand(text) {
 
 // ---------- interview ----------
 function startInterview() {
+  if (REPLAY) return replayInterview();
   if (iv.busy || iv.done || !iv.prompt || iv.messages.length) return;
   iv.messages = [{ role: 'user', content: iv.prompt }];
   askInterview();
@@ -223,13 +388,18 @@ async function askInterview() {
 }
 function submitRound(content, answers) {
   const cur = current();
-  if (!cur || iv.busy) return;
+  if (!cur || iv.busy || REPLAY) return;  // a replay never calls the interview API
   cur.answers = answers;
   iv.messages.push({ role: 'assistant', content: JSON.stringify({ round: cur.round, understood: cur.understood, questions: cur.questions }) }, { role: 'user', content });
   askInterview();
 }
 
 // ---------- routes ----------
+const SUGGEST = [
+  ['Buy-to-let abroad, up to €200k', 'I want to buy a flat abroad, up to €200,000 in cash, that I can rent out for as much as possible, where prices will probably go up.'],
+  ['A student flat in Łódź', 'Find me a small flat in Łódź near the universities that I can rent to students, under €100,000.'],
+  ['Only euro countries', 'I want a rental flat in Porto or Bari, priced in euro, under €150,000, that pays for itself.'],
+];
 function home() {
   const text = 'I want to buy a place abroad that I can rent out for as much as possible, where prices will probably go up. I’m Dutch, so it has to be easy for me to buy there.';
   const agent = (name, blurb, kind, color, acc) => h`<a class="agent" href="#market">${critter(44, kind, color, acc)}<span>${name}<small>${blurb}</small></span></a>`;
@@ -245,10 +415,10 @@ function home() {
         <button type="submit" class="btn dark big">Start</button></div></div>
     </form>
     <div class="row" style="justify-content:center">
-      ${['Find a rental property abroad', 'Watch webshops for price drops', 'Chase unpaid invoices'].map((t) => h`<button type="button" class="suggest" data-act="fill" data-text="${t}">${t}</button>`)}
+      ${SUGGEST.map(([t, full]) => h`<button type="button" class="suggest" data-act="fill" data-text="${full}">${t}</button>`)}
     </div>
     <div style="width:100%;margin-top:36px;display:flex;flex-direction:column;gap:12px">
-      <div class="between"><h2 style="margin:0;font-size:16px;font-weight:600">Or start from someone else’s agent</h2><a href="#market" class="muted" style="font-size:14px">Marketplace</a></div>
+      <div class="between"><h2 style="margin:0;font-size:16px;font-weight:600">Or start from someone else’s agent <span class="tag preview">Preview</span></h2><a href="#market" class="muted" style="font-size:14px">Marketplace</a></div>
       <div class="agents stagger">${agent('Yield Hunter', 'Homes abroad that rent well', 'octopus', '#E9A23B', 'glasses')}${agent('Price Watch', 'Competitor prices, hourly', 'blob', '#2BA59B', 'headphones')}${agent('Invoice Chaser', 'Friendly payment reminders', 'cat', '#7C6CF2')}</div>
     </div>
   </div></main></div>`;
@@ -274,7 +444,8 @@ function task() {
       ${done.length ? h`<div class="done-rounds">${done.map((r) => h`<details><summary><b>✓ Round ${r.round}</b> <span class="muted">· ${r.answers.map((a) => a.a).join(' · ')}</span></summary><dl>${r.answers.map((a) => h`<dt>${a.q}</dt><dd>${a.a}</dd>`)}</dl></details>`)}</div>` : ''}
       ${cur ? h`<form class="round fresh" data-act="round"><span class="label">ROUND ${cur.round}</span>
         ${cur.questions.map((q, i) => h`<div class="q fresh" style="animation-delay:${120 + i * 110}ms"><b>${q.text}</b>${q.why ? h`<span class="why">${q.why}</span>` : ''}<div class="ans"><input name="a${i}" autocomplete="off" placeholder="Your answer" aria-label="${q.text}"><button type="button" class="decide" data-act="decide">You decide</button></div></div>`)}
-        <div class="row"><button type="submit" class="btn dark" ${raw(iv.busy ? 'disabled' : '')}>Next</button><button type="button" class="linkbtn" data-act="skip">Skip the rest, use defaults</button></div></form>` : ''}
+        <div class="row"><button type="submit" class="btn dark" ${raw(iv.busy ? 'disabled' : '')}>Next</button><button type="button" class="linkbtn" data-act="skip">Skip the rest, use defaults</button></div>
+        ${skipPicks() ? h`<span class="note">Skip picks: ${skipPicks()}</span>` : ''}</form>` : ''}
       ${iv.busy ? inky(typing()) : ''}
       ${iv.error ? inky(h`<p class="hot">That did not work: ${iv.error}</p><div class="row"><button type="button" class="btn" data-act="retry">Try again</button></div>`) : ''}`;
   const rows = h`${understood.map((u) => h`<div class="kv"><span>${u.k}</span><span>${u.v}</span><span class="tag">✓</span></div>`)}
@@ -290,7 +461,34 @@ function task() {
         <button type="button" class="btn big" disabled>Start research${asking.length ? ` · ${asking.length} left` : ''}</button>
         ${cur ? h`<button type="button" class="linkbtn" data-act="skip">Skip the rest, use defaults</button>` : ''}
       </div></div>`;
-  return page('task', { status: pill(cur ? `Planning · round ${cur.round}` : iv.busy ? 'Planning' : 'New task'), thread, panel, label: 'What Inky understood', placeholder: 'Or answer in your own words…' });
+  const status = REPLAY ? pill(`Replay${cur ? ' · round ' + cur.round : ''} · saved interview`, 'coral', true) : pill(cur ? `Planning · round ${cur.round}` : iv.busy ? 'Planning' : 'New task');
+  return page('task', { status, thread, panel, label: 'What Inky understood', placeholder: 'Or answer in your own words…' });
+}
+// What "Skip" fills in: the server fills every gap from the example plan (plan.json), so show that plan's values.
+const skipPicks = () => { const p = S.state.plan; return p && typeof p === 'object' ? ['budget_eur', 'cash', 'cities', 'home', 'managed_by'].filter((k) => p[k] != null && p[k] !== '').map((k) => planValue(k, p[k])).join(' · ') : ''; };
+
+// ?replay=1: play the last saved interview again at a readable pace, for a clean take. Nothing is sent to the API.
+let replayed = false;  // plays once per page load
+async function replayInterview() {
+  const R = [store.get('inky.iv'), keep.get('inky.iv.last')].find((x) => x && x.prompt && Array.isArray(x.rounds) && x.rounds.length);
+  if (replayed || !R) return;
+  replayed = true;
+  const t = (ms) => sleep((ms * SLOW) / REPLAY), here = () => route() === 'task';
+  const type = async (el, text) => { for (let i = 1; i <= text.length && el.isConnected; i++) { el.value = text.slice(0, i); await t(32); } };
+  iv = { ...freshIv(R.prompt), messages: [{ role: 'user', content: R.prompt }], busy: true };
+  render(); await t(1400);
+  for (const r of R.rounds) {
+    if (!here()) break;
+    iv.busy = false; iv.rounds.push({ ...r, answers: null }); render(); await t(2200);
+    const ans = r.answers || [], qs = r.questions || [];
+    if (ans.length === qs.length && ans.every((a, i) => a.q === qs[i].text)) {
+      for (const [i, a] of ans.entries()) { const el = $(`form.round input[name=a${i}]`); if (el) await (a.a === 'You decide' ? (el.value = a.a, t(500)) : type(el, a.a)); await t(350); }
+    } else if (ans[0] && ans[0].q === 'In my own words' && $('#msg')) await type($('#msg'), ans[0].a);
+    await t(700);
+    iv.rounds[iv.rounds.length - 1].answers = ans; iv.busy = true; render(); await t(1500);
+  }
+  iv = { ...R, busy: false };
+  if (here() && R.done) location.hash = '#confirm'; else render();
 }
 
 const LABEL = { question: 'Question', budget_eur: 'Budget', cash: 'Paying', keep_years: 'Keep it', where: 'Where', cities: 'Cities', home: 'Home', tenants: 'Tenants', managed_by: 'Managed by', worst_case: 'Worst case', never: 'Never', currency: 'Currency' };
@@ -315,7 +513,8 @@ function confirm() {
         <div class="quote">${d.summary || plan.question || ''}</div>
         ${fmt.length ? h`<p>And here’s how I’ll show you what I find:</p><ul>${fmt.map((x) => h`<li>${x}</li>`)}</ul>` : ''}
         <p style="font-weight:600">Did I get it right?</p>
-        <div class="row"><a class="btn dark big" href="#research">Yes, start research</a><a class="btn big" href="#task">Change something</a></div>`)}`;
+        <div class="row"><button type="button" class="btn dark big" data-act="research" ${raw(jobOn() ? 'disabled' : '')}>${jobOn('research') ? 'Researching…' : 'Yes, start research'}</button><a class="btn big" href="#task">Change something</a></div>`)}
+      ${jobView('research')}`;
   const rows = plan ? Object.entries(plan).filter(([k]) => k !== 'never' && k !== 'question') : [];
   const panel = !plan ? empty('No plan yet', 'Start a new task and answer a few questions.') : h`<div class="row" style="align-items:stretch;gap:16px;flex-wrap:nowrap;flex:1">
     <div class="card big" style="flex:1;min-width:0">
@@ -342,7 +541,8 @@ function confirm() {
       </div>
       <span class="note">This is the format. Real homes fill it in after the research.</span>
     </div></div>`;
-  return page('confirm', { status: pill(plan ? 'Plan ready · check it' : 'No plan yet'), thread, panel, label: 'Your plan', placeholder: 'e.g. “actually, 2 bedrooms only”' });
+  const status = jobOn('research') ? pill('Researching', 'coral', true) : pill(plan ? `Plan ready · ${REPLAY ? 'replay' : 'check it'}` : 'No plan yet', REPLAY && 'coral', REPLAY);
+  return page('confirm', { status, thread, panel, label: 'Your plan', placeholder: 'e.g. “actually, 2 bedrooms only”' });
 }
 
 function researchView() {
@@ -358,8 +558,8 @@ function researchView() {
       has(r.llm_calls) && ['Asked GLM-5.3 to propose rules', `${num(r.llm_calls)} AI calls · $${Number(r.llm_cost_usd || 0).toFixed(2)}`],
     ])}
     ${lastV ? h`<p>Click the versions on the right to see how the rules got sharper. Shall I watch ${lastV.zones === 1 ? 'this neighbourhood' : `these ${plural(lastV.zones, 'neighbourhood')}`} every 15 minutes?</p>` : ''}
-    <div class="row"><a class="btn dark" href="#screen">Yes, watch them</a><button type="button" class="btn" data-act="focus">Change a rule</button></div>
-    <p class="note">Research, not financial advice. Check with a local notary before you buy.</p>`, 'glasses')}`;
+    <div class="row"><button type="button" class="btn dark" data-act="build" ${raw(jobOn() ? 'disabled' : '')}>${jobOn('build') ? 'Building…' : 'Yes, watch them'}</button><button type="button" class="btn" data-act="focus">Change a rule</button></div>
+    <p class="note">Research, not financial advice. Check with a local notary before you buy.</p>`, 'glasses')}${jobView('build')}`;
   if (!r) return page('research', { status: pill('No research yet'), acc: 'glasses', thread, panel: empty(), placeholder: 'Ask why a rule is there…' });
   const max = Math.max(1, ...vs.map((x) => x.matches || 0));
   const vr = v ? versionRules(vs, S.v) : [];
@@ -387,9 +587,33 @@ function researchView() {
       </div></div>` : empty('No rule versions yet')}
     ${zones.length ? h`<div class="card" style="padding:0"><table class="tbl">
       <thead><tr><th>${zones.length === 1 ? 'Top neighbourhood' : `Top ${zones.length} neighbourhoods`}</th><th>Yield after costs</th><th>Price trend</th><th>Rentals nearby</th><th>Matches</th><th style="text-align:right"><a class="muted" href="#results">${has(matchTotal()) ? `All ${plural(matchTotal(), 'home')}` : 'All homes'} →</a></th></tr></thead>
-      <tbody>${zones.map((z) => h`<tr><td><b>${city(z.city)} · ${z.zone}</b></td><td class="num">${pct(z.net_yield)}</td><td class="num">${has(z.price_trend) ? (z.price_trend >= 0 ? '+' : '') + z.price_trend + '%/yr' : '–'}</td><td>${num(z.rent_listings)}</td><td>${num(z.matches)}</td><td style="text-align:right" class="${money(z.city) === 'złoty' ? 'hot' : 'muted'}">${money(z.city)}</td></tr>`)}</tbody>
-    </table></div>` : ''}`;
-  return page('research', { status: pill('Research done', 'coral', true), acc: 'glasses', thread, panel, placeholder: 'Ask why a rule is there…' });
+      <tbody>${zones.map((z) => h`<tr><td><b>${city(z.city)} · ${z.zone}</b></td><td class="num">${pct(z.net_yield)}</td><td class="num">${trend(z.price_trend)}</td><td>${num(z.rent_listings)}</td><td>${num(z.matches)}</td><td style="text-align:right" class="${money(z.city) === 'złoty' ? 'hot' : 'muted'}">${money(z.city)}</td></tr>`)}</tbody>
+    </table></div>` : ''}
+    ${bestPerCity(r)}
+    <span class="note">${honest(r)}</span>`;
+  return page('research', { status: jobOn('build') ? pill('Building in n8n', 'coral', true) : pill('Research done', 'coral', true), acc: 'glasses', thread, panel, placeholder: 'Ask why a rule is there…' });
+}
+const trend = (t) => (has(t) ? (t >= 0 ? '+' : '') + t + '%/yr' : '–');
+const COUNTRY = { porto: 'PT', bari: 'IT', lodz: 'PL' }, NATION = { PT: 'Portugal', IT: 'Italy', PL: 'Poland' };
+const costsOf = (m) => { const c = research() && research().costs; return (c && c[m.country || COUNTRY[m.city]]) || null; };
+const honest = (r) => `Yields are estimates from asking prices and asking rents. Price trend is per country (Eurostat${r && r.price_trend_period ? ' ' + r.price_trend_period : ''}), not per street. Łódź districts are approximate.`;
+// Best per city, even where nothing passes: "Porto: prices +17.8% a year, but the best yield after costs is only 3.1%".
+function bestPerCity(r) {
+  const b = r.best_by_city || {}, bc = r.by_city || {};
+  const cities = [...new Set([...Object.keys(b), ...Object.keys(bc)])];
+  if (!cities.length) return '';
+  return h`<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="between"><span class="h3">Best per city</span><span class="mono small">estimates</span></div>
+    <div class="cities">${cities.map((c) => {
+      const x = b[c] || {}, y = bc[c] || {}, z = y.best_zone || {}, cc = costsOf({ city: c });
+      const yv = pick(x, 'net_yield') ?? z.net_yield, zone = x.zone || z.zone, t = cc && has(cc.price_trend) ? cc.price_trend : z.price_trend;
+      const n = pick(x, 'matches') ?? y.matches, fails = [].concat(x.failed || []);
+      const passText = has(n) ? (Number(n) ? `${plural(n, 'home')} ${Number(n) === 1 ? 'passes' : 'pass'} the rules.` : 'No home passes the rules.') : '';
+      // nothing passes: say it plainly (E3); the server's longer reason stays in the tooltip
+      const why = has(n) && !Number(n) && has(yv) ? `${has(t) ? `Prices ${t >= 0 ? '+' : ''}${t}% a year, but t` : 'T'}he best yield after costs is only ${pct(yv)}. No home passes.`
+        : x.reason || [fails.length && `This one misses ${fails.join(', ')}.`, passText].filter(Boolean).join(' ');
+      return h`<div class="city ${has(n) && !Number(n) ? 'none' : ''}" title="${x.reason || ''}"><div class="between"><b>${city(c)}</b><span class="mono small">${has(t) ? `prices ${trend(t)}` : ''}</span></div>
+        <span class="city-n">${has(yv) ? pct(yv) : '–'}</span><span class="small">best yield after costs${zone ? ' · ' + zone : ''}</span>${why ? h`<span class="note">${why}</span>` : ''}</div>`;
+    })}</div></div>`;
 }
 
 // Program: teach/learn.py writes {site, start_url, learned_at, llm_calls, llm_cost_usd, shortcut, steps: [{n, do, label, target: {css}}], item: {selector, fields: {name: {css, attr, type}}}}
@@ -446,9 +670,14 @@ const pace = (used, secs) => (has(used) ? Math.max(0.6, Math.min(4, (3.6 * used)
 function fast() {
   const r = raceData(), a = r && r.agent;
   const calls = (n) => (has(n) ? ` · ${num(n)} AI ${Number(n) === 1 ? 'call' : 'calls'}` : '');
+  // "all 96 Bari flats under €200k in 19.7 s": "all" only when a window ran out of pages, so the program really reached the end
+  const prog = S.state.program || {}, maxPrice = programSteps(prog).map((x) => /price/i.test(x.label || '') && Number(x.value)).find((x) => x > 0);
+  const per = r ? r.per.map(Number) : [], emptyW = per.filter((n) => !n).length, ranOut = per.length > 1 && Math.min(...per) < Math.max(...per);
+  const what = r && has(r.listings) ? `${ranOut ? 'all ' : ''}${num(r.listings)} ${prog.city ? city(prog.city) + ' ' : ''}flats${maxPrice ? ` under €${maxPrice >= 1000 ? Math.round(maxPrice / 1000) + 'k' : num(maxPrice)}` : ''}` : '';
   const thread = h`<a class="stamp" href="#screen">↑ The program, slowly</a>${me('Show me all of them at full speed.')}${inky(!r
     ? h`<p>Turbo runs the same program in many windows at once, with no AI. The numbers show up after the first race.</p>`
-    : h`<p>Here ${r.nWin === 1 ? 'is the window' : `are all ${num(r.nWin)} windows`}. It’s the same program in each one, with no AI.${has(r.used) ? ` It read everything in ${num(r.used)} seconds.` : ''}</p>
+    : h`<p>${what ? `Inky’s program read ${what}${has(r.used) ? ` in ${num(r.used)} s` : ''}, in ${plural(r.nWin, 'window')} at once. ` : `Here ${r.nWin === 1 ? 'is the window' : `are all ${num(r.nWin)} windows`}. `}It’s the same program in each one, with no AI.</p>
+      ${emptyW ? h`<p class="note">${emptyW === 1 ? 'One window found nothing' : `${num(emptyW)} windows found nothing`}: the others had already read every page.</p>` : ''}
       ${logLines([has(r.listings) && [`Checked ${num(r.listings)} listings${has(r.pages) ? ` on ${num(r.pages)} pages` : ''}`, [has(r.perSec) && `${num(r.perSec)} per second`, has(r.calls) && `${num(r.calls)} AI calls`].filter(Boolean).join(' · ')],
         a && has(a.listings) && [`An AI clicking agent read ${num(a.listings)}${has(a.used) ? ` in ${num(a.used)} s` : ''}`, [has(a.calls) && `${num(a.calls)} AI calls`, has(a.cost) && `$${Number(a.cost).toFixed(2)}`].filter(Boolean).join(' · ')]])}
       ${a ? h`<p class="note">A clicking agent asks the AI before every click. Inky’s program doesn’t need to.</p>` : ''}`, 'headphones')}`;
@@ -461,19 +690,58 @@ function fast() {
       <div class="race"><span style="font-weight:500">Inky</span><div class="track"><div style="width:100%;background:var(--coral);--dur:${pace(r.used, r.secs)}s"></div></div><span class="mono" style="font-size:13px;text-align:right">${count(r.listings)}${calls(r.calls)}</span>
         <span class="muted">Clicking agent</span><div class="track"><div style="width:${Math.max(1, Math.min(100, (100 * a.listings) / Math.max(1, r.listings)))}%;background:var(--faint);--dur:${pace(a.used, r.secs)}s"></div></div><span class="mono muted" style="font-size:13px;text-align:right">${count(a.listings)}${calls(a.calls)}</span></div>
     </div>` : ''}
-    ${r.per.length ? h`<div class="arms">${r.per.map((n, i) => h`<div class="arm" style="--i:${i}"><div class="arm-h"><span>Window ${i + 1}</span><span class="mono muted" style="font-size:11px;font-weight:400">✓ ${num(n)}</span></div>
-      <div class="arm-b"><div class="bar"><div class="grow" style="width:${Math.round((100 * (Number(n) || 0)) / maxW)}%;background:var(--coral);--delay:${300 + i * 70}ms"></div></div><span class="muted" style="font-size:11.5px">${num(n)} listings · no AI</span></div></div>`)}</div>` : ''}
+    ${r.per.length ? h`<div class="arms">${r.per.map((n, i) => h`<div class="arm ${Number(n) ? '' : 'idle'}" style="--i:${i}"><div class="arm-h"><span>Window ${i + 1}</span><span class="mono muted" style="font-size:11px;font-weight:400">${Number(n) ? `✓ ${num(n)}` : 'empty'}</span></div>
+      <div class="arm-b"><div class="bar"><div class="grow" style="width:${Math.round((100 * (Number(n) || 0)) / maxW)}%;background:var(--coral);--delay:${300 + i * 70}ms"></div></div><span class="muted" style="font-size:11.5px">${Number(n) ? `${num(n)} listings · no AI` : 'no pages left to read'}</span></div></div>`)}</div>` : ''}
     <div class="stats">${stat('Inky’s time', has(r.used) ? num(r.used) + ' s' : '')}${stat('Listings', has(r.listings) ? num(r.listings) : '')}${stat('Per second', has(r.perSec) ? num(r.perSec) : '')}${stat('AI calls', has(r.calls) ? num(r.calls) : '')}${stat('Agent’s AI cost', a && has(a.cost) ? '$' + Number(a.cost).toFixed(2) : '', true)}</div>
     ${r.at ? h`<span class="note">Raced ${day(r.at)} ${clock(r.at)}.</span>` : ''}`;
   return page('fast', { status: livePill(), acc: 'headphones', thread, panel, placeholder: 'Say “slow down”, or change a rule…' });
 }
 
+// "Why 6.8%?": the same sum inky.js does in n8n, written out. Needs the rent estimate and the country's costs from research.json.
+function breakdown(m) {
+  const c = costsOf(m), size = Number(m.size_m2), price = Number(m.price_eur);
+  if (!c || !(size > 0) || !(price > 0)) return null;
+  const perM2 = has(m.rent_m2) ? Number(m.rent_m2) : has(m.rent_month) ? m.rent_month / size : null;
+  if (!has(perM2)) return null;
+  const month = perM2 * size, year = month * 12, vac = year * c.vacancy, got = year - vac;
+  const agency = got * c.management, tax = got * c.rent_tax, upkeep = price * c.upkeep, net = got - agency - tax - upkeep, paid = price * (1 + c.buy_costs);
+  return { c, perM2, month, year, vac, agency, tax, upkeep, net, paid, pct: (100 * net) / paid, n: pick(m, 'n_rent', 'zone_rent_listings'), nation: NATION[m.country || COUNTRY[m.city]] || '' };
+}
+const share100 = (x) => `${+(x * 100).toFixed(1)}%`;
+function whyRow(m, b) {
+  const line = (k, v, cls = '') => h`<div class="${cls}"><span>${k}</span><span class="mono">${v}</span></div>`;
+  const minus = (x) => '−' + eur(x);
+  return h`<tr class="why-row"><td colspan="6"><div class="whybox">
+    <div class="between"><span class="h3">Why ${pct(b.pct)}?</span><span class="tag">estimate</span></div>
+    <p class="note" style="margin:0">Rent about <b style="color:var(--ink)">${eur(b.month)} a month</b>: ${has(b.n) ? `${plural(b.n, 'rental')} nearby ask` : 'rentals nearby ask'} about €${b.perM2.toFixed(2)} per m², times ${Math.round(Number(m.size_m2))} m².</p>
+    <div class="sum">
+      ${line('Rent for a year', eur(b.year))}
+      ${line(`Empty months, ${share100(b.c.vacancy)}`, minus(b.vac))}
+      ${line(`Agency, ${share100(b.c.management)} of the rent`, minus(b.agency))}
+      ${line(`Rent tax${b.nation ? ' in ' + b.nation : ''}, ${share100(b.c.rent_tax)}`, minus(b.tax))}
+      ${line(`Upkeep, ${share100(b.c.upkeep)} of the price a year`, minus(b.upkeep))}
+      ${line('Left each year', eur(b.net), 'tot')}
+      ${line(`Price ${eur(m.price_eur)} + buying costs ${share100(b.c.buy_costs)}`, eur(b.paid))}
+      ${line('Yield after costs', pct(b.pct), 'tot hot')}
+    </div>
+    <span class="note">${has(b.c.price_trend) ? `The price trend, ${b.c.price_trend >= 0 ? '+' : ''}${b.c.price_trend}% a year, is for all of ${b.nation || 'the country'} (Eurostat${research().price_trend_period ? ' ' + research().price_trend_period : ''}), not this street. ` : ''}Rent and costs are estimates, not quotes.${m.city === 'lodz' ? ' Łódź districts are approximate.' : ''}</span>
+  </div></td></tr>`;
+}
+const seenUrls = () => { if (!S.seenBase) { S.seenBase = keep.get('inky.seen') || []; } return S.seenBase; };
+const chip = (act, v, on, text) => h`<button type="button" class="fchip" data-act="${act}" data-v="${v}" aria-pressed="${String(on)}">${text}</button>`;
 function results() {
-  const r = research(), saved = (r && r.matches) || [], ms = saved.filter(passes), last = [...S.log].reverse().find((x) => x.res);
-  const total = matchTotal(), hidden = saved.length - ms.length;
-  const headline = has(total) ? plural(total, 'home matches', 'homes match') : plural(ms.length, 'saved home passes', 'saved homes pass');
+  const r = research(), saved = (r && r.matches) || [], passing = saved.filter(passes), last = [...S.log].reverse().find((x) => x.res);
+  const total = matchTotal(), hidden = saved.length - passing.length;
+  // what's new since you last looked: the homes whose link wasn't on screen the last time (per browser)
+  const base = seenUrls(), urls = saved.map((m) => m.url).filter(Boolean);
+  if (urls.some((u) => !base.includes(u))) keep.set('inky.seen', [...new Set([...base, ...urls])].slice(-2000));
+  const isNew = (m) => base.length > 0 && m.url && !base.includes(m.url);
+  const ms = passing.filter((m) => (!S.f.city || m.city === S.f.city) && (!S.f.min || (m.net_yield || 0) >= S.f.min)).sort((a, b) => (b.net_yield || 0) - (a.net_yield || 0));
+  const cities = [...new Set(passing.map((m) => m.city).filter(Boolean))];
+  const fresh = passing.filter(isNew).length;
+  const headline = has(total) ? plural(total, 'home matches', 'homes match') : plural(passing.length, 'saved home passes', 'saved homes pass');
   const bigHeadline = has(total) ? h`${count(total, 'matches')} ${Number(total) === 1 ? 'home matches' : 'homes match'}` : headline;
-  const best = ms.reduce((b, m) => (!b || (m.net_yield || 0) > (b.net_yield || 0) ? m : b), null);
+  const best = passing.reduce((b, m) => (!b || (m.net_yield || 0) > (b.net_yield || 0) ? m : b), null);
   const top = r && r.top_zones && r.top_zones[0];
   const cur = finalRules().find((x) => x.field === 'currency');
   const idea = cur && cur.op === '==' && cur.value === 'EUR' ? 'Also allow homes priced in złoty' : 'Only places with the euro';
@@ -482,29 +750,53 @@ function results() {
     : h`<p>I checked ${num(r.listings_read)} listings.</p>${logLines([
       [headline, best && `best: ${best.title || 'a flat'} in ${best.zone}, ${pct(best.net_yield)} after costs`],
       top && [r.top_zones.length === 1 ? 'Top neighbourhood' : `${num(r.top_zones.length)} top neighbourhoods`, `${r.top_zones.length === 1 ? '' : 'first: '}${top.zone}, ${city(top.city)}`],
-    ])}<div class="row"><button type="button" class="btn" data-act="fill" data-text="${idea}">${idea}</button></div>`)}`;
+    ])}<div class="row"><button type="button" class="btn dark" data-act="best" ${raw(S.busy ? 'disabled' : '')}>${TG}Send me the best 3 now</button><button type="button" class="btn" data-act="fill" data-text="${idea}">${idea}</button></div>`)}`;
   const panel = h`<div class="seg"><span aria-current="page">Homes</span><a href="#activity">Activity</a></div>
     ${!r ? empty() : h`
       <div class="between" style="align-items:center"><h2 class="h2">${bigHeadline}</h2>${finalRules().length ? h`<span class="mono small">rules ${finalRules()[0].id}–${finalRules()[finalRules().length - 1].id}</span>` : ''}</div>
       <span class="mono small" style="margin-top:-8px">from ${num(r.listings_read)} listings${r.at ? ' · research ' + day(r.at) + ' ' + clock(r.at) : ''}${ms.length && has(total) && ms.length < total ? ` · showing ${num(ms.length)}` : ''}</span>
       ${last ? h`<div class="card" style="border-color:var(--coral);background:var(--blush);padding:12px 16px;display:flex;justify-content:space-between;gap:12px;align-items:baseline"><span style="font-size:14px"><b class="hot">Last change</b> · ${last.res.change}</span>${has(last.res.matches_before) && has(last.res.matches_after) ? h`<span class="mono" style="font-size:13px;white-space:nowrap">${num(last.res.matches_before)} → ${plural(last.res.matches_after, 'home')}</span>` : ''}</div>` : ''}
+      ${passing.length > 1 ? h`<div class="filters" role="group" aria-label="Filter homes">
+        ${chip('fcity', '', S.f.city === '', `All ${num(passing.length)}`)}${cities.map((c) => chip('fcity', c, S.f.city === c, `${city(c)} · ${num(passing.filter((m) => m.city === c).length)}`))}
+        <span class="fsep" aria-hidden="true"></span>${[0, 5, 6, 7].map((y) => chip('fmin', y, S.f.min === y, y ? `${y}%+` : 'Any yield'))}
+        ${fresh ? h`<span class="newnote"><span class="newtag">new</span> ${plural(fresh, 'home')} since you last looked</span>` : ''}</div>` : ''}
       ${ms.length ? h`<div class="card" style="padding:0;overflow:hidden"><table class="tbl">
         <thead><tr><th>Home</th><th>Where</th><th>Price</th><th>Size</th><th>After costs</th><th></th></tr></thead>
-        <tbody>${ms.map((m) => h`<tr><td><div class="clip" title="${m.title || ''}">${m.title || 'Flat'}</div><div class="sub">${has(m.bedrooms) ? plural(m.bedrooms, 'bedroom') : ''}</div></td>
-          <td>${m.zone || ''}<div class="sub">${city(m.city)}</div></td><td class="num">${eur(m.price_eur)}</td><td class="num">${has(m.size_m2) ? Math.round(m.size_m2) + ' m²' : '–'}</td><td class="num">${pct(m.net_yield)}</td>
-          <td style="text-align:right">${safeUrl(m.url) ? h`<a href="${m.url}" target="_blank" rel="noopener" class="muted" aria-label="Open listing">↗</a>` : ''}</td></tr>`)}</tbody>
-      </table></div>` : saved.length ? empty('None of the saved homes pass the new rules', 'The next research run lists the homes that do.') : empty('No homes match these rules', 'Change a rule in the message box.')}
+        <tbody>${ms.map((m, i) => { const b = breakdown(m), key = m.url || m.title + m.price_eur, open = b && S.why.has(key);
+          return h`<tr class="${i === 0 ? 'best' : ''}"><td><div class="clip" title="${m.title || ''}">${m.title || 'Flat'}</div><div class="sub">${i === 0 ? h`<span class="besttag">best now</span>` : ''}${isNew(m) ? h`<span class="newtag">new</span>` : ''}${has(m.bedrooms) ? plural(m.bedrooms, 'bedroom') : ''}</div></td>
+          <td>${m.zone || ''}<div class="sub">${city(m.city)}</div></td><td class="num">${eur(m.price_eur)}</td><td class="num">${has(m.size_m2) ? Math.round(m.size_m2) + ' m²' : '–'}</td>
+          <td class="num">${b ? h`<button type="button" class="whybtn" data-act="why" data-k="${key}" aria-expanded="${String(!!open)}" aria-label="Why ${pct(m.net_yield)}?">${pct(m.net_yield)}<small>why?</small></button>` : pct(m.net_yield)}</td>
+          <td style="text-align:right">${safeUrl(m.url) ? h`<a href="${m.url}" target="_blank" rel="noopener" class="muted" aria-label="Open listing">↗</a>` : ''}</td></tr>${open ? whyRow(m, b) : ''}`; })}</tbody>
+      </table></div>` : passing.length ? empty('No home fits these filters', 'Pick another city or a lower yield.') : saved.length ? empty('None of the saved homes pass the new rules', 'The next research run lists the homes that do.') : empty('No homes match these rules', 'Change a rule in the message box.')}
       ${hidden > 0 ? h`<span class="note">The rules changed after the research, so ${plural(hidden, 'saved home')} that no longer ${hidden === 1 ? 'passes is' : 'pass are'} hidden.</span>` : ''}
       <span class="note">Research, not financial advice. Check with a local notary before you buy.</span>`}`;
   return page('results', { status: livePill(), thread, panel, placeholder: 'Change a rule in your own words…' });
 }
 
-const SOURCES = [['idealista · Porto', 'igolaizola~idealista-scraper'], ['idealista · Bari', 'igolaizola~idealista-scraper'], ['immobiliare · Bari', 'memo23~immobiliare-scraper'], ['otodom · Łódź', 'trev0n~otodom-scraper']];
+const SOURCES = [['idealista · Porto', 'igolaizola~idealista-scraper'], ['idealista · Bari', 'igolaizola~idealista-scraper'], ['immobiliare · Bari', 'memo23~immobiliare-scraper'], ['otodom · Łódź', 'trev0n~otodom-scraper'], ['tecnocasa · Bari', 'cavernous_stew~inky-tecnocasa-homes']];
 const secsBetween = (a, b) => (a && b ? (new Date(b) - new Date(a)) / 1000 : null);
 const secsText = (x) => (has(x) ? (x < 10 ? x.toFixed(1) : Math.round(x)) + ' s' : '');
 // seconds from the start of an execution to the end of one of its steps (steps run one after another)
 const upTo = (r, name) => { let t = 0; for (const [n, x] of Object.entries((r && r.nodes) || {})) { t += (x.ms || 0) / 1000; if (n === name) break; } return t; };
-const bigIcon = (svg) => raw(svg.__raw.replace(/width="1[56]" height="1[56]"/, 'width="22" height="22"'));
+const bigIcon = (svg, n = 22) => raw(svg.__raw.replace(/width="1[56]" height="1[56]"/, `width="${n}" height="${n}"`));
+// The repair's audit trail: the broken step's settings before and after the fix, only the changed keys highlighted.
+const parsed = (x) => { if (typeof x === 'string') { try { return JSON.parse(x); } catch { /* plain text */ } } return x; };
+function flat(o, p = '', out = {}) {
+  if (o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length) for (const [k, v] of Object.entries(o)) flat(v, p ? `${p}.${k}` : k, out);
+  else out[p || 'value'] = typeof o === 'string' ? o : JSON.stringify(o);
+  return out;
+}
+function diffView(before, after) {
+  if (before == null && after == null) return '';
+  const a = flat(parsed(before)), b = flat(parsed(after)), keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  const changed = keys.filter((k) => a[k] !== b[k]), same = keys.filter((k) => a[k] === b[k]);
+  if (!changed.length) return '';
+  const val = (v) => (String(v).length > 70 ? String(v).slice(0, 69) + '…' : String(v)), ctx = same.slice(0, 3);
+  return h`<div class="diff" aria-label="What the fix changed">
+    ${ctx.map((k) => h`<div class="same"><i> </i>${k}: ${val(a[k])}</div>`)}
+    ${changed.map((k) => h`${k in a ? h`<div class="del"><i>−</i>${k}: ${val(a[k])}</div>` : ''}${k in b ? h`<div class="add"><i>+</i>${k}: ${val(b[k])}</div>` : ''}`)}
+    ${same.length > ctx.length ? h`<div class="same more">${plural(same.length - ctx.length, 'other setting')} unchanged</div>` : ''}</div>`;
+}
 
 // The workflow screen answers three questions in plain words: what happens every 15 minutes, what happens when
 // something breaks, and how the recent runs went. Every number is from the real n8n executions (/api/run_detail).
@@ -516,7 +808,8 @@ function workflow() {
   const node = (r, n) => (r && r.nodes && r.nodes[n]) || null;
   const items = (r, n) => (node(r, n) ? node(r, n).items : null);
   const read = ok ? SOURCES.reduce((a, [n]) => a + (items(ok, n) || 0), 0) : null;
-  const sites = ok ? SOURCES.filter(([n]) => node(ok, n)).length : SOURCES.length;
+  // sites, not steps: idealista feeds two cities
+  const sites = new Set((ok ? SOURCES.filter(([n]) => node(ok, n)) : SOURCES).map(([n]) => n.split(' · ')[0])).size;
   const score = node(ok, 'Score · rules');
   const matched = score ? score.items : null;
   const asked = items(ok, 'Ask me on Telegram') ?? (matched === 0 ? 0 : null);
@@ -528,7 +821,7 @@ function workflow() {
   const thread = h`${me('How does this actually run?')}${inky(h`<p>Without me. I turned your plan into a workflow in your own n8n. Every 15 minutes it reads the newest listings with Apify, scores them on ${ruleIds} with no AI, and asks you on Telegram when a home fits.</p>
     ${main ? h`${logLines([
       ok && [`Last run: ${plural(read, 'listing')} read`, `${plural(matched, 'match', 'matches')}${has(took) ? `, took ${secsText(took)}` : ''}`],
-      [`${plural(runs.length, 'run')} so far`, failed ? `${num(failed)} failed, ${rep ? 'fixed by the repair workflow' : 'check Activity'}` : 'none failed'],
+      [`${plural(runs.length, 'run')} so far`, failed ? `${num(failed)} failed${rep ? ` · ${num((S.summary && S.summary.repairs) || 1)} fixed by the repair workflow` : ', check Activity'}` : 'none failed'],
       rep && ['Fixed one broken step on its own', rep.change],
     ])}
       <div class="row">${ext(main, 'Open in n8n', 'btn dark')}<a class="btn" href="#activity">All runs</a></div>` : h`<p class="note">It gets built after the research. Nothing is running yet.</p>`}`)}
@@ -536,16 +829,26 @@ function workflow() {
 
   if (!main) return page('workflow', { status: livePill(), thread, panel: empty(), placeholder: 'Ask what a step does, or change a rule…' });
 
-  const stage = (i, ic, title, n, unit, sub, hot) => h`<div class="stage ${hot ? 'hot' : ''}" style="--i:${i}">
+  const stage = (i, ic, title, n, unit, sub, hot, extra) => h`<div class="stage ${hot ? 'hot' : ''}" style="--i:${i}">
     <div class="stage-ic">${ic}</div><span class="stage-t">${title}</span>
     <span class="stage-n">${has(n) ? h`<b>${count(n, 'st' + i, 300 + i * 380)}</b>` : h`<b>–</b>`}<span>${unit}</span></span>
-    <span class="stage-s">${sub}</span></div>`;
+    ${extra ? h`<span class="stage-x">${extra}</span>` : ''}<span class="stage-s">${sub}</span></div>`;
+  // Totals for the last 24 h (/api/summary) next to the last run, so a quiet run doesn't read as a dead "0 · 0 · 0".
+  const sm = S.summary, day24 = (n, one, many) => `${Number(n) === 1 ? one : many} in 24 h`;
+  const lastMatch = sm && Array.isArray(sm.per_run) ? sm.per_run.filter((x) => Number(x.matches) > 0).sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] : null;
+  const lastRun = (n) => (has(n) ? `last run ${num(n)}` : '');
   const pipe = (i) => h`<div class="pipe" style="--i:${i}" aria-hidden="true"><i></i><i></i><i></i></div>`;
   const flow = h`<div class="flow">
-    ${stage(0, bigIcon(APIFY), `Read ${num(sites)} sites`, read, 'new listings', 'idealista, immobiliare and otodom, through Apify')}${pipe(0)}
-    ${stage(1, '{ }', 'Score them, no AI', matched, matched === 1 ? 'match' : 'matches', `rules ${ruleIds}${score && has(score.ms) ? ` · ${secsText(score.ms / 1000)}` : ''} · 0 AI calls`)}${pipe(1)}
-    ${stage(2, bigIcon(TG), 'Ask you', asked, asked === 1 ? 'question' : 'questions', 'on Telegram, then it waits for your tap', !!asked)}${pipe(2)}
-    ${stage(3, icon(P.mail, 20, 1.8), 'Save a draft', drafted, drafted === 1 ? 'Gmail draft' : 'Gmail drafts', 'to the agent, never sent: you press send')}</div>`;
+    ${sm ? stage(0, bigIcon(APIFY), `Read ${num(sites)} sites`, sm.listings_checked, day24(sm.listings_checked, 'listing checked', 'listings checked'), 'idealista, immobiliare, otodom and Tecnocasa, through Apify', false,
+        [lastRun(read), has(sm.new_listings) && `${num(sm.new_listings)} new`].filter(Boolean).join(' · '))
+      : stage(0, bigIcon(APIFY), `Read ${num(sites)} sites`, read, 'new listings', 'idealista, immobiliare, otodom and Tecnocasa, through Apify')}${pipe(0)}
+    ${sm ? stage(1, '{ }', 'Score them, no AI', sm.matches, day24(sm.matches, 'match', 'matches'), `rules ${ruleIds} · 0 AI calls`, false,
+        [lastRun(matched), lastMatch && `last match ${day(lastMatch.startedAt)} ${clock(lastMatch.startedAt)}`].filter(Boolean).join(' · '))
+      : stage(1, '{ }', 'Score them, no AI', matched, matched === 1 ? 'match' : 'matches', `rules ${ruleIds}${score && has(score.ms) ? ` · ${secsText(score.ms / 1000)}` : ''} · 0 AI calls`)}${pipe(1)}
+    ${sm ? stage(2, bigIcon(TG), 'Ask you', sm.matches, day24(sm.matches, 'question', 'questions'), 'on Telegram, one per match, then it waits for your tap', !!Number(sm.matches), lastRun(asked))
+      : stage(2, bigIcon(TG), 'Ask you', asked, asked === 1 ? 'question' : 'questions', 'on Telegram, then it waits for your tap', !!asked)}${pipe(2)}
+    ${has(drafted) || !sm ? stage(3, icon(P.mail, 20, 1.8), 'Save a draft', drafted, drafted === 1 ? 'Gmail draft' : 'Gmail drafts', 'to the agent, never sent: you press send')
+      : stage(3, icon(P.mail, 20, 1.8), 'Save a draft', S.runs.filter((e) => e.status === 'waiting').length, 'waiting for your tap', 'to the agent, never sent: you press send')}</div>`;
 
   const repairAt = rep && (rep.failed ? rep.failed.startedAt : rep.startedAt);
   const fixSecs = rep ? secsBetween(rep.startedAt, rep.stoppedAt) : null;
@@ -554,9 +857,9 @@ function workflow() {
       <div class="between" style="align-items:center"><span class="h3">${day(repairAt)}, ${clock(repairAt)} · a step broke</span><span class="badge">${icon(P.check, 13, 3)}fixed in ${secsText(fixSecs)}</span></div>
       <div class="tl">
         <div class="tl-s" style="--i:0"><span class="t">${clock(repairAt)}</span><span><b>${rep.step || 'A step'} failed</b>${rep.error || 'The step returned an error.'}</span></div>
-        <div class="tl-s" style="--i:1"><span class="t">+${secsText(upTo(rep, 'GLM-5.3 fixes one step'))}</span><span><b>GLM-5.3 rewrote that one step</b>${rep.change ? h`<code>${rep.change}</code>` : ''}</span></div>
+        <div class="tl-s" style="--i:1"><span class="t">+${secsText(upTo(rep, 'GLM-5.3 fixes one step'))}</span><span><b>GLM-5.3 rewrote that one step</b>${rep.change ? h`<code>${rep.change}</code>` : ''}${diffView(rep.before, rep.after)}</span></div>
         <div class="tl-s" style="--i:2"><span class="t">+${secsText(fixSecs)}</span><span><b>Saved and published the fix</b>in your n8n, and told you on Telegram</span></div>
-        ${again ? h`<div class="tl-s ok" style="--i:3"><span class="t">${clock(again.startedAt)}</span><span><b>Ran again${again.status === 'success' ? ' and worked' : ''}</b>${again.status === 'success' ? `all ${num(SOURCES.length)} sites read${has(secsBetween(again.startedAt, again.stoppedAt)) ? `, took ${secsText(secsBetween(again.startedAt, again.stoppedAt))}` : ''}` : again.status || 'running'}</span></div>` : ''}
+        ${again ? h`<div class="tl-s ok" style="--i:3"><span class="t">${clock(again.startedAt)}</span><span><b>Ran again${again.status === 'success' ? ' and worked' : ''}</b>${again.status === 'success' ? `every site read${has(secsBetween(again.startedAt, again.stoppedAt)) ? `, took ${secsText(secsBetween(again.startedAt, again.stoppedAt))}` : ''}` : again.status || 'running'}</span></div>` : ''}
       </div>
       <div class="between" style="align-items:center"><span class="note">It only touches the broken step, at most once an hour. Anything else, it asks you.</span>${ext(repair, 'Open repair', 'hot nowrap')}</div>
     </div>`
@@ -573,6 +876,7 @@ function workflow() {
     </div>
     <div class="sec"><h3>Every 15 minutes</h3>${ok ? h`<span class="mono small">last full run ${day(ok.startedAt)} ${clock(ok.startedAt)}${has(took) ? ` · took ${secsText(took)}` : ''}</span>` : ''}</div>
     ${flow}
+    ${sm ? h`<span class="mono small">Last 24 h: ${[plural(sm.runs, 'run'), has(sm.failed) && `${num(sm.failed)} failed`, has(sm.repairs) && plural(sm.repairs, 'repair'), usdRun(sm), has(sm.ai_calls) && plural(sm.ai_calls, 'AI call')].filter(Boolean).join(' · ')}</span>` : ''}
     <div class="sec"><h3>When something breaks</h3></div>
     ${incident}
     <div class="sec"><h3>Recent runs</h3><a class="mono small" href="#activity">${plural(runs.length, 'run')} · ${num(failed)} failed →</a></div>
@@ -589,19 +893,33 @@ function runTag(s) {
   return [s || 'unknown', false];
 }
 function activity() {
-  const nn = n8n(), runs = S.runs, main = safeUrl(nn.main_url);
+  const nn = n8n(), runs = S.runs, main = safeUrl(nn.main_url), sm = S.summary;
   const tally = (f) => runs.filter(f).length;
   const secs = runs.map((e) => (e.startedAt && e.stoppedAt ? (new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000 : null)).filter((x) => x != null);
-  const thread = h`${me('What have you done so far?')}${inky(h`<p>${runs.length ? 'Every run is on the right. Each one is also in n8n and Apify, so you can check me.' : 'No runs yet. Every run shows up here once the workflow is live.'}</p>
+  const thread = h`${me('What have you done so far?')}${inky(h`<p>${runs.length ? 'Every run is on the right. Open one to see what each site gave. Each run is also in n8n and Apify, so you can check me.' : 'No runs yet. Every run shows up here once the workflow is live.'}</p>
+    ${sm ? logLines([[`Last 24 h: ${plural(sm.runs, 'run')}, ${plural(sm.listings_checked, 'listing')} checked`, [has(sm.new_listings) && `${num(sm.new_listings)} new`, `${plural(sm.matches, 'match', 'matches')}`, has(sm.ai_calls) && plural(sm.ai_calls, 'AI call')].filter(Boolean).join(' · ')],
+      has(sm.apify_usd) && [`${usd(sm.apify_usd)} on Apify in 24 h`, has(sm.apify_usd_runs) ? `${usd(sm.apify_usd_runs)} of it by these runs${has(sm.apify_usd_per_run) ? `, about ${usd(sm.apify_usd_per_run)} a run` : ''}; the rest was research` : '']]) : ''}
     <div class="row">${ext(main && main + '/executions', 'n8n runs')}<a class="btn" href="https://console.apify.com/actors/runs" target="_blank" rel="noopener">Apify runs ↗</a></div>`)}`;
   const link = (e) => { const base = safeUrl(e.workflow === 'repair' ? nn.repair_url : nn.main_url); return base ? `${base}/executions/${encodeURIComponent(e.id)}` : ''; };
+  const per = new Map((sm && Array.isArray(sm.per_run) ? sm.per_run : []).map((x) => [String(x.id), x]));
+  const stats = sm ? [['Runs · 24 h', sm.runs], ['Checked', sm.listings_checked], ['Matches', sm.matches, true], ['Repairs', sm.repairs], ['AI calls', sm.ai_calls], has(sm.apify_usd_per_run) ? ['Apify a run', usd(sm.apify_usd_per_run)] : ['Apify cost', has(sm.apify_usd) ? usd(sm.apify_usd) : null]]
+    : [['Runs', runs.length], ['Succeeded', tally((e) => e.status === 'success')], ['Failed', tally((e) => /error|crash|fail/.test(e.status || ''))], ['Need you', tally((e) => e.status === 'waiting'), true], ['Repairs', tally((e) => e.workflow === 'repair')]];
+  const row = (e) => {
+    const [tag, hot] = runTag(e.status), d = secsBetween(e.startedAt, e.stoppedAt), url = link(e), x = per.get(String(e.id));
+    const head = h`<span class="tt">${clock(e.startedAt)}</span><span class="ti">${e.workflow === 'repair' ? 'Repair workflow' : MODE[e.mode] || 'Run'} · #${e.id}<small>${day(e.startedAt)}${has(d) ? ` · took ${secsText(d)}` : ''}${x && has(x.listings) ? ` · ${plural(x.listings, 'listing')}` : ''}${x && Number(x.matches) ? ` · ${plural(x.matches, 'match', 'matches')}` : ''}</small></span><span class="etag ${hot ? 'hot' : ''}">${tag}</span>`;
+    if (!x) return h`<a class="event" ${raw(url ? `href="${esc(url)}" target="_blank" rel="noopener"` : '')}>${head}</a>`;
+    const src = Object.entries(x.sources || {});
+    return h`<details class="runrow"><summary class="event">${head}</summary><div class="run-d">
+      ${src.length ? h`<div class="srcs">${src.map(([name, n]) => h`<div><span>${name}</span><span class="mono">${num(n)}</span></div>`)}</div>` : ''}
+      <div class="row" style="justify-content:space-between"><span class="mono small">${[has(x.listings) && plural(x.listings, 'listing'), has(x.new) && `${num(x.new)} new`, has(x.matches) && plural(x.matches, 'match', 'matches'),
+        has(x.secs) && secsText(Number(x.secs)), has(x.apify_usd) && `$${Number(x.apify_usd).toFixed(2)} Apify`, '0 AI calls'].filter(Boolean).join(' · ')}</span>${url ? h`<a class="small" href="${url}" target="_blank" rel="noopener">Open in n8n ↗</a>` : ''}</div>
+    </div></details>`;
+  };
   const panel = h`<div class="between" style="align-items:center"><div class="seg"><a href="#results">Homes</a><span aria-current="page">Activity</span></div>
       ${runs.length ? h`<span class="mono small">${day(runs[runs.length - 1].startedAt)} ${clock(runs[runs.length - 1].startedAt)} → ${day(runs[0].startedAt)} ${clock(runs[0].startedAt)}</span>` : ''}</div>
     ${!runs.length ? (main ? empty('No runs yet', 'The workflow is built in n8n. Its runs show up here.') : empty()) : h`
-      <div class="stats">${[['Runs', runs.length], ['Succeeded', tally((e) => e.status === 'success')], ['Failed', tally((e) => /error|crash|fail/.test(e.status || ''))], ['Need you', tally((e) => e.status === 'waiting'), true], ['Repairs', tally((e) => e.workflow === 'repair')]]
-        .map(([k, v, hot]) => h`<div class="stat"><span>${k}</span><span class="${hot && v ? 'hot' : ''}">${count(v, 'act-' + k)}</span></div>`)}</div>
-      <div class="card stagger" style="padding:6px 18px">${runs.map((e) => { const [tag, hot] = runTag(e.status); const d = e.startedAt && e.stoppedAt ? (new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000 : null; const url = link(e);
-        return h`<a class="event" ${raw(url ? `href="${esc(url)}" target="_blank" rel="noopener"` : '')}><span class="tt">${clock(e.startedAt)}</span><span class="ti">${e.workflow === 'repair' ? 'Repair workflow' : MODE[e.mode] || 'Run'} · #${e.id}<small>${day(e.startedAt)}${has(d) ? ` · took ${d < 10 ? d.toFixed(1) : Math.round(d)} s` : ''}</small></span><span class="etag ${hot ? 'hot' : ''}">${tag}</span></a>`; })}</div>
+      <div class="stats">${stats.filter(([, v]) => v != null).map(([k, v, hot]) => h`<div class="stat"><span>${k}</span><span class="${hot && Number(v) ? 'hot' : ''}">${typeof v === 'string' ? v : count(v, 'act-' + k)}</span></div>`)}</div>
+      <div class="card stagger" style="padding:6px 18px">${runs.map(row)}</div>
       <span class="note">${secs.length ? `Average run: ${(secs.reduce((a, b) => a + b, 0) / secs.length).toFixed(1)} s. ` : ''}Every run is an n8n execution you can open.</span>`}`;
   return page('activity', { nav: 'activity', status: livePill(), thread, panel, placeholder: 'Ask about any run, or change a rule…' });
 }
@@ -654,7 +972,8 @@ function market() {
   const featured = [['Yield Hunter', 'Mila', 'M', 'octopus', '#E9A23B', 'glasses'], ['Rent Radar', 'Team Inky', 'TI', 'octopus', '#E86F51', 'beanie'], ['Invoice Chaser', 'Jonas', 'J', 'cat', '#7C6CF2', 'none'], ['Price Watch', 'Priya', 'P', 'blob', '#2BA59B', 'headphones']];
   const property = [['Yield Hunter', 'Mila', 'octopus', '#E9A23B', 'glasses', 'Finds homes abroad that rent well and are rising in price. Never makes an offer.'], ['Rent Radar', 'Team Inky', 'octopus', '#E86F51', 'beanie', 'New rentals in your city minutes after they go live. Never pays or signs.'], ['Mortgage Rate Watch', 'Sem', 'blob', '#3B5BDB', 'none', 'Checks 12 banks every morning and tells you when your rate can drop.'], ['Viewing Booker', 'Noor', 'cat', '#F07BA8', 'bow', 'Finds viewing slots that fit your calendar. Asks before booking any.']];
   return h`<div class="shell">${nav('market')}<main class="market">
-    <div class="between" style="align-items:flex-end"><h1>Marketplace</h1><a class="btn dark" href="#share">Share an agent</a></div>
+    <div class="between" style="align-items:flex-end"><h1>Marketplace <span class="tag preview big">Preview</span></h1><a class="btn dark" href="#share">Share an agent</a></div>
+    <p class="note" style="margin:-8px 0 0;font-size:14px">A preview of where shared agents will live. The agents below are samples.</p>
     <div class="row">${cats.map((c, i) => h`<button type="button" class="cat" aria-pressed="${String(i === 0)}">${c}</button>`)}</div>
     <div class="search"><label class="sr" for="store-search">Search agents</label>${icon(P.search, 17, 2, '#6B6862')}<input id="store-search" type="search" placeholder="Search by creator or agent name"></div>
     <section class="shared" aria-label="Shared agents">${shared.map(([title, note, rows]) => h`<div style="display:flex;flex-direction:column">
@@ -668,22 +987,52 @@ function market() {
   </main></div>`;
 }
 
+// The end card (EndCard.dc.html) as a screen, so the last shot is recorded live with last night's real totals (/api/end).
+// Press F for full screen.
+function end() {
+  const e = S.end || {}, sm = S.summary || {};
+  const checked = pick(e, 'listings_checked') ?? sm.listings_checked, found = pick(e, 'matches') ?? sm.matches, fixes = pick(e, 'fixes') ?? sm.repairs, runs = pick(e, 'runs') ?? sm.runs;
+  const repo = String(e.repo || 'github.com/GHGuide/inky').replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const facts = [has(checked) && h`${count(checked, '', 400)} listings checked${has(runs) ? ` in ${plural(runs, 'run')}` : ''}`, has(found) && h`<span class="hot">${count(found, '', 600)} ${Number(found) === 1 ? 'home' : 'homes'} found</span>`,
+    has(fixes) && `${num(fixes)} ${Number(fixes) === 1 ? 'time' : 'times'} I stepped in`].filter(Boolean);
+  const cost = [has(e.apify_usd_per_run) ? `$${Number(e.apify_usd_per_run).toFixed(2)} a run on Apify` : has(e.apify_usd_total) && `$${Number(e.apify_usd_total).toFixed(2)} on Apify`,
+    has(e.ai_calls_per_run) && `${num(e.ai_calls_per_run)} AI calls a run`].filter(Boolean);
+  const brand = (svg, name, n) => h`<span class="with">${bigIcon(svg, n)}${name}</span>`;
+  return h`<main class="endcard"><div class="end-main">
+      <div class="end-logo">${critter(112)}<span>Inky</span></div>
+      <h1>Tell it once.</h1>
+      <p>Describe a task in plain words. Inky learns it once, then runs it on its own with Apify and n8n, and only asks you when it must.</p>
+      ${facts.length ? h`<span class="end-facts">Last night: ${facts.map((f, i) => h`${i ? ' · ' : ''}${f}`)}</span>` : ''}
+      ${cost.length ? h`<span class="end-facts dim">${cost.join(' · ')}</span>` : ''}
+    </div>
+    <div class="end-foot">
+      <div class="row" style="gap:18px;flex-wrap:nowrap"><span class="qr"><img src="qr-repo.svg" alt="QR code: ${repo}" data-fallback></span>
+        <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:18px;font-weight:600">Open source · MIT · open models</span><a class="mono end-repo" href="https://${repo}" target="_blank" rel="noopener">${repo}</a></div></div>
+      <div class="row end-with"><span class="small" style="font-size:15px">Built with</span>${brand(APIFY, 'Apify', 24)}${brand(N8N, 'n8n', 26)}${brand(TG, 'Telegram', 24)}</div>
+    </div></main>`;
+}
+
 // ---------- router ----------
-const ROUTES = { home, task, confirm, research: researchView, screen, fast, results, workflow, activity, share, market };
-const TITLES = { home: 'New task', task: 'Plan', confirm: 'Your plan', research: 'Research', screen: 'Screen', fast: 'Turbo', results: 'Results', workflow: 'Workflow', activity: 'Activity', share: 'Share', market: 'Marketplace' };
+const ROUTES = { home, task, confirm, research: researchView, screen, fast, results, workflow, activity, share, market, end };
+const TITLES = { home: 'New task', task: 'Plan', confirm: 'Your plan', research: 'Research', screen: 'Screen', fast: 'Turbo', results: 'Results', workflow: 'Workflow', activity: 'Activity', share: 'Share', market: 'Marketplace', end: 'Tell it once' };
 const route = () => { const k = location.hash.slice(1); return ROUTES[k] ? k : 'home'; };
 let shown = null;
 function render() {
   const k = route(), enter = k !== shown;
   shown = k;
   const app = $('#app');
+  const focus = document.activeElement && document.activeElement.id, typed = !enter && $('#msg') ? $('#msg').value : '';  // keep a half-typed message
   app.innerHTML = ROUTES[k]().__raw;
   document.title = 'Inky · ' + TITLES[k];
+  if (typed && $('#msg')) $('#msg').value = typed;
+  if (focus && !enter && document.getElementById(focus)) document.getElementById(focus).focus();
+  for (const img of app.querySelectorAll('img[data-fallback]')) img.addEventListener('error', () => img.replaceWith(Object.assign(document.createElement('span'), { className: 'qr-none', textContent: 'QR' })));
   const m = $('.msgs');
   if (m) m.scrollTop = m.scrollHeight;
   fit();
   motion(app, enter);
   if (k === 'task') startInterview();
+  if (k === 'end' && !S.endAsked) { S.endAsked = true; api('/api/end').then((d) => { if (d && typeof d === 'object') { S.end = d; if (route() === 'end') { shown = null; render(); } } }, () => {}); }
 }
 
 // ---------- motion ----------
@@ -694,18 +1043,21 @@ const seen = new Map();
 function motion(app, enter) {
   clearTimeout(motion.t);
   app.classList.toggle('enter', enter && !calm.matches);
-  if (enter) motion.t = setTimeout(() => app.classList.remove('enter'), 2200);
-  for (const list of app.querySelectorAll('.body, .msgs, .home-in, .market, .stagger, .play, tbody, .log'))
+  if (enter) motion.t = setTimeout(() => app.classList.remove('enter'), 2200 * SLOW);
+  for (const list of app.querySelectorAll('.body, .msgs, .home-in, .market, .stagger, .play, tbody, .log, .end-main'))
     [...list.children].forEach((c, i) => c.style.setProperty('--i', Math.min(i, 16)));
   for (const el of app.querySelectorAll('[data-count]')) countUp(el, enter);
   tickCountdown();
+  slowDown();
 }
+// ?rec=1: every CSS animation and transition plays 1.3× slower, delays included.
+function slowDown() { if (REC && document.getAnimations) for (const a of document.getAnimations()) if (a.playbackRate === 1) a.playbackRate = 1 / SLOW; }
 function countUp(el, enter) {
   const to = Number(el.dataset.count), key = el.dataset.key;
   const from = key && seen.has(key) ? seen.get(key) : enter ? 0 : to;
   if (key) seen.set(key, to);
   if (calm.matches || from === to || !Number.isFinite(to)) return;
-  const dec = Number.isInteger(to) ? 0 : 1, delay = Number(el.dataset.delay || 0), dur = 900 + Math.min(600, Math.abs(to - from) / 40);
+  const dec = Number.isInteger(to) ? 0 : 1, delay = Number(el.dataset.delay || 0) * SLOW, dur = (900 + Math.min(600, Math.abs(to - from) / 40)) * SLOW;
   const t0 = performance.now() + delay;
   el.textContent = from.toLocaleString('en', { maximumFractionDigits: dec });
   const step = (t) => {
@@ -729,6 +1081,9 @@ setInterval(tickCountdown, 1000);
 // The n8n picture is drawn 680 wide; zoom it down when the panel is narrower (laptop screens).
 function fit() { for (const c of document.querySelectorAll('.wfc')) c.style.zoom = Math.min(1, c.parentElement.clientWidth / 680); }
 window.addEventListener('resize', fit);
+// ?rec=1: the 1440-wide design fills a 1920×1080 recording (CSS zoom; app.css divides 100vh by --z so it still fits).
+function recZoom() { document.documentElement.style.setProperty('--z', String(Math.max(0.5, innerWidth / 1440))); }
+if (REC) { document.documentElement.classList.add('rec'); recZoom(); window.addEventListener('resize', recZoom); }
 
 // ---------- actions ----------
 function mic(btn) {
@@ -746,10 +1101,11 @@ const ACT = {
   start(f) { const t = f.elements.prompt.value.trim(); if (!t) return; iv = freshIv(t); saveIv(); location.hash = '#task'; },
   fill(el) { const i = $('#home-prompt') || $('#msg'); i.value = el.dataset.text; i.focus(); },
   focus() { $('#msg').focus(); },
-  command(f) { const t = f.elements.text.value.trim(); if (t && !S.busy) sendCommand(t); },
+  command(f) { const t = f.elements.text.value.trim(); if (!t || S.busy) return; f.elements.text.value = ''; if (BEST.test(t)) bestNow(t); else sendCommand(t); },
   free(f) {
     const t = f.elements.text.value.trim();
-    if (!t || iv.busy) return;
+    if (!t || iv.busy || REPLAY) return;
+    f.elements.text.value = '';
     if (current()) return submitRound(t, [{ q: 'In my own words', a: t }]);
     if (!iv.prompt) iv.prompt = t;
     iv.done = null; iv.messages.push({ role: 'user', content: t }); askInterview();
@@ -764,6 +1120,12 @@ const ACT = {
   skip() { submitRound('Skip the rest of the questions and use sensible defaults.', [{ q: 'The rest', a: 'Use defaults' }]); },
   retry() { if (!iv.busy) askInterview(); },
   version(el) { S.v = Number(el.dataset.v); render(); },
+  research() { runResearch(); },
+  build() { runBuild(); },
+  best() { bestNow(); },
+  why(el) { const k = el.dataset.k; if (S.why.has(k)) S.why.delete(k); else S.why.add(k); render(); },
+  fcity(el) { S.f.city = el.dataset.v; render(); },
+  fmin(el) { S.f.min = Number(el.dataset.v) || 0; render(); },
   async share(f) {
     const to = f.elements.to.value.trim();
     if (!to || S.shareBusy) return;
@@ -774,6 +1136,15 @@ const ACT = {
   copy(el) { navigator.clipboard?.writeText(el.dataset.text).then(() => { el.textContent = 'Copied'; }, () => {}); },
   mic,
 };
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+  const inField = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
+  if (inField) { if (e.key === 'Escape') e.target.blur(); return; }
+  const k = route();
+  if (e.key === '/' && $('#msg')) { e.preventDefault(); $('#msg').focus(); }
+  else if (/^[1-5]$/.test(e.key) && TAB_OF[k]) { const r = TABS[Number(e.key) - 1][1]; location.hash = r === 'task' && iv.done ? '#confirm' : '#' + r; }
+  else if ((e.key === 'f' || e.key === 'F') && k === 'end') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); }
+});
 document.addEventListener('input', (e) => { if (e.target.id === 'share-desc' && S.shared) S.shared.description = e.target.value; });
 document.addEventListener('submit', (e) => { e.preventDefault(); const a = ACT[e.target.dataset.act]; if (a) a(e.target); });
 document.addEventListener('click', (e) => {
@@ -783,15 +1154,17 @@ document.addEventListener('click', (e) => {
   if (a) { e.preventDefault(); a(el); }
 });
 // Page changes cross-fade and the tab pill slides to the new tab (View Transitions, where the browser has them).
-window.addEventListener('hashchange', () => (document.startViewTransition && !calm.matches ? document.startViewTransition(render) : render()));
+window.addEventListener('hashchange', () => { if (document.startViewTransition && !calm.matches) document.startViewTransition(render).ready.catch(() => {}); else render(); });  // a skipped transition is fine
 
 // Poll so research, runs and links appear while the build finishes; never re-render over anything typed and not sent yet.
 let last = '';
 const dirty = () => [...document.querySelectorAll('#app input, #app textarea')].some((el) => el.value !== el.defaultValue);
 async function tick() {
+  const first = !S.loaded;
   await refresh();
-  const now = JSON.stringify([S.state, S.runs]);
-  if (now !== last && !S.busy && !iv.busy && !dirty()) { last = now; render(); }
+  if (first) shown = null;  // the skeleton gave way to data: play the entry motion now
+  const now = JSON.stringify([S.state, S.runs, S.summary]);
+  if (now !== last && !S.busy && !jobOn() && (first || (!iv.busy && !dirty()))) { last = now; render(); }
 }
 render();
 tick();

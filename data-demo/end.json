@@ -1,13 +1,13 @@
 {
  "listings_read": 17836,
- "runs": 10,
- "listings_checked": 1215,
- "new_listings": 188,
+ "runs": 12,
+ "listings_checked": 1652,
+ "new_listings": 310,
  "matches": 1,
  "research_matches": 46,
  "fixes": 1,
- "apify_usd_total": 19.36,
- "apify_usd_per_run": 0.207,
+ "apify_usd_total": 19.95,
+ "apify_usd_per_run": 0.203,
  "glm_usd_research": 0.1549,
  "ai_calls_per_run": 0,
  "repo": "github.com/GHGuide/inky"

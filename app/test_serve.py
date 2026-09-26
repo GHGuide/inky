@@ -262,7 +262,7 @@ assert "research" not in BAD_ONCE, "an invalid GLM answer is retried once"
 code, r = http("/api/research/run", {"plan": {"budget_eur": 1}})
 assert code == 400, "a bad plan is refused before anything runs"
 ev = sse("/api/research/run", {"plan": {**p0, "budget_eur": 150000}, "offline": True})
-assert ev[0] == {"type": "step", "text": "Saved your plan", "sub": "porto, bari, lodz · up to €150,000"}, ev[0]
+assert ev[0] == {"type": "step", "text": "Saved your plan", "sub": "Porto, Bari, Łódź · up to €150,000"}, ev[0]
 assert ev[-1]["type"] == "done" and ev[-1]["rules"]["final"][0]["value"] == 150000, "the offline rules use the saved plan's budget"
 assert ev[-1]["research"]["llm_calls"] == 0 and json.loads(serve.PLAN.read_text())["budget_eur"] == 150000
 assert any(e["type"] == "step" and e["text"] == "Took the offline rules v2" for e in ev)

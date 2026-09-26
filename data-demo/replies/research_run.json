@@ -266,7 +266,7 @@
  {
   "type": "done",
   "research": {
-   "at": "2026-09-26T22:42:00+00:00",
+   "at": "2026-09-26T23:13:11+00:00",
    "listings_read": 17836,
    "for_sale": 13421,
    "for_rent": 4415,
@@ -374,25 +374,23 @@
     "bari": {
      "candidates": 1123,
      "matches": 14,
-     "title": "Proprietà rustica in Via Corticelli, Ceglie del Campo, Bari",
+     "title": "Appartamento",
      "city": "bari",
-     "zone": "Ceglie del Campo",
+     "zone": "Marconi, San Cataldo, Libertà",
      "country": "IT",
-     "source": "idealista",
+     "source": "immobiliare",
      "currency": "EUR",
-     "price_eur": 45000,
-     "size_m2": 60,
-     "bedrooms": 1,
-     "rent_month": 547,
-     "gross_yield": 14.59,
-     "net_yield": 7.66,
-     "zone_rent_listings": 6,
+     "price_eur": 98000,
+     "size_m2": 76,
+     "bedrooms": 2,
+     "rent_month": 1030,
+     "gross_yield": 12.61,
+     "net_yield": 6.47,
+     "zone_rent_listings": 36,
      "price_vs_zone": 0.71,
      "price_trend": 5.2,
-     "url": "https://www.idealista.it/immobile/30028121/",
-     "failed": [
-      "R5"
-     ],
+     "url": "https://www.immobiliare.it/annunci/128618470/",
+     "failed": [],
      "reason": null
     },
     "lodz": {

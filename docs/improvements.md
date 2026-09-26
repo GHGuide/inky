@@ -15,16 +15,16 @@ Overnight rules I follow:
 - [x] A1 P0 me: Recut the storyboard from 12 to 7 beats: wake-up → describe, it asks → Apify research → learns a site → runs with no AI in n8n → fixes itself → talk and approve → end card. Marketplace and sharing become a 3 s flash.
 - [x] A2 P0 me: Final voice-over script with real numbers, one line per beat, timed at about 2.2 words per second (docs/video/script.md).
 - [x] A3 P0 me: Shot list: for each beat, the exact screen, command, window size and click path, plus plan B (docs/video/shots.md).
-- [ ] A4 P1 me: Recording mode in the app (`?rec=1`): 1920×1080-friendly scale, no scrollbars, slower and bigger animations, cursor-safe margins.
-- [ ] A5 P1 me: Replay mode for the interview: plays a real, saved interview session at a readable pace, so the take is clean. Labelled as a replay.
+- [x] A4 P1 me: Recording mode in the app (`?rec=1`): 1920×1080-friendly scale, no scrollbars, slower and bigger animations, cursor-safe margins.
+- [x] A5 P1 me: Replay mode for the interview: plays a real, saved interview session at a readable pace, so the take is clean. Labelled as a replay.
 - [x] A6 P1 me: Captions file (SRT) generated from the script.
 - [x] A7 P0 me: A real QR code for the repo on the end card (SVG, no image service).
-- [ ] A8 P1 me: End card as an app screen (`#end`), so the last shot is recorded live with the real totals from last night.
+- [x] A8 P1 me: End card as an app screen (`#end`), so the last shot is recorded live with the real totals from last night.
 - [x] A9 P2 me: Submission thumbnail.
 - [ ] A10 you: Record (Screen Studio or QuickTime), voice-over in your cloned voice, edit, submit by 15:00.
 
 ## B. Proof of real use (25%)
-- [ ] B1 P0 me: "Send me the best ones now" (app command and a webhook branch in n8n): the top 3 real matches go to your Telegram with buttons, and your tap creates a real Gmail draft. You'll have the approval shot even if the night finds nothing new.
+- [x] B1 P0 me: "Send me the best ones now" (app command and a webhook branch in n8n): the top 3 real matches go to your Telegram with buttons, and your tap creates a real Gmail draft. You'll have the approval shot even if the night finds nothing new.
 - [ ] B2 P0 you: 1–2 real people (friend, family) describe a goal in Inky in the morning. Film their reaction and get one quote.
 - [x] B3 P0 me: "Last night" summary from the real n8n and Apify data: runs, listings checked, new listings, matches, fixes, Apify cost, AI calls. Feeds Activity, the end card and the voice-over.
 - [x] B4 P1 me: Cost per run from the Apify API. Headline: "$0.20 a run, 0 AI calls".
@@ -34,11 +34,11 @@ Overnight rules I follow:
 - [ ] B8 P2 me: "Almost" tier: homes that miss one rule by a little, marked as such, only in the digest.
 
 ## C. Autonomy (25%)
-- [ ] C1 P0 me: "Yes, start research" in the app really runs the research. GLM derives the rules from the plan you just gave, on the scraped data, and streams each step into the chat live (like Claude Code). Results then follow your answers.
-- [ ] C2 P0 me: "Yes, watch them" really builds and publishes the n8n workflow and streams the steps (credentials, nodes, published) with links. Tested on staging.
+- [x] C1 P0 me: "Yes, start research" in the app really runs the research. GLM derives the rules from the plan you just gave, on the scraped data, and streams each step into the chat live (like Claude Code). Results then follow your answers.
+- [x] C2 P0 me: "Yes, watch them" really builds and publishes the n8n workflow and streams the steps (credentials, nodes, published) with links. Tested on staging.
 - [x] C3 P0 me: The finished interview saves the plan (plan.json, with a backup), so research uses what you said.
 - [x] C4 P1 me: More failures it can repair: a site returns items Inky can't read (schema drift), as well as bad requests and empty results.
-- [ ] C5 P1 me: Repair audit trail: before/after of every fix, shown as a diff in the app.
+- [x] C5 P1 me: Repair audit trail: before/after of every fix, shown as a diff in the app.
 - [x] C6 P1 me: Visible guardrails: a daily Apify spend cap in the workflow, at most one fix per hour (exists), asks before any draft (exists).
 - [ ] C7 P2 me: Re-learn path: when the Tecnocasa program breaks, the repair re-runs learn.py headless.
 
@@ -52,29 +52,29 @@ Overnight rules I follow:
 - [ ] D7 P2 you: Decide whether to publish the Tecnocasa actor in the Apify Store.
 
 ## E. Problem fit and trust in the numbers (15%)
-- [ ] E1 P1 me: "Why 6.8%?" on every home: rent estimate (from N rentals nearby at €X/m²) minus agency 9%, vacancy 8%, upkeep, rent tax, buying costs.
+- [x] E1 P1 me: "Why 6.8%?" on every home: rent estimate (from N rentals nearby at €X/m²) minus agency 9%, vacancy 8%, upkeep, rent tax, buying costs.
 - [x] E2 P1 me: Honest labels: price trend is per country (Eurostat 2026-Q1), Łódź districts are approximate, yields are estimates.
-- [ ] E3 P1 me: Best per city, even where nothing passes. "Porto: prices +17.8% a year, but the best yield after costs is only X%."
+- [x] E3 P1 me: Best per city, even where nothing passes. "Porto: prices +17.8% a year, but the best yield after costs is only X%."
 - [ ] E4 P2 me: Neighbourhood map per city (plain SVG from the coordinates), coloured by yield.
 - [ ] E5 P2 me: Ten-year view per home: rent income plus price growth, clearly marked as an estimate.
 - [ ] E6 P2 me: Evidence that speed matters: how fast listings disappear or get replaced, from the listing dates.
 - [ ] E7 P1 me: One sharp problem line on the home screen and in the README: "Good listings go in days. Inky watches every 15 minutes, you only decide."
 
 ## F. App: UX and UI
-- [ ] F1 P1 me: Workflow stages show totals since the start and the last match, not a dead "0 · 0 · 0".
-- [ ] F2 P1 me: Results: what's new since you last looked, city and yield filters, "best now" pinned on top.
-- [ ] F3 P1 me: "Preview" labels on mock parts (marketplace, sample agents), so they don't cast doubt on the real parts.
-- [ ] F4 P1 me: Race wording: "all 96 Bari flats under €200k in 19.7 s". Explain or hide empty windows.
+- [x] F1 P1 me: Workflow stages show totals since the start and the last match, not a dead "0 · 0 · 0".
+- [x] F2 P1 me: Results: what's new since you last looked, city and yield filters, "best now" pinned on top.
+- [x] F3 P1 me: "Preview" labels on mock parts (marketplace, sample agents), so they don't cast doubt on the real parts.
+- [x] F4 P1 me: Race wording: "all 96 Bari flats under €200k in 19.7 s". Explain or hide empty windows.
 - [ ] F5 P1 me: Interview: show the defaults that "Skip" picks. Voice button works. Editable plan before research.
-- [ ] F6 P1 me: Loading skeletons (shimmer) instead of empty flashes on first load.
-- [ ] F7 P1 me: Toasts for things that happen ("Saved to n8n ✓", "Sent to Telegram ✓").
-- [ ] F8 P1 me: Activity: expand a run to see listings per site, matches, time and cost (replay idea, as in Manus).
+- [x] F6 P1 me: Loading skeletons (shimmer) instead of empty flashes on first load.
+- [x] F7 P1 me: Toasts for things that happen ("Saved to n8n ✓", "Sent to Telegram ✓").
+- [x] F8 P1 me: Activity: expand a run to see listings per site, matches, time and cost (replay idea, as in Manus).
 - [ ] F9 P2 me: "Last night" time-lapse on Activity.
-- [ ] F10 P1 me: Home suggestion chips lead somewhere real, or are removed.
-- [ ] F11 P1 me: Layout check at 1280, 1440 and 1920 wide.
-- [ ] F12 P1 me: Accessibility: focus rings, aria-live chat, contrast.
-- [ ] F13 P2 me: Keyboard: `/` focuses the chat, 1–5 switch tabs.
-- [ ] F14 P1 me: Favicon and page titles.
+- [x] F10 P1 me: Home suggestion chips lead somewhere real, or are removed.
+- [x] F11 P1 me: Layout check at 1280, 1440 and 1920 wide.
+- [x] F12 P1 me: Accessibility: focus rings, aria-live chat, contrast.
+- [x] F13 P2 me: Keyboard: `/` focuses the chat, 1–5 switch tabs.
+- [x] F14 P1 me: Favicon and page titles.
 
 ## G. Computer control
 - [x] G1 P1 me: learn.py for filming: `--slow` pace, every step scrolled into view before its coral mark (the next-page mark was off-screen), a clear step caption.

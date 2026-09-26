@@ -1,88 +1,108 @@
 {
  "main": {
-  "id": "12",
+  "id": "21",
   "status": "success",
   "mode": "trigger",
-  "startedAt": "2026-09-26T22:30:41.112Z",
-  "stoppedAt": "2026-09-26T22:32:24.672Z",
+  "startedAt": "2026-09-26T23:00:41.105Z",
+  "stoppedAt": "2026-09-26T23:03:19.019Z",
   "nodes": {
    "Every 15 min": {
     "items": 1,
-    "ms": 1,
+    "ms": 0,
+    "error": null
+   },
+   "Under the daily cap": {
+    "items": 1,
+    "ms": 1644,
     "error": null
    },
    "idealista · Porto": {
-    "items": 40,
-    "ms": 6366,
+    "items": 60,
+    "ms": 13660,
     "error": null
    },
    "idealista · Bari": {
-    "items": 40,
-    "ms": 10913,
+    "items": 60,
+    "ms": 8114,
     "error": null
    },
    "immobiliare · Bari": {
-    "items": 40,
-    "ms": 29055,
+    "items": 60,
+    "ms": 35265,
     "error": null
    },
    "otodom · Łódź": {
-    "items": 40,
-    "ms": 55284,
+    "items": 54,
+    "ms": 90909,
+    "error": null
+   },
+   "tecnocasa · Bari": {
+    "items": 60,
+    "ms": 6309,
     "error": null
    },
    "Merge": {
-    "items": 160,
+    "items": 294,
     "ms": 5,
     "error": null
    },
    "Score · rules": {
     "items": 0,
-    "ms": 1828,
+    "ms": 1887,
     "error": null
    }
   }
  },
  "ok": {
-  "id": "12",
+  "id": "21",
   "status": "success",
   "mode": "trigger",
-  "startedAt": "2026-09-26T22:30:41.112Z",
-  "stoppedAt": "2026-09-26T22:32:24.672Z",
+  "startedAt": "2026-09-26T23:00:41.105Z",
+  "stoppedAt": "2026-09-26T23:03:19.019Z",
   "nodes": {
    "Every 15 min": {
     "items": 1,
-    "ms": 1,
+    "ms": 0,
+    "error": null
+   },
+   "Under the daily cap": {
+    "items": 1,
+    "ms": 1644,
     "error": null
    },
    "idealista · Porto": {
-    "items": 40,
-    "ms": 6366,
+    "items": 60,
+    "ms": 13660,
     "error": null
    },
    "idealista · Bari": {
-    "items": 40,
-    "ms": 10913,
+    "items": 60,
+    "ms": 8114,
     "error": null
    },
    "immobiliare · Bari": {
-    "items": 40,
-    "ms": 29055,
+    "items": 60,
+    "ms": 35265,
     "error": null
    },
    "otodom · Łódź": {
-    "items": 40,
-    "ms": 55284,
+    "items": 54,
+    "ms": 90909,
+    "error": null
+   },
+   "tecnocasa · Bari": {
+    "items": 60,
+    "ms": 6309,
     "error": null
    },
    "Merge": {
-    "items": 160,
+    "items": 294,
     "ms": 5,
     "error": null
    },
    "Score · rules": {
     "items": 0,
-    "ms": 1828,
+    "ms": 1887,
     "error": null
    }
   }

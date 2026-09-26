@@ -199,11 +199,12 @@ def best_by_city(known, rules, cities, matches):
     out = {}
     for city in cities:
         pool = [s for s in known if s["city"] == city and s["price_vs_zone"] >= 0.5 and not basic & set(s["failed"])]
-        n = sum(1 for m in matches if m["city"] == city)
+        passed = [m for m in matches if m["city"] == city]
+        n = len(passed)
         if not pool:
             out[city] = {"candidates": 0, "matches": n, "reason": None if n else "No flat in budget with the right bedrooms has rent data nearby."}
             continue
-        best = max(pool, key=lambda s: s["net_yield"])
+        best = max(passed or pool, key=lambda s: s["net_yield"])  # a city with matches shows its best passing home
         reason = None
         if not n:
             fails = Counter(f for s in pool for f in s["failed"] if f not in basic)
@@ -211,7 +212,7 @@ def best_by_city(known, rules, cities, matches):
             r = next(r for r in rules if r["id"] == rid)
             reason = (f"Of {len(pool):,} flats in budget with the right bedrooms, {blocked:,} fail {rule_text(r)}. "
                       f"The best earns {best['net_yield']}% a year after costs, in {best['zone']}.")
-        out[city] = {"candidates": len(pool), "matches": n, **{k: best.get(k) for k in MATCH_KEYS}, "failed": best["failed"], "reason": reason}
+        out[city] = {"candidates": len(pool), "matches": n, **{k: best.get(k) for k in MATCH_KEYS}, "failed": best.get("failed", []), "reason": reason}
     return out
 
 

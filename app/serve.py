@@ -456,7 +456,7 @@ def research_run(body):
     def job(send):
         if p:
             save_plan({"plan": p})
-            send({"type": "step", "text": "Saved your plan", "sub": f"{', '.join(p['cities'])} · up to €{p['budget_eur']:,.0f}"})
+            send({"type": "step", "text": "Saved your plan", "sub": f"{', '.join({'lodz': 'Łódź'}.get(c, c.title()) for c in p['cities'])} · up to €{p['budget_eur']:,.0f}"})
         research, rules = derive.run(send, offline=bool(body.get("offline")), data_dir=DATA, plan=plan())
         _sale.clear()  # a new exchange rate re-prices the Łódź listings
         return {"research": research, "rules": rules}
