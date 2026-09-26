@@ -72,6 +72,21 @@ SHARE = {"name": "Flat Finder", "description": "Tell it your budget and where yo
          "keeps": ["Your answers and budget", "Your results and matches"]}
 
 
+SETTLE = 2600  # ms: the longest entry animation (workflow timeline) is about 2.3 s
+_ok_nodes = {n: {"items": 40, "ms": 8000, "error": None} for n in ("idealista · Porto", "idealista · Bari", "immobiliare · Bari", "otodom · Łódź")}
+DETAIL = {
+    "main": None,
+    "ok": {"id": "8", "status": "success", "mode": "trigger", "startedAt": "2026-09-26T21:31:35Z", "stoppedAt": "2026-09-26T21:33:31Z",
+           "nodes": {**_ok_nodes, "Merge": {"items": 160, "ms": 5, "error": None}, "Score · rules": {"items": 1, "ms": 1729, "error": None},
+                     "Ask me on Telegram": {"items": 1, "ms": 200, "error": None}}},
+    "repair": {"id": "7", "status": "success", "mode": "error", "startedAt": "2026-09-26T21:31:28Z", "stoppedAt": "2026-09-26T21:31:35Z",
+               "nodes": {"On error": {"items": 1, "ms": 1, "error": None}, "GLM-5.3 fixes one step": {"items": 1, "ms": 4242, "error": None}},
+               "step": "otodom · Łódź", "change": "Changed searchType from 'sale' to 'sprzedaz'.", "error": "Bad request",
+               "failed": {"id": "6", "startedAt": "2026-09-26T21:30:41Z"}, "again": {"id": "8", "status": "success", "startedAt": "2026-09-26T21:31:35Z", "stoppedAt": "2026-09-26T21:33:31Z"}},
+}
+DETAIL["main"] = DETAIL["ok"]
+
+
 class Stub(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(HERE), **kw)
@@ -92,6 +107,8 @@ class Stub(SimpleHTTPRequestHandler):
             return self.reply(self.server.state)
         if self.path == "/api/executions":
             return self.reply(self.server.runs if self.server.state["n8n"] else [])
+        if self.path == "/api/run_detail":
+            return self.reply(DETAIL if self.server.state["n8n"] and self.server.runs else {"main": None, "ok": None, "repair": None})
         super().do_GET()
 
     def do_POST(self):
@@ -131,7 +148,7 @@ def main():
                 where["route"] = route
                 page.goto(base + "#" + route)
                 page.wait_for_load_state("networkidle")
-                page.wait_for_timeout(200)
+                page.wait_for_timeout(SETTLE)  # let the entry animations finish: moving cards count as overflow
 
             def shot(route):
                 nonlocal shots
@@ -170,7 +187,7 @@ def main():
                     shot("task-round2")
                     page.click("form.round [data-act=skip]")  # stub answers done -> #confirm
                     page.wait_for_url("**#confirm")
-                    page.wait_for_timeout(200)
+                    page.wait_for_timeout(SETTLE)
                     where["route"] = "confirm"
                     expect("Did I get it right?" in page.inner_text("body"), "the plan summary")
                     shot("confirm")
@@ -200,6 +217,7 @@ def main():
                     page.fill("#msg", "Only places with the euro")
                     page.press("#msg", "Enter")
                     page.wait_for_selector("text=36 → 21 homes match")
+                    page.wait_for_timeout(SETTLE)  # the headline counts from 36 down to 21
                     where["route"] = route = "results-command"
                     expect("21 homes match" in page.inner_text(".panel h2"), "the headline to follow the command")
                     euro = sum(m["city"] != "lodz" for m in research["matches"])
@@ -207,6 +225,8 @@ def main():
                     layout()
                 elif route == "workflow":
                     expect(page.locator(f"a[href='{N8N}/workflow/MAIN1']").count() >= 1, "a link to the main workflow")
+                    expect(page.locator(".stage").count() == 4 and "160" in page.inner_text(".flow"), "4 stages with the last run's 160 listings")
+                    expect("fixed in 7.0 s" in text and "sprzedaz" in text, "the repair story: fixed in 7 s, GLM's change")
                 elif route == "activity":
                     expect(page.locator(".event").count() == len(RUNS), "one row per execution")
                 elif route == "share":

@@ -33,11 +33,11 @@ const icon = (d, size = 16, w = 2, color = 'currentColor') => raw(`<svg width="$
 const APIFY = raw('<svg width="15" height="15" viewBox="0 0 32 32" fill="none" aria-label="Apify"><path d="M18.3512 0H31.5152C31.7829 0 32 0.217074 32 0.484848V20.6025C32 21.0844 31.3733 21.2712 31.1094 20.868L17.9455 0.750323C17.7345 0.427859 17.9659 0 18.3512 0Z" fill="#246DFF"/><path d="M13.6488 0H0.484848C0.217074 0 0 0.217074 0 0.484848V20.6025C0 21.0844 0.626717 21.2712 0.890559 20.868L14.0545 0.750323C14.2655 0.427859 14.0341 0 13.6488 0Z" fill="#20A34E"/><path d="M15.7745 16.1069L0.820235 31.1736C0.51656 31.4796 0.733277 32 1.16436 32H30.848C31.2773 32 31.4948 31.4832 31.1947 31.1762L16.4653 16.1095C16.2761 15.916 15.9651 15.9148 15.7745 16.1069Z" fill="#F86606"/></svg>');
 const N8N = raw('<svg width="16" height="16" viewBox="0 0 24 24" aria-label="n8n"><path fill="#EA4B71" d="M21.4737 5.6842c-1.1772 0-2.1663.8051-2.4468 1.8947h-2.8955c-1.235 0-2.289.893-2.492 2.111l-.1038.623a1.263 1.263 0 0 1-1.246 1.0555H11.289c-.2805-1.0896-1.2696-1.8947-2.4468-1.8947s-2.1663.8051-2.4467 1.8947H4.973c-.2805-1.0896-1.2696-1.8947-2.4468-1.8947C1.1311 9.4737 0 10.6047 0 12s1.131 2.5263 2.5263 2.5263c1.1772 0 2.1663-.8051 2.4468-1.8947h1.4223c.2804 1.0896 1.2696 1.8947 2.4467 1.8947 1.1772 0 2.1663-.8051 2.4468-1.8947h1.0008a1.263 1.263 0 0 1 1.2459 1.0555l.1038.623c.203 1.218 1.257 2.111 2.492 2.111h.3692c.2804 1.0895 1.2696 1.8947 2.4468 1.8947 1.3952 0 2.5263-1.131 2.5263-2.5263s-1.131-2.5263-2.5263-2.5263c-1.1772 0-2.1664.805-2.4468 1.8947h-.3692a1.263 1.263 0 0 1-1.246-1.0555l-.1037-.623A2.52 2.52 0 0 0 13.9607 12a2.52 2.52 0 0 0 .821-1.4794l.1038-.623a1.263 1.263 0 0 1 1.2459-1.0555h2.8955c.2805 1.0896 1.2696 1.8947 2.4468 1.8947 1.3952 0 2.5263-1.131 2.5263-2.5263s-1.131-2.5263-2.5263-2.5263"/></svg>');
 const TG = raw('<svg width="15" height="15" viewBox="0 0 24 24" aria-label="Telegram"><path fill="#26A5E4" d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>');
-const LOGO = raw('<svg width="26" height="26" viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke="#E86F51" stroke-width="11" stroke-linecap="round"><path d="M34 76 C 28 92, 16 98, 20 110"/><path d="M47 80 C 45 96, 38 104, 42 114"/><path d="M60 82 C 62 98, 56 106, 60 114"/><path d="M73 80 C 75 96, 82 104, 78 114"/><path d="M86 76 C 92 92, 104 98, 100 110"/></g><ellipse cx="60" cy="52" rx="38" ry="36" fill="#E86F51"/><ellipse cx="46" cy="54" rx="5.5" ry="7.5" fill="#111110"/><ellipse cx="74" cy="54" rx="5.5" ry="7.5" fill="#111110"/><circle cx="48" cy="51" r="2" fill="#FFFFFF"/><circle cx="76" cy="51" r="2" fill="#FFFFFF"/><path d="M54 66 Q60 72 66 66" fill="none" stroke="#111110" stroke-width="3" stroke-linecap="round"/></svg>');
-const FACE = '<ellipse cx="46" cy="54" rx="5.5" ry="7.5" fill="#1D1A17"/><ellipse cx="74" cy="54" rx="5.5" ry="7.5" fill="#1D1A17"/><circle cx="48" cy="51" r="2" fill="#FFFFFF"/><circle cx="76" cy="51" r="2" fill="#FFFFFF"/>';
+const LOGO = raw('<svg class="critter" width="26" height="26" viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke="#E86F51" stroke-width="11" stroke-linecap="round"><path d="M34 76 C 28 92, 16 98, 20 110"/><path d="M47 80 C 45 96, 38 104, 42 114"/><path d="M60 82 C 62 98, 56 106, 60 114"/><path d="M73 80 C 75 96, 82 104, 78 114"/><path d="M86 76 C 92 92, 104 98, 100 110"/></g><ellipse cx="60" cy="52" rx="38" ry="36" fill="#E86F51"/><g class="eyes"><ellipse cx="46" cy="54" rx="5.5" ry="7.5" fill="#111110"/><ellipse cx="74" cy="54" rx="5.5" ry="7.5" fill="#111110"/><circle cx="48" cy="51" r="2" fill="#FFFFFF"/><circle cx="76" cy="51" r="2" fill="#FFFFFF"/></g><path d="M54 66 Q60 72 66 66" fill="none" stroke="#111110" stroke-width="3" stroke-linecap="round"/></svg>');
+const FACE = '<g class="eyes"><ellipse cx="46" cy="54" rx="5.5" ry="7.5" fill="#1D1A17"/><ellipse cx="74" cy="54" rx="5.5" ry="7.5" fill="#1D1A17"/><circle cx="48" cy="51" r="2" fill="#FFFFFF"/><circle cx="76" cy="51" r="2" fill="#FFFFFF"/></g>';
 const BODY = {
   octopus: (c) => `<g fill="none" stroke="${c}" stroke-width="11" stroke-linecap="round"><path d="M34 76 C 28 92, 16 98, 20 110"/><path d="M47 80 C 45 96, 38 104, 42 114"/><path d="M60 82 C 62 98, 56 106, 60 114"/><path d="M73 80 C 75 96, 82 104, 78 114"/><path d="M86 76 C 92 92, 104 98, 100 110"/></g><ellipse cx="60" cy="52" rx="38" ry="36" fill="${c}"/><ellipse cx="46" cy="30" rx="11" ry="6" fill="#FFFFFF" opacity="0.35"/>${FACE}<ellipse cx="35" cy="66" rx="6" ry="3.5" fill="#F7A99A"/><ellipse cx="85" cy="66" rx="6" ry="3.5" fill="#F7A99A"/><path d="M54 66 Q60 72 66 66" fill="none" stroke="#1D1A17" stroke-width="3" stroke-linecap="round"/>`,
-  cat: (c) => `<path d="M24 46 L30 10 L54 30 Z" fill="${c}"/><path d="M96 46 L90 10 L66 30 Z" fill="${c}"/><path d="M32 36 L34 20 L45 29 Z" fill="#F7A99A"/><path d="M88 36 L86 20 L75 29 Z" fill="#F7A99A"/><ellipse cx="46" cy="106" rx="9" ry="7" fill="${c}"/><ellipse cx="74" cy="106" rx="9" ry="7" fill="${c}"/><ellipse cx="60" cy="62" rx="40" ry="38" fill="${c}"/><ellipse cx="46" cy="38" rx="10" ry="5" fill="#FFFFFF" opacity="0.3"/><ellipse cx="46" cy="55" rx="5.5" ry="7.5" fill="#1D1A17"/><ellipse cx="74" cy="55" rx="5.5" ry="7.5" fill="#1D1A17"/><circle cx="48" cy="52" r="2" fill="#FFFFFF"/><circle cx="76" cy="52" r="2" fill="#FFFFFF"/><ellipse cx="34" cy="69" rx="6" ry="3.5" fill="#F7A99A"/><ellipse cx="86" cy="69" rx="6" ry="3.5" fill="#F7A99A"/><path d="M57 66 L63 66 L60 70 Z" fill="#F7A99A"/><path d="M53 73 Q56.5 77 60 73 Q63.5 77 67 73" fill="none" stroke="#1D1A17" stroke-width="2.5" stroke-linecap="round"/><g stroke="#1D1A17" stroke-width="2" stroke-linecap="round" opacity="0.45"><path d="M18 64 L34 66"/><path d="M18 73 L34 71"/><path d="M102 64 L86 66"/><path d="M102 73 L86 71"/></g>`,
+  cat: (c) => `<path d="M24 46 L30 10 L54 30 Z" fill="${c}"/><path d="M96 46 L90 10 L66 30 Z" fill="${c}"/><path d="M32 36 L34 20 L45 29 Z" fill="#F7A99A"/><path d="M88 36 L86 20 L75 29 Z" fill="#F7A99A"/><ellipse cx="46" cy="106" rx="9" ry="7" fill="${c}"/><ellipse cx="74" cy="106" rx="9" ry="7" fill="${c}"/><ellipse cx="60" cy="62" rx="40" ry="38" fill="${c}"/><ellipse cx="46" cy="38" rx="10" ry="5" fill="#FFFFFF" opacity="0.3"/><g class="eyes"><ellipse cx="46" cy="55" rx="5.5" ry="7.5" fill="#1D1A17"/><ellipse cx="74" cy="55" rx="5.5" ry="7.5" fill="#1D1A17"/><circle cx="48" cy="52" r="2" fill="#FFFFFF"/><circle cx="76" cy="52" r="2" fill="#FFFFFF"/></g><ellipse cx="34" cy="69" rx="6" ry="3.5" fill="#F7A99A"/><ellipse cx="86" cy="69" rx="6" ry="3.5" fill="#F7A99A"/><path d="M57 66 L63 66 L60 70 Z" fill="#F7A99A"/><path d="M53 73 Q56.5 77 60 73 Q63.5 77 67 73" fill="none" stroke="#1D1A17" stroke-width="2.5" stroke-linecap="round"/><g stroke="#1D1A17" stroke-width="2" stroke-linecap="round" opacity="0.45"><path d="M18 64 L34 66"/><path d="M18 73 L34 71"/><path d="M102 64 L86 66"/><path d="M102 73 L86 71"/></g>`,
   blob: (c) => `<path d="M22 58 Q22 16 60 16 Q98 16 98 58 L98 102 Q91 94 83 102 Q75 110 67 102 Q60 95 53 102 Q45 110 37 102 Q29 94 22 102 Z" fill="${c}"/><ellipse cx="44" cy="32" rx="11" ry="6" fill="#FFFFFF" opacity="0.35"/>${FACE}<ellipse cx="35" cy="67" rx="6" ry="3.5" fill="#F7A99A"/><ellipse cx="85" cy="67" rx="6" ry="3.5" fill="#F7A99A"/><path d="M53 66 Q60 74 67 66" fill="none" stroke="#1D1A17" stroke-width="3" stroke-linecap="round"/>`,
 };
 const ACC = {
@@ -50,7 +50,7 @@ const critter = (size, kind = 'octopus', color = CORAL, acc = 'none') =>
   raw(`<svg class="critter" width="${size}" height="${size}" viewBox="0 0 120 120" aria-hidden="true">${BODY[kind](color)}${ACC[acc] || ''}</svg>`);
 
 // ---------- state ----------
-const S = { state: {}, runs: [], log: [], busy: false, v: null, shared: null, shareBusy: false, shareErr: '' };
+const S = { state: {}, runs: [], detail: null, log: [], busy: false, v: null, shared: null, shareBusy: false, shareErr: '' };
 const store = { get(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } }, set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } } };
 const freshIv = (prompt = '') => ({ prompt, messages: [], rounds: [], done: null, busy: false, error: '' });
 let iv = { ...freshIv(), ...store.get('inky.iv'), busy: false };
@@ -64,9 +64,10 @@ async function api(path, body) {
   return data;
 }
 async function refresh() {
-  const [st, runs] = await Promise.all([api('/api/state').catch(() => null), api('/api/executions').catch(() => null)]);
+  const [st, runs, detail] = await Promise.all([api('/api/state').catch(() => null), api('/api/executions').catch(() => null), api('/api/run_detail').catch(() => null)]);
   S.state = st && typeof st === 'object' ? st : {};
   S.runs = Array.isArray(runs) ? runs : [];
+  S.detail = detail && typeof detail === 'object' ? detail : null;
 }
 const research = () => S.state.research || null;
 const finalRules = () => (S.state.rules && S.state.rules.final) || [];
@@ -75,6 +76,7 @@ const n8n = () => S.state.n8n || {};
 const built = () => !!safeUrl(n8n().main_url);
 // ponytail: /api/state has no n8n "active" flag, so running = a scheduled run started in the last 30 min (it runs every 15).
 const live = () => built() && S.runs.some((e) => e.workflow !== 'repair' && (e.status === 'running' || (e.mode === 'trigger' && Date.now() - new Date(e.startedAt) < 30 * 60e3)));
+const count = (n, key, delay = 0) => (has(n) ? h`<span data-count="${Number(n)}" ${raw(key ? `data-key="${esc(key)}"` : '')} data-delay="${delay}">${num(n)}</span>` : '–');
 const plural = (n, one, many = one + 's') => `${num(n)} ${Number(n) === 1 ? one : many}`;
 
 // How many homes pass the current rules: a command result for exactly these rules, else the research version that had them.
@@ -123,6 +125,7 @@ const me = (t) => h`<div class="me">${t}</div>`;
 const inky = (body, acc) => h`<div class="inky">${critter(26, 'octopus', CORAL, acc)}<div class="inky-body">${body}</div></div>`;
 const logLines = (items) => h`<div class="log">${items.filter(Boolean).map(([a, b]) => h`<div><div><span class="b">●</span> ${a}</div>${b ? h`<div class="sub">└ ${b}</div>` : ''}</div>`)}</div>`;
 const empty = (text = 'Runs after the first build', sub) => h`<div class="empty">${critter(40)}<span>${text}</span>${sub ? h`<span class="note">${sub}</span>` : ''}</div>`;
+const typing = () => h`<span class="typing" aria-label="Inky is thinking"><i></i><i></i><i></i></span>`;
 const pill = (text, dot, hot) => h`<span class="pill ${hot ? 'hot' : ''}">${dot ? h`<span class="dot ${dot}"></span>` : ''}${text}</span>`;
 function livePill() {
   const main = S.runs.find((e) => e.workflow !== 'repair');
@@ -182,9 +185,10 @@ function reply(r) {
     !has(r.matches_before) && r.applied && ['Saved the rule', r.n8n_error ? 'n8n not updated yet' : 'and updated the n8n workflow'],
   ])}`;
 }
-const commandLog = () => S.log.map((x) => h`${me(x.me)}${x.res ? inky(reply(x.res)) : x.err ? inky(h`<p class="hot">That did not work: ${x.err}</p>`) : inky(h`<p class="muted">Working on it…</p>`)}`);
+const isFresh = (t) => Date.now() - (t || 0) < 1500;
+const commandLog = () => S.log.map((x) => h`<div class="${isFresh(x.t) ? 'fresh' : ''}" style="display:flex;flex-direction:column;gap:16px">${me(x.me)}</div>${x.res ? h`<div class="${isFresh(x.done) ? 'fresh' : ''}">${inky(reply(x.res))}</div>` : x.err ? inky(h`<p class="hot">That did not work: ${x.err}</p>`) : inky(typing())}`);
 async function sendCommand(text) {
-  const entry = { me: text };
+  const entry = { me: text, t: Date.now() };
   S.log.push(entry); S.busy = true; render();
   const before = rulesKey(finalRules());
   try {
@@ -197,6 +201,7 @@ async function sendCommand(text) {
       store.set('inky.counts', c);
     }
   } catch (e) { entry.err = e.message; }
+  entry.done = Date.now();
   S.busy = false; render();
 }
 
@@ -244,11 +249,16 @@ function home() {
     </div>
     <div style="width:100%;margin-top:36px;display:flex;flex-direction:column;gap:12px">
       <div class="between"><h2 style="margin:0;font-size:16px;font-weight:600">Or start from someone else’s agent</h2><a href="#market" class="muted" style="font-size:14px">Marketplace</a></div>
-      <div class="agents">${agent('Yield Hunter', 'Homes abroad that rent well', 'octopus', '#E9A23B', 'glasses')}${agent('Price Watch', 'Competitor prices, hourly', 'blob', '#2BA59B', 'headphones')}${agent('Invoice Chaser', 'Friendly payment reminders', 'cat', '#7C6CF2')}</div>
+      <div class="agents stagger">${agent('Yield Hunter', 'Homes abroad that rent well', 'octopus', '#E9A23B', 'glasses')}${agent('Price Watch', 'Competitor prices, hourly', 'blob', '#2BA59B', 'headphones')}${agent('Invoice Chaser', 'Friendly payment reminders', 'cat', '#7C6CF2')}</div>
     </div>
   </div></main></div>`;
 }
 
+let lastPct = 0;
+function progress(p) {  // grows from the last value it showed
+  const from = p ? Math.min(1, lastPct / p) : 0; lastPct = p;
+  return h`<div class="grow" style="width:${p}%;--from:${from}"></div>`;
+}
 function task() {
   const cur = current();
   // every round's understood list, merged by label: a later round updates an item, never drops it
@@ -262,16 +272,16 @@ function task() {
       ${inky(h`<p>Good goal. I’ll ask in a few short rounds so I really understand it. Skip anything and I’ll pick a sensible default.</p>
         ${iv.rounds.length ? h`<div class="chips">${iv.rounds.map((r) => h`<span class="${r.answers ? '' : 'now'}">${r.answers ? '✓ Round ' + r.round : r.round + ' · now'}</span>`)}</div>` : ''}`)}
       ${done.length ? h`<div class="done-rounds">${done.map((r) => h`<details><summary><b>✓ Round ${r.round}</b> <span class="muted">· ${r.answers.map((a) => a.a).join(' · ')}</span></summary><dl>${r.answers.map((a) => h`<dt>${a.q}</dt><dd>${a.a}</dd>`)}</dl></details>`)}</div>` : ''}
-      ${cur ? h`<form class="round" data-act="round"><span class="label">ROUND ${cur.round}</span>
-        ${cur.questions.map((q, i) => h`<div class="q"><b>${q.text}</b>${q.why ? h`<span class="why">${q.why}</span>` : ''}<div class="ans"><input name="a${i}" autocomplete="off" placeholder="Your answer" aria-label="${q.text}"><button type="button" class="decide" data-act="decide">You decide</button></div></div>`)}
+      ${cur ? h`<form class="round fresh" data-act="round"><span class="label">ROUND ${cur.round}</span>
+        ${cur.questions.map((q, i) => h`<div class="q fresh" style="animation-delay:${120 + i * 110}ms"><b>${q.text}</b>${q.why ? h`<span class="why">${q.why}</span>` : ''}<div class="ans"><input name="a${i}" autocomplete="off" placeholder="Your answer" aria-label="${q.text}"><button type="button" class="decide" data-act="decide">You decide</button></div></div>`)}
         <div class="row"><button type="submit" class="btn dark" ${raw(iv.busy ? 'disabled' : '')}>Next</button><button type="button" class="linkbtn" data-act="skip">Skip the rest, use defaults</button></div></form>` : ''}
-      ${iv.busy ? inky(h`<p class="muted">Thinking…</p>`) : ''}
+      ${iv.busy ? inky(typing()) : ''}
       ${iv.error ? inky(h`<p class="hot">That did not work: ${iv.error}</p><div class="row"><button type="button" class="btn" data-act="retry">Try again</button></div>`) : ''}`;
   const rows = h`${understood.map((u) => h`<div class="kv"><span>${u.k}</span><span>${u.v}</span><span class="tag">✓</span></div>`)}
     ${asking.map((q) => h`<div class="kv wide"><span class="hot">${q.text}</span><span class="tag ask">asking</span></div>`)}`;
   const panel = h`<div class="card big">
       <div class="between"><h2 class="h2">What I understood so far</h2>${total ? h`<span class="muted" style="font-size:14px"><b style="color:var(--ink)">${understood.length} of ${total}</b> clear</span>` : ''}</div>
-      <div class="bar"><div style="width:${total ? Math.round((100 * understood.length) / total) : 0}%"></div></div>
+      <div class="bar">${progress(total ? Math.round((100 * understood.length) / total) : 0)}</div>
       ${total ? h`<div>${rows}</div>` : h`<p class="note" style="margin:0">Nothing yet. What I understand shows up here after the first round.</p>`}
     </div>
     <div class="row" style="align-items:stretch;gap:14px;flex-wrap:nowrap">
@@ -310,8 +320,8 @@ function confirm() {
   const panel = !plan ? empty('No plan yet', 'Start a new task and answer a few questions.') : h`<div class="row" style="align-items:stretch;gap:16px;flex-wrap:nowrap;flex:1">
     <div class="card big" style="flex:1;min-width:0">
       <div class="between"><h2 class="h2">Your plan</h2><span class="muted" style="font-size:14px"><b style="color:var(--ink)">${rows.length} of ${rows.length}</b> clear</span></div>
-      <div class="bar"><div style="width:100%"></div></div>
-      <div>${rows.map(([k, v]) => h`<div class="kv" style="grid-template-columns:110px 1fr"><span>${label(k)}</span><span>${planValue(k, v)}</span></div>`)}</div>
+      <div class="bar"><div class="grow" style="width:100%"></div></div>
+      <div class="stagger">${rows.map(([k, v]) => h`<div class="kv" style="grid-template-columns:110px 1fr"><span>${label(k)}</span><span>${planValue(k, v)}</span></div>`)}</div>
       <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px">
         <span class="h3">What I may do</span>
         <div class="may"><b>On my own</b><span>Read listings, run every 15 min, fix one broken step</span></div>
@@ -360,19 +370,19 @@ function researchView() {
   const zones = r.top_zones || [];
   const panel = h`
     <div class="between"><h2 class="h2">How Inky found the rules</h2><span class="mono small">${has(r.llm_calls) ? num(r.llm_calls) + ' AI calls' : ''}${r.at ? ' · ' + day(r.at) + ' ' + clock(r.at) : ''}</span></div>
-    <div class="card steps">${steps.map(([n, label]) => h`<div class="row" style="gap:14px;flex-wrap:nowrap"><div style="display:flex;flex-direction:column;gap:2px"><span class="n">${num(n)}</span><span class="small">${label}</span></div><span class="arrow" aria-hidden="true">→</span></div>`)}
-      ${v ? h`<div style="display:flex;flex-direction:column;gap:2px"><span class="n hot">${num(v.zones)}</span><span class="small">${v.zones === 1 ? 'neighbourhood passes' : 'neighbourhoods pass'} v${v.v}</span></div>` : ''}</div>
+    <div class="card steps">${steps.map(([n, label]) => h`<div class="row" style="gap:14px;flex-wrap:nowrap"><div style="display:flex;flex-direction:column;gap:2px"><span class="n">${count(n)}</span><span class="small">${label}</span></div><span class="arrow" aria-hidden="true">→</span></div>`)}
+      ${v ? h`<div style="display:flex;flex-direction:column;gap:2px"><span class="n hot">${count(v.zones, 'zones')}</span><span class="small">${v.zones === 1 ? 'neighbourhood passes' : 'neighbourhoods pass'} v${v.v}</span></div>` : ''}</div>
     ${vs.length ? h`<div class="row" style="align-items:stretch;gap:14px;flex-wrap:nowrap">
       <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
         <div class="between"><span class="h3">Homes that pass each version</span><span class="mono small">tested on ${num(r.for_sale)} homes for sale</span></div>
-        <div style="margin-top:8px">${vs.map((x, i) => h`<div class="vbar ${i === S.v ? 'on' : ''}"><span class="mono">v${x.v}</span><div class="track"><div style="width:${Math.max(2, Math.round((100 * (x.matches || 0)) / max))}%"></div></div><span class="mono" style="font-size:12.5px">${plural(x.matches, 'home')} · ${plural(x.zones, 'area')}</span></div>`)}</div>
+        <div style="margin-top:8px">${vs.map((x, i) => h`<div class="vbar ${i === S.v ? 'on' : ''}"><span class="mono">v${x.v}</span><div class="track"><div class="grow" style="width:${Math.max(2, Math.round((100 * (x.matches || 0)) / max))}%;--delay:${200 + i * 160}ms"></div></div><span class="mono" style="font-size:12.5px">${plural(x.matches, 'home')} · ${plural(x.zones, 'area')}</span></div>`)}</div>
         <p style="margin:0;padding-top:12px;font-size:13.5px;line-height:1.5;border-top:1px solid var(--row)">${!prev ? `v${v.v} is your plan turned into ${plural(vr.length, 'rule')}: ${plural(v.matches, 'home')} in ${plural(v.zones, 'neighbourhood')} ${v.matches === 1 ? 'passes' : 'pass'}.`
           : changed.length ? `v${v.v} changed ${changed.map((x) => x.id).join(', ')}. ${num(prev.matches)} → ${plural(v.matches, 'home')}, ${num(prev.zones)} → ${plural(v.zones, 'neighbourhood')}.` : `v${v.v} kept the rules of v${prev.v}.`}</p>
       </div>
       <div class="card" style="width:318px;flex-shrink:0;display:flex;flex-direction:column;gap:12px">
         <div class="vpick" role="group" aria-label="Rule version">${vs.map((x, i) => h`<button type="button" data-act="version" data-v="${i}" aria-pressed="${String(i === S.v)}">v${x.v}</button>`)}</div>
         <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:600">${S.v === 0 ? 'From your plan' : `After testing v${prev.v}`}</span><span class="mono small">v${v.v} · ${plural(vr.length, 'rule')}</span></div>
-        <div style="display:flex;flex-direction:column;gap:10px">${vr.map((x) => h`<div class="rule"><span class="m" style="color:${mark[x.m]}">${x.m}</span><span class="t"><span>${x.id ? x.id + ' · ' : ''}${x.t}</span>${x.why ? h`<small>${x.why}</small>` : ''}</span></div>`)}</div>
+        <div class="play" style="display:flex;flex-direction:column;gap:10px">${vr.map((x) => h`<div class="rule"><span class="m" style="color:${mark[x.m]}">${x.m}</span><span class="t"><span>${x.id ? x.id + ' · ' : ''}${x.t}</span>${x.why ? h`<small>${x.why}</small>` : ''}</span></div>`)}</div>
         <div class="between" style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line)"><span class="muted" style="font-size:13.5px">Neighbourhoods that pass</span><span style="font-size:26px;font-weight:600;letter-spacing:-0.02em" class="${S.v === vs.length - 1 ? 'hot' : ''}">${num(v.zones)}</span></div>
       </div></div>` : empty('No rule versions yet')}
     ${zones.length ? h`<div class="card" style="padding:0"><table class="tbl">
@@ -414,8 +424,8 @@ function screen() {
       <div class="frame"><div class="frame-in"><div class="win">
         <div class="urlbar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div><div class="url">${url || site}</div></div>
         <div style="flex:1;min-height:0;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
-          ${fields.length ? h`<span class="h3">What the program reads from each listing</span><div class="fields">${fields.map((f) => h`<div class="field" title="${f.sel}"><span>${f.name}</span><span>${f.sel || ' '}</span></div>`)}</div>` : ''}
-          ${steps.length ? h`<span class="h3">Steps</span><ol class="steplist">${steps.map((s) => h`<li><span>${stepName(s)}</span><span class="d" title="${stepDetail(s)}">${stepDetail(s)}</span></li>`)}</ol>` : ''}
+          ${fields.length ? h`<span class="h3">What the program reads from each listing</span><div class="fields run">${fields.map((f, i) => h`<div class="field" style="--i:${i}" title="${f.sel}"><span>${f.name}</span><span>${f.sel || ' '}</span></div>`)}</div>` : ''}
+          ${steps.length ? h`<span class="h3">Steps</span><ol class="steplist run">${steps.map((s, i) => h`<li style="--i:${i}"><span>${stepName(s)}</span><span class="d" title="${stepDetail(s)}">${stepDetail(s)}</span></li>`)}</ol>` : ''}
           ${sc ? h`<div class="note" style="padding:10px 12px;border-radius:10px;background:var(--panel)"><b style="color:var(--ink)">Shortcut:</b> the site has a JSON API, so the clicks became one request. <span class="mono" style="font-size:11.5px;overflow-wrap:anywhere">${sc.method || 'GET'} ${short(sc.url || '', 80)}</span></div>` : ''}
         </div></div></div></div>
       <div class="card" style="width:262px;flex-shrink:0;display:flex;flex-direction:column;gap:12px">
@@ -431,6 +441,8 @@ function screen() {
   return page('screen', { status: livePill(), thread, panel, placeholder: 'Say “slower”, “stop”, or change a rule…' });
 }
 
+// The race replays at the real pace, squeezed: 60 real seconds take 3.6 s on screen.
+const pace = (used, secs) => (has(used) ? Math.max(0.6, Math.min(4, (3.6 * used) / (has(secs) ? secs : 60))) : 1.2);
 function fast() {
   const r = raceData(), a = r && r.agent;
   const calls = (n) => (has(n) ? ` · ${num(n)} AI ${Number(n) === 1 ? 'call' : 'calls'}` : '');
@@ -446,11 +458,11 @@ function fast() {
     <div class="between" style="align-items:center"><span class="h3">Turbo <span class="muted" style="font-weight:400">· ${num(r.nWin)} windows at once</span></span>${screenToggle('turbo')}</div>
     ${a && has(a.listings) && has(r.listings) ? h`<div class="card" style="display:flex;flex-direction:column;gap:12px">
       <div class="between"><span class="h3">Same task, ${has(r.secs) ? `same ${num(r.secs)} seconds` : 'same time'}</span><span class="mono small">listings read</span></div>
-      <div class="race"><span style="font-weight:500">Inky</span><div class="track"><div style="width:100%;background:var(--coral)"></div></div><span class="mono" style="font-size:13px;text-align:right">${num(r.listings)}${calls(r.calls)}</span>
-        <span class="muted">Clicking agent</span><div class="track"><div style="width:${Math.max(1, Math.min(100, (100 * a.listings) / Math.max(1, r.listings)))}%;background:var(--faint)"></div></div><span class="mono muted" style="font-size:13px;text-align:right">${num(a.listings)}${calls(a.calls)}</span></div>
+      <div class="race"><span style="font-weight:500">Inky</span><div class="track"><div style="width:100%;background:var(--coral);--dur:${pace(r.used, r.secs)}s"></div></div><span class="mono" style="font-size:13px;text-align:right">${count(r.listings)}${calls(r.calls)}</span>
+        <span class="muted">Clicking agent</span><div class="track"><div style="width:${Math.max(1, Math.min(100, (100 * a.listings) / Math.max(1, r.listings)))}%;background:var(--faint);--dur:${pace(a.used, r.secs)}s"></div></div><span class="mono muted" style="font-size:13px;text-align:right">${count(a.listings)}${calls(a.calls)}</span></div>
     </div>` : ''}
-    ${r.per.length ? h`<div class="arms">${r.per.map((n, i) => h`<div class="arm"><div class="arm-h"><span>Window ${i + 1}</span><span class="mono muted" style="font-size:11px;font-weight:400">✓ ${num(n)}</span></div>
-      <div class="arm-b"><div class="bar"><div style="width:${Math.round((100 * (Number(n) || 0)) / maxW)}%;background:var(--coral)"></div></div><span class="muted" style="font-size:11.5px">${num(n)} listings · no AI</span></div></div>`)}</div>` : ''}
+    ${r.per.length ? h`<div class="arms">${r.per.map((n, i) => h`<div class="arm" style="--i:${i}"><div class="arm-h"><span>Window ${i + 1}</span><span class="mono muted" style="font-size:11px;font-weight:400">✓ ${num(n)}</span></div>
+      <div class="arm-b"><div class="bar"><div class="grow" style="width:${Math.round((100 * (Number(n) || 0)) / maxW)}%;background:var(--coral);--delay:${300 + i * 70}ms"></div></div><span class="muted" style="font-size:11.5px">${num(n)} listings · no AI</span></div></div>`)}</div>` : ''}
     <div class="stats">${stat('Inky’s time', has(r.used) ? num(r.used) + ' s' : '')}${stat('Listings', has(r.listings) ? num(r.listings) : '')}${stat('Per second', has(r.perSec) ? num(r.perSec) : '')}${stat('AI calls', has(r.calls) ? num(r.calls) : '')}${stat('Agent’s AI cost', a && has(a.cost) ? '$' + Number(a.cost).toFixed(2) : '', true)}</div>
     ${r.at ? h`<span class="note">Raced ${day(r.at)} ${clock(r.at)}.</span>` : ''}`;
   return page('fast', { status: livePill(), acc: 'headphones', thread, panel, placeholder: 'Say “slow down”, or change a rule…' });
@@ -460,6 +472,7 @@ function results() {
   const r = research(), saved = (r && r.matches) || [], ms = saved.filter(passes), last = [...S.log].reverse().find((x) => x.res);
   const total = matchTotal(), hidden = saved.length - ms.length;
   const headline = has(total) ? plural(total, 'home matches', 'homes match') : plural(ms.length, 'saved home passes', 'saved homes pass');
+  const bigHeadline = has(total) ? h`${count(total, 'matches')} ${Number(total) === 1 ? 'home matches' : 'homes match'}` : headline;
   const best = ms.reduce((b, m) => (!b || (m.net_yield || 0) > (b.net_yield || 0) ? m : b), null);
   const top = r && r.top_zones && r.top_zones[0];
   const cur = finalRules().find((x) => x.field === 'currency');
@@ -472,7 +485,7 @@ function results() {
     ])}<div class="row"><button type="button" class="btn" data-act="fill" data-text="${idea}">${idea}</button></div>`)}`;
   const panel = h`<div class="seg"><span aria-current="page">Homes</span><a href="#activity">Activity</a></div>
     ${!r ? empty() : h`
-      <div class="between" style="align-items:center"><h2 class="h2">${headline}</h2>${finalRules().length ? h`<span class="mono small">rules ${finalRules()[0].id}–${finalRules()[finalRules().length - 1].id}</span>` : ''}</div>
+      <div class="between" style="align-items:center"><h2 class="h2">${bigHeadline}</h2>${finalRules().length ? h`<span class="mono small">rules ${finalRules()[0].id}–${finalRules()[finalRules().length - 1].id}</span>` : ''}</div>
       <span class="mono small" style="margin-top:-8px">from ${num(r.listings_read)} listings${r.at ? ' · research ' + day(r.at) + ' ' + clock(r.at) : ''}${ms.length && has(total) && ms.length < total ? ` · showing ${num(ms.length)}` : ''}</span>
       ${last ? h`<div class="card" style="border-color:var(--coral);background:var(--blush);padding:12px 16px;display:flex;justify-content:space-between;gap:12px;align-items:baseline"><span style="font-size:14px"><b class="hot">Last change</b> · ${last.res.change}</span>${has(last.res.matches_before) && has(last.res.matches_after) ? h`<span class="mono" style="font-size:13px;white-space:nowrap">${num(last.res.matches_before)} → ${plural(last.res.matches_after, 'home')}</span>` : ''}</div>` : ''}
       ${ms.length ? h`<div class="card" style="padding:0;overflow:hidden"><table class="tbl">
@@ -487,53 +500,84 @@ function results() {
 }
 
 const SOURCES = [['idealista · Porto', 'igolaizola~idealista-scraper'], ['idealista · Bari', 'igolaizola~idealista-scraper'], ['immobiliare · Bari', 'memo23~immobiliare-scraper'], ['otodom · Łódź', 'trev0n~otodom-scraper']];
-function wfNode(x, y, inner, label, hot, cls = '') {
-  return h`<div class="wfn ${cls}" style="left:${x - 45}px;top:${y - 26}px"><div class="wfbox ${hot ? 'hot' : ''}">${inner}</div><span>${label}</span></div>`;
-}
+const secsBetween = (a, b) => (a && b ? (new Date(b) - new Date(a)) / 1000 : null);
+const secsText = (x) => (has(x) ? (x < 10 ? x.toFixed(1) : Math.round(x)) + ' s' : '');
+// seconds from the start of an execution to the end of one of its steps (steps run one after another)
+const upTo = (r, name) => { let t = 0; for (const [n, x] of Object.entries((r && r.nodes) || {})) { t += (x.ms || 0) / 1000; if (n === name) break; } return t; };
+const bigIcon = (svg) => raw(svg.__raw.replace(/width="1[56]" height="1[56]"/, 'width="22" height="22"'));
+
+// The workflow screen answers three questions in plain words: what happens every 15 minutes, what happens when
+// something breaks, and how the recent runs went. Every number is from the real n8n executions (/api/run_detail).
 function workflow() {
   const nn = n8n(), main = safeUrl(nn.main_url), repair = safeUrl(nn.repair_url);
   const runs = S.runs.filter((e) => e.workflow !== 'repair');
   const failed = runs.filter((e) => /error|crash|fail/.test(e.status || '')).length;
-  const fixes = S.runs.filter((e) => e.workflow === 'repair');
-  const rules = finalRules();
-  const thread = h`${me('How does this actually run?')}${inky(h`<p>As one n8n workflow in your own account. Apify brings the listings in, n8n decides what to do and asks you. I only come back when something breaks.</p>
-    ${main ? h`${logLines([['Built the workflow', 'created through the n8n API'], [`Uses ${SOURCES.length} Apify steps`, 'idealista, immobiliare, otodom'], ['Every run is an n8n execution', `${num(runs.length)} so far, ${num(failed)} failed`], repair && ['Built a repair workflow', 'fixes one broken step, then runs again']])}
-      <div class="row">${ext(main, 'Open in n8n', 'btn dark')}${ext(repair, 'Repair workflow')}</div>` : h`<p class="note">It gets built after the research. Nothing is running yet.</p>`}`)}
-    ${me('Can other people use it?')}${inky(h`<p>Yes. They get the same workflow, set up in their own n8n and Apify. Never your results, budget or messages.</p><div class="row"><a class="btn" href="#share">Share it</a></div>`)}`;
-  const ys = [44, 112, 180, 248];
-  const edges = ys.map((y) => `<path d="M66 145 C 90 145, 90 ${y}, 114 ${y}"/><path d="M166 ${y} C 190 ${y}, 190 145, 214 145"/>`).join('') + '<path d="M266 145 L 310 145"/><path d="M458 145 L 502 145"/><path d="M554 145 L 598 145"/>';
-  const panel = !main ? empty() : h`
-    <div class="between" style="align-items:center"><div class="row" style="gap:10px">${N8N}<h2 class="h2" style="font-size:20px">Your n8n workflow</h2>
-      <span class="pill hot" style="font-size:12.5px;font-weight:500">Built by Inky via the n8n API</span>
-      ${runs[0] ? h`<span class="pill" style="font-size:12.5px;background:#fff;border:1px solid var(--line)">last run ${clock(runs[0].startedAt)}</span>` : ''}</div>
-      ${ext(main, 'Open in n8n', '')}</div>
-    <div class="card" style="border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-      <div class="canvas"><div class="wfc">
-        <svg width="680" height="302" viewBox="0 0 680 302" aria-hidden="true"><g fill="none" stroke="#B9B5AD" stroke-width="1.6">${raw(edges)}</g><g fill="none" stroke="#E86F51" stroke-width="1.8"><path d="M362 145 L 406 145"/></g></svg>
-        ${wfNode(40, 145, icon(P.clock, 24, 1.8), 'Every 15 min')}
-        ${SOURCES.map(([name], i) => wfNode(140, ys[i], raw(APIFY.__raw.replace(/width="15" height="15"/, 'width="24" height="24"')), name, false, 'src'))}
-        ${wfNode(240, 145, icon(P.merge, 24, 1.8), 'Merge')}
-        ${wfNode(336, 145, '{ }', rules.length ? `Score, ${rules[0].id}–${rules[rules.length - 1].id}` : 'Score on the rules')}
-        ${wfNode(432, 145, raw(TG.__raw.replace(/width="15" height="15"/, 'width="24" height="24"')), 'Ask you on Telegram', true)}
-        ${wfNode(528, 145, '{ }', 'Keep approved')}
-        ${wfNode(624, 145, icon(P.mail, 24, 1.8), 'Gmail draft, never sent')}
-      </div></div>
-      <div class="onerror"><span class="mono hot" style="font-size:11px;white-space:nowrap">ON ERROR</span>
-        ${['Error trigger', 'GLM-5.3 fixes 1 step', 'Save the fix', 'Run it again'].map((s, i) => h`${i ? h`<span aria-hidden="true" style="color:var(--coral)">→</span>` : ''}<span class="s">${s}</span>`)}
-        <span style="margin-left:auto;white-space:nowrap">${fixes.length ? h`<span class="hot">used ${clock(fixes[0].startedAt)}</span> · ` : ''}${ext(repair, 'Open', 'hot')}</span></div>
-    </div>
-    <div class="row" style="align-items:stretch;gap:14px;flex-wrap:nowrap">
-      <div class="card" style="flex:1;flex-basis:0;min-width:0;display:flex;flex-direction:column;gap:9px;padding:14px 16px">
-        <span class="h3">n8n makes the decisions</span>
-        ${[['Ask', 'A home passes every rule? Ask you on Telegram and wait for your tap.'], ['Draft', 'You tap “Save as draft”? Write a Gmail draft to the agent. Never sent.'], ['Error', 'A step fails? The repair workflow fixes that one step and runs again, at most once an hour.'], ['08:00', 'Every morning, a short digest on Telegram.']].map(([k, t]) => h`<div class="decide-row"><span class="k">${k}</span><span>${t}</span></div>`)}
-        <span class="mono small" style="margin-top:auto">${runs.length ? `${num(runs.length)} executions · ${num(failed)} failed` : 'No runs yet'}</span>
+  const d = S.detail || {}, ok = d.ok, rep = d.repair;
+  const node = (r, n) => (r && r.nodes && r.nodes[n]) || null;
+  const items = (r, n) => (node(r, n) ? node(r, n).items : null);
+  const read = ok ? SOURCES.reduce((a, [n]) => a + (items(ok, n) || 0), 0) : null;
+  const sites = ok ? SOURCES.filter(([n]) => node(ok, n)).length : SOURCES.length;
+  const score = node(ok, 'Score · rules');
+  const matched = score ? score.items : null;
+  const asked = items(ok, 'Ask me on Telegram') ?? (matched === 0 ? 0 : null);
+  const drafted = items(ok, 'Gmail draft to the agent') ?? (matched === 0 || asked === 0 ? 0 : null);
+  const took = ok ? secsBetween(ok.startedAt, ok.stoppedAt) : null;
+  const trig = runs.find((e) => e.mode === 'trigger');
+  const rules = finalRules(), ruleIds = rules.length ? `${rules[0].id}–${rules[rules.length - 1].id}` : 'your rules';
+
+  const thread = h`${me('How does this actually run?')}${inky(h`<p>Without me. I turned your plan into a workflow in your own n8n. Every 15 minutes it reads the newest listings with Apify, scores them on ${ruleIds} with no AI, and asks you on Telegram when a home fits.</p>
+    ${main ? h`${logLines([
+      ok && [`Last run: ${plural(read, 'listing')} read`, `${plural(matched, 'match', 'matches')}${has(took) ? `, took ${secsText(took)}` : ''}`],
+      [`${plural(runs.length, 'run')} so far`, failed ? `${num(failed)} failed, ${rep ? 'fixed by the repair workflow' : 'check Activity'}` : 'none failed'],
+      rep && ['Fixed one broken step on its own', rep.change],
+    ])}
+      <div class="row">${ext(main, 'Open in n8n', 'btn dark')}<a class="btn" href="#activity">All runs</a></div>` : h`<p class="note">It gets built after the research. Nothing is running yet.</p>`}`)}
+    ${me('What if a site changes?')}${inky(h`<p>A second workflow watches for errors. It asks GLM-5.3 to rewrite only the broken step, saves it, and runs again. At most once an hour, and it tells you both times.</p>`)}`;
+
+  if (!main) return page('workflow', { status: livePill(), thread, panel: empty(), placeholder: 'Ask what a step does, or change a rule…' });
+
+  const stage = (i, ic, title, n, unit, sub, hot) => h`<div class="stage ${hot ? 'hot' : ''}" style="--i:${i}">
+    <div class="stage-ic">${ic}</div><span class="stage-t">${title}</span>
+    <span class="stage-n">${has(n) ? h`<b>${count(n, 'st' + i, 300 + i * 380)}</b>` : h`<b>–</b>`}<span>${unit}</span></span>
+    <span class="stage-s">${sub}</span></div>`;
+  const pipe = (i) => h`<div class="pipe" style="--i:${i}" aria-hidden="true"><i></i><i></i><i></i></div>`;
+  const flow = h`<div class="flow">
+    ${stage(0, bigIcon(APIFY), `Read ${num(sites)} sites`, read, 'new listings', 'idealista, immobiliare and otodom, through Apify')}${pipe(0)}
+    ${stage(1, '{ }', 'Score them, no AI', matched, matched === 1 ? 'match' : 'matches', `rules ${ruleIds}${score && has(score.ms) ? ` · ${secsText(score.ms / 1000)}` : ''} · 0 AI calls`)}${pipe(1)}
+    ${stage(2, bigIcon(TG), 'Ask you', asked, asked === 1 ? 'question' : 'questions', 'on Telegram, then it waits for your tap', !!asked)}${pipe(2)}
+    ${stage(3, icon(P.mail, 20, 1.8), 'Save a draft', drafted, drafted === 1 ? 'Gmail draft' : 'Gmail drafts', 'to the agent, never sent: you press send')}</div>`;
+
+  const repairAt = rep && (rep.failed ? rep.failed.startedAt : rep.startedAt);
+  const fixSecs = rep ? secsBetween(rep.startedAt, rep.stoppedAt) : null;
+  const again = rep && rep.again;
+  const incident = rep ? h`<div class="incident fixed">
+      <div class="between" style="align-items:center"><span class="h3">${day(repairAt)}, ${clock(repairAt)} · a step broke</span><span class="badge">${icon(P.check, 13, 3)}fixed in ${secsText(fixSecs)}</span></div>
+      <div class="tl">
+        <div class="tl-s" style="--i:0"><span class="t">${clock(repairAt)}</span><span><b>${rep.step || 'A step'} failed</b>${rep.error || 'The step returned an error.'}</span></div>
+        <div class="tl-s" style="--i:1"><span class="t">+${secsText(upTo(rep, 'GLM-5.3 fixes one step'))}</span><span><b>GLM-5.3 rewrote that one step</b>${rep.change ? h`<code>${rep.change}</code>` : ''}</span></div>
+        <div class="tl-s" style="--i:2"><span class="t">+${secsText(fixSecs)}</span><span><b>Saved and published the fix</b>in your n8n, and told you on Telegram</span></div>
+        ${again ? h`<div class="tl-s ok" style="--i:3"><span class="t">${clock(again.startedAt)}</span><span><b>Ran again${again.status === 'success' ? ' and worked' : ''}</b>${again.status === 'success' ? `all ${num(SOURCES.length)} sites read${has(secsBetween(again.startedAt, again.stoppedAt)) ? `, took ${secsText(secsBetween(again.startedAt, again.stoppedAt))}` : ''}` : again.status || 'running'}</span></div>` : ''}
       </div>
-      <div class="card" style="flex:1;flex-basis:0;min-width:0;display:flex;flex-direction:column;gap:8px;padding:14px 16px">
-        <div class="row" style="flex-wrap:nowrap">${APIFY}<span class="h3">Apify brings the data</span><a href="https://console.apify.com/actors/runs" target="_blank" rel="noopener" style="margin-left:auto;font-size:12.5px">Console ↗</a></div>
-        ${SOURCES.map(([name, actor]) => h`<div class="between" style="font-size:13px"><span>${name}</span><span class="mono muted" style="font-size:11.5px">${actor}</span></div>`)}
-        <span class="note" style="margin-top:auto;font-size:12px">Each step runs a Store actor and returns the newest listings.</span>
-      </div></div>`;
-  return page('workflow', { status: livePill(), thread, panel, placeholder: 'Ask what a node does, or change a rule…' });
+      <div class="between" style="align-items:center"><span class="note">It only touches the broken step, at most once an hour. Anything else, it asks you.</span>${ext(repair, 'Open repair', 'hot nowrap')}</div>
+    </div>`
+    : h`<div class="incident"><span class="h3">Nothing has broken yet</span><span class="note">If a site changes and a step fails, the repair workflow asks GLM-5.3 to rewrite only that step, publishes the fix and runs again. At most once an hour.</span>${ext(repair, 'Open the repair workflow', 'hot')}</div>`;
+
+  const beats = [...S.runs].reverse().slice(-40);
+  const beatCls = (e) => { const [tag] = runTag(e.status); return e.workflow === 'repair' ? 'fix' : tag === 'failed' ? 'bad' : tag === 'needs you' ? 'wait' : tag === 'ok' ? 'ok' : 'run'; };
+  const heartbeat = beats.length ? h`<div class="beats" role="img" aria-label="${num(runs.length)} runs, ${num(failed)} failed">${beats.map((e, i) => h`<span class="beat ${beatCls(e)}" style="--i:${i}" title="${day(e.startedAt)} ${clock(e.startedAt)} · ${e.workflow === 'repair' ? 'repair' : (MODE[e.mode] || 'run').toLowerCase()} · ${runTag(e.status)[0]}"></span>`)}</div>
+    <div class="legend"><span><i style="background:var(--green)"></i>worked</span><span><i style="background:var(--coral)"></i>failed</span><span><i style="background:var(--coral-ink)"></i>repair</span><span><i style="background:#E9A23B"></i>waiting for you</span></div>` : empty('No runs yet', 'Each run shows up here.');
+
+  const panel = h`<div class="wf-hero">
+      <div class="wf-hero-l">${critter(54)}<div><h2 class="h2" style="font-size:21px">Inky runs this on its own</h2><p>In your n8n, every 15 minutes. It built the workflow itself through the n8n API.</p></div></div>
+      <div class="wf-hero-r">${trig ? h`<span class="next"><span class="dot green"></span>Next run in <b data-countdown="${trig.startedAt}">–</b></span>` : ''}<div class="row">${ext(main, 'Open in n8n', 'btn dark')}</div></div>
+    </div>
+    <div class="sec"><h3>Every 15 minutes</h3>${ok ? h`<span class="mono small">last full run ${day(ok.startedAt)} ${clock(ok.startedAt)}${has(took) ? ` · took ${secsText(took)}` : ''}</span>` : ''}</div>
+    ${flow}
+    <div class="sec"><h3>When something breaks</h3></div>
+    ${incident}
+    <div class="sec"><h3>Recent runs</h3><a class="mono small" href="#activity">${plural(runs.length, 'run')} · ${num(failed)} failed →</a></div>
+    ${heartbeat}`;
+  return page('workflow', { status: livePill(), thread, panel, placeholder: 'Ask what a step does, or change a rule…' });
 }
 
 const MODE = { trigger: 'Scheduled run', manual: 'Run by hand', retry: 'Retry', webhook: 'Webhook run', integrated: 'Run again after a fix', error: 'Repair run', internal: 'Internal run', cli: 'Run from the command line' };
@@ -546,7 +590,7 @@ function runTag(s) {
 }
 function activity() {
   const nn = n8n(), runs = S.runs, main = safeUrl(nn.main_url);
-  const count = (f) => runs.filter(f).length;
+  const tally = (f) => runs.filter(f).length;
   const secs = runs.map((e) => (e.startedAt && e.stoppedAt ? (new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000 : null)).filter((x) => x != null);
   const thread = h`${me('What have you done so far?')}${inky(h`<p>${runs.length ? 'Every run is on the right. Each one is also in n8n and Apify, so you can check me.' : 'No runs yet. Every run shows up here once the workflow is live.'}</p>
     <div class="row">${ext(main && main + '/executions', 'n8n runs')}<a class="btn" href="https://console.apify.com/actors/runs" target="_blank" rel="noopener">Apify runs ↗</a></div>`)}`;
@@ -554,9 +598,9 @@ function activity() {
   const panel = h`<div class="between" style="align-items:center"><div class="seg"><a href="#results">Homes</a><span aria-current="page">Activity</span></div>
       ${runs.length ? h`<span class="mono small">${day(runs[runs.length - 1].startedAt)} ${clock(runs[runs.length - 1].startedAt)} → ${day(runs[0].startedAt)} ${clock(runs[0].startedAt)}</span>` : ''}</div>
     ${!runs.length ? (main ? empty('No runs yet', 'The workflow is built in n8n. Its runs show up here.') : empty()) : h`
-      <div class="stats">${[['Runs', runs.length], ['Succeeded', count((e) => e.status === 'success')], ['Failed', count((e) => /error|crash|fail/.test(e.status || ''))], ['Need you', count((e) => e.status === 'waiting'), true], ['Repairs', count((e) => e.workflow === 'repair')]]
-        .map(([k, v, hot]) => h`<div class="stat"><span>${k}</span><span class="${hot && v ? 'hot' : ''}">${num(v)}</span></div>`)}</div>
-      <div class="card" style="padding:6px 18px">${runs.map((e) => { const [tag, hot] = runTag(e.status); const d = e.startedAt && e.stoppedAt ? (new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000 : null; const url = link(e);
+      <div class="stats">${[['Runs', runs.length], ['Succeeded', tally((e) => e.status === 'success')], ['Failed', tally((e) => /error|crash|fail/.test(e.status || ''))], ['Need you', tally((e) => e.status === 'waiting'), true], ['Repairs', tally((e) => e.workflow === 'repair')]]
+        .map(([k, v, hot]) => h`<div class="stat"><span>${k}</span><span class="${hot && v ? 'hot' : ''}">${count(v, 'act-' + k)}</span></div>`)}</div>
+      <div class="card stagger" style="padding:6px 18px">${runs.map((e) => { const [tag, hot] = runTag(e.status); const d = e.startedAt && e.stoppedAt ? (new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000 : null; const url = link(e);
         return h`<a class="event" ${raw(url ? `href="${esc(url)}" target="_blank" rel="noopener"` : '')}><span class="tt">${clock(e.startedAt)}</span><span class="ti">${e.workflow === 'repair' ? 'Repair workflow' : MODE[e.mode] || 'Run'} · #${e.id}<small>${day(e.startedAt)}${has(d) ? ` · took ${d < 10 ? d.toFixed(1) : Math.round(d)} s` : ''}</small></span><span class="etag ${hot ? 'hot' : ''}">${tag}</span></a>`; })}</div>
       <span class="note">${secs.length ? `Average run: ${(secs.reduce((a, b) => a + b, 0) / secs.length).toFixed(1)} s. ` : ''}Every run is an n8n execution you can open.</span>`}`;
   return page('activity', { nav: 'activity', status: livePill(), thread, panel, placeholder: 'Ask about any run, or change a rule…' });
@@ -618,7 +662,7 @@ function market() {
       ${rows.map(([name, by, kind, color, acc, who, blurb, [action, cls], href]) => h`<div class="mrow">${critter(40, kind, color, acc)}<div class="who"><span><b>${name}</b> <span class="muted">${by}</span></span><small>${blurb}</small></div>
         <span class="pill" style="background:#fff;border:1px solid var(--line);font-size:12px;padding:3px 9px">${who}</span><a class="btn ${cls}" style="min-height:34px" href="${href}">${action}</a></div>`)}</div>`)}</section>
     <h2 style="margin:4px 0 0;font-size:16px;font-weight:600">Featured</h2>
-    <div class="featured">${featured.map(([name, by, ini, kind, color, acc]) => h`<a class="feat" href="#market"><div class="av">${critter(80, kind, color, acc)}<span class="ini">${ini}</span></div><span style="font-size:15px;font-weight:600">${name}</span><span class="small" style="font-size:13px">by ${by}</span></a>`)}</div>
+    <div class="featured stagger">${featured.map(([name, by, ini, kind, color, acc]) => h`<a class="feat" href="#market"><div class="av">${critter(80, kind, color, acc)}<span class="ini">${ini}</span></div><span style="font-size:15px;font-weight:600">${name}</span><span class="small" style="font-size:13px">by ${by}</span></a>`)}</div>
     <div class="between" style="padding:10px 0 0"><h2 style="margin:0;font-size:16px;font-weight:600">Property</h2><a class="muted" href="#market" style="font-size:14px">View all</a></div>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:40px">${property.map(([name, by, kind, color, acc, blurb]) => h`<div class="mrow">${critter(40, kind, color, acc)}<div class="who"><span><b>${name}</b> <span class="muted">by ${by}</span></span><small>${blurb}</small></div><a class="btn" style="min-height:34px;background:var(--chip);border-color:var(--chip);font-weight:500" href="#market">Add</a></div>`)}</div>
   </main></div>`;
@@ -628,15 +672,60 @@ function market() {
 const ROUTES = { home, task, confirm, research: researchView, screen, fast, results, workflow, activity, share, market };
 const TITLES = { home: 'New task', task: 'Plan', confirm: 'Your plan', research: 'Research', screen: 'Screen', fast: 'Turbo', results: 'Results', workflow: 'Workflow', activity: 'Activity', share: 'Share', market: 'Marketplace' };
 const route = () => { const k = location.hash.slice(1); return ROUTES[k] ? k : 'home'; };
+let shown = null;
 function render() {
-  const k = route();
-  $('#app').innerHTML = ROUTES[k]().__raw;
+  const k = route(), enter = k !== shown;
+  shown = k;
+  const app = $('#app');
+  app.innerHTML = ROUTES[k]().__raw;
   document.title = 'Inky · ' + TITLES[k];
   const m = $('.msgs');
   if (m) m.scrollTop = m.scrollHeight;
   fit();
+  motion(app, enter);
   if (k === 'task') startInterview();
 }
+
+// ---------- motion ----------
+// A new screen: cards and messages rise in one after another. Numbers count up the first time they show, and
+// again whenever they change (a rule edit moves "46 homes" to the new count). Everything is off for reduced motion.
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+const seen = new Map();
+function motion(app, enter) {
+  clearTimeout(motion.t);
+  app.classList.toggle('enter', enter && !calm.matches);
+  if (enter) motion.t = setTimeout(() => app.classList.remove('enter'), 2200);
+  for (const list of app.querySelectorAll('.body, .msgs, .home-in, .market, .stagger, .play, tbody, .log'))
+    [...list.children].forEach((c, i) => c.style.setProperty('--i', Math.min(i, 16)));
+  for (const el of app.querySelectorAll('[data-count]')) countUp(el, enter);
+  tickCountdown();
+}
+function countUp(el, enter) {
+  const to = Number(el.dataset.count), key = el.dataset.key;
+  const from = key && seen.has(key) ? seen.get(key) : enter ? 0 : to;
+  if (key) seen.set(key, to);
+  if (calm.matches || from === to || !Number.isFinite(to)) return;
+  const dec = Number.isInteger(to) ? 0 : 1, delay = Number(el.dataset.delay || 0), dur = 900 + Math.min(600, Math.abs(to - from) / 40);
+  const t0 = performance.now() + delay;
+  el.textContent = from.toLocaleString('en', { maximumFractionDigits: dec });
+  const step = (t) => {
+    if (!el.isConnected) return;
+    const p = Math.min(1, Math.max(0, (t - t0) / dur)), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = (from + (to - from) * e).toLocaleString('en', { minimumFractionDigits: p < 1 ? dec : 0, maximumFractionDigits: dec });
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// "Next run in 7:12": the schedule is every 15 minutes from the last scheduled run.
+function tickCountdown() {
+  for (const el of document.querySelectorAll('[data-countdown]')) {
+    let next = new Date(el.dataset.countdown).getTime() + 15 * 60e3;
+    while (next < Date.now() - 60e3) next += 15 * 60e3;
+    const left = Math.max(0, Math.round((next - Date.now()) / 1000));
+    el.textContent = left ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'now';
+  }
+}
+setInterval(tickCountdown, 1000);
 // The n8n picture is drawn 680 wide; zoom it down when the panel is narrower (laptop screens).
 function fit() { for (const c of document.querySelectorAll('.wfc')) c.style.zoom = Math.min(1, c.parentElement.clientWidth / 680); }
 window.addEventListener('resize', fit);
@@ -693,7 +782,8 @@ document.addEventListener('click', (e) => {
   const a = ACT[el.dataset.act];
   if (a) { e.preventDefault(); a(el); }
 });
-window.addEventListener('hashchange', render);
+// Page changes cross-fade and the tab pill slides to the new tab (View Transitions, where the browser has them).
+window.addEventListener('hashchange', () => (document.startViewTransition && !calm.matches ? document.startViewTransition(render) : render()));
 
 // Poll so research, runs and links appear while the build finishes; never re-render over anything typed and not sent yet.
 let last = '';

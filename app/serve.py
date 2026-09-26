@@ -4,6 +4,7 @@
 
 GET  /api/state        research, rules, plan, n8n links, race, program (null where a file is missing)
 GET  /api/executions   recent runs of the main and repair n8n workflows, newest first (cached 20 s)
+GET  /api/run_detail   items per step of the latest runs, and the latest repair's story (cached 60 s)
 POST /api/interview    {messages}             -> the next 2-3 questions, or the finished plan (GLM-5.3)
 POST /api/command      {text, dry_run?}       -> one rule edit on rules.json 'final', then pushed to n8n
 POST /api/share        {to, text?}            -> plain-language description and a link; nothing is sent
@@ -102,6 +103,60 @@ def executions():
             print(f"n8n executions: {type(e).__name__}: {e}", file=sys.stderr)
     out.sort(key=lambda e: e["startedAt"] or "", reverse=True)
     _runs.update(at=time.time(), data=out)
+    return out
+
+
+_detail = {"at": 0.0, "data": None}
+
+
+def summarize(e):
+    """One n8n execution -> items, time and error per node (not the items themselves)."""
+    rd = ((e.get("data") or {}).get("resultData")) or {}
+    nodes = {}
+    for name, runs in (rd.get("runData") or {}).items():
+        r = runs[-1]
+        nodes[name] = {"items": sum(len(o or []) for o in ((r.get("data") or {}).get("main") or [])),
+                       "ms": r.get("executionTime"), "error": (r.get("error") or {}).get("message")}
+    return {"id": str(e["id"]), "status": e.get("status"), "mode": e.get("mode"),
+            "startedAt": e.get("startedAt"), "stoppedAt": e.get("stoppedAt"), "nodes": nodes}
+
+
+def first_json(e, node):
+    try:
+        return e["data"]["resultData"]["runData"][node][-1]["data"]["main"][0][0]["json"]
+    except (KeyError, IndexError, TypeError):
+        return {}
+
+
+def run_detail():
+    """What the last runs did, per step: the latest run, the latest good run, and the latest repair with its story."""
+    if time.time() - _detail["at"] < 60:
+        return _detail["data"]
+    s, out = read_json(N8N_STATE) or {}, {"main": None, "ok": None, "repair": None}
+    if s.get("main") and os.environ.get("N8N_BASE_URL") and os.environ.get("N8N_API_KEY"):
+        try:
+            api = workflow.N8n()
+            full = lambda i: api.call("GET", f"/executions/{i}", params={"includeData": "true"})
+            runs = api.call("GET", "/executions", params={"workflowId": s["main"], "limit": 40}).get("data", [])
+            if runs:
+                out["main"] = summarize(full(runs[0]["id"]))
+                ok = next((e for e in runs if e.get("status") == "success"), None)
+                out["ok"] = out["main"] if ok and ok["id"] == runs[0]["id"] else summarize(full(ok["id"])) if ok else None
+            reps = api.call("GET", "/executions", params={"workflowId": s["repair"], "limit": 1}).get("data", []) if s.get("repair") else []
+            if reps:
+                rep = full(reps[0]["id"])
+                t0 = rep.get("startedAt") or ""
+                failed = next((e for e in runs if (e.get("stoppedAt") or "") <= t0 and e.get("status") == "error"), None)
+                again = next((e for e in reversed(runs) if (e.get("startedAt") or "") > t0), None)
+                err = first_json(rep, "Read the error")
+                out["repair"] = {**summarize(rep), **first_json(rep, "Patch the step"), "error": err.get("error"),
+                                 "failed": {"id": str(failed["id"]), "startedAt": failed.get("startedAt")} if failed else None,
+                                 "again": {"id": str(again["id"]), "status": again.get("status"), "startedAt": again.get("startedAt"),
+                                           "stoppedAt": again.get("stoppedAt")} if again else None}
+                out["repair"].pop("workflow", None)  # the patched workflow itself is not needed on screen
+        except Exception as e:
+            print(f"n8n run detail: {type(e).__name__}: {e}", file=sys.stderr)
+    _detail.update(at=time.time(), data=out)
     return out
 
 
@@ -365,6 +420,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.reply(state())
         if path == "/api/executions":
             return self.reply(executions())
+        if path == "/api/run_detail":
+            return self.reply(run_detail())
         if path.startswith("/api/"):
             return self.reply({"error": "not found"}, 404)
         super().do_GET()
