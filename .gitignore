@@ -2,3 +2,9 @@
 __pycache__/
 .venv/
 data/
+data-offline/
+data-validate/
+voice/models/
+data-lodz/
+.claude/
+teach/out.json

@@ -1,0 +1,18 @@
+{
+ "actor": "cavernous_stew/inky-tecnocasa-homes",
+ "actor_id": "d3z9fAUDHkB8hOxmO",
+ "actor_url": "https://console.apify.com/actors/d3z9fAUDHkB8hOxmO",
+ "run_url": "https://console.apify.com/view/runs/CTQzApy35x6ktt7Uv",
+ "run_status": "SUCCEEDED",
+ "dataset_id": "UrVSXgQG5sOP5yCVA",
+ "run_input": {
+  "maxItems": 20,
+  "maxPrice": 200000,
+  "city": "Bari"
+ },
+ "items": 20,
+ "sensible_items": 20,
+ "normalized_items": 20,
+ "usage_usd": 8.68091817829344e-05,
+ "checked_at": "2026-09-26T19:57:23+00:00"
+}

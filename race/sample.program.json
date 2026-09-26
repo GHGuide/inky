@@ -1,0 +1,20 @@
+{
+  "goal": "Read every flat for sale in Bari on tecnocasa.it: title, price, size, rooms, neighbourhood and link.",
+  "start_url": "https://www.tecnocasa.it/annunci/appartamenti/puglia/bari/bari.html",
+  "shortcut": null,
+  "steps": [
+    {"n": 1, "do": "click", "label": "Close the cookie banner with X (refuses non-essential cookies)", "target": {"css": "#cookie-banner #close", "role": null, "name": null}, "value": null, "type": "dismiss", "optional": true},
+    {"n": 2, "do": "extract", "label": "Read the listing cards", "target": {"css": ".estate-card", "role": null, "name": null}, "value": null, "type": "extract"}
+  ],
+  "item": {
+    "selector": ".estate-card",
+    "fields": {
+      "title": {"css": ".estate-card-title", "type": "text"},
+      "price": {"css": ".estate-card-current-price", "type": "int"},
+      "size_m2": {"css": ".estate-card-surface span", "type": "int"},
+      "rooms": {"css": ".estate-card-rooms span", "type": "int"},
+      "zone": {"css": ".estate-card-subtitle", "type": "text"},
+      "url": {"css": "a", "attr": "href", "type": "link"}
+    }
+  }
+}
