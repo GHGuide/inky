@@ -9,6 +9,7 @@ asks you on Telegram and, when you tap "Save as draft", writes a Gmail draft to 
 | `rules.json` | The 7 rules Inky derived from real listings for that plan. |
 | `inky-main.json` | The n8n workflow: Apify -> score -> Telegram -> Gmail draft, a daily digest, "Send me the best now". |
 | `inky-repair.json` | The repair workflow: when a step breaks, GLM-5.3 rewrites that step's input, at most once an hour. |
+| `bundle.json` | Title, one-line description, author and date, for the marketplace. |
 
 ## Set it up with the API (2 minutes)
 
@@ -21,7 +22,12 @@ You need an n8n with the public API on, and in a `.env` file:
 python share/import.py --dry-run     # checks this bundle and your .env, changes nothing
 python share/import.py               # creates the credentials and both workflows, not published
 python share/import.py --activate    # the same, and publishes them: it starts running every 15 minutes
+python share/import.py --no-credentials  # only needs N8N_BASE_URL and N8N_API_KEY: pick your own credentials in n8n
 ```
+
+To check the import first, `python share/import.py --test` makes a throwaway copy: both workflows are created
+inactive, named "... (import test)", with no credentials and Telegram, Gmail, the schedules and re-runs switched off.
+It checks them in n8n, deletes them and confirms each is gone (GET -> 404). Nothing runs, nothing is sent.
 
 ## Or import by hand
 

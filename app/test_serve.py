@@ -236,9 +236,45 @@ assert http("/api/plan", {"plan": {**p0, "budget_eur": "lots"}})[0] == 400
 assert http("/api/plan", {})[0] == 400
 serve.PLAN.write_text(json.dumps(p0))
 
+# ---- marketplace (I2): the example bundle and the ones share/export.py --out wrote into <data>/shared/ ----
+CARD = {"id", "title", "description", "author", "cities", "rules", "sources", "created_at", "example"}
+merge = lambda *srcs: {"nodes": [{"name": n, "type": "n8n-nodes-base.httpRequest"} for n in srcs] + [{"name": "Merge", "type": "n8n-nodes-base.merge"},
+                                                                                                   {"name": "Score", "type": "n8n-nodes-base.code"}],
+                       "connections": {**{n: {"main": [[{"node": "Merge", "type": "main", "index": 0}]]} for n in srcs},
+                                       "Merge": {"main": [[{"node": "Score", "type": "main", "index": 0}]]}}, "name": "Inky · Flats in Bari"}
+for name, files in {"sanne": {"inky-main.json": merge("idealista · Bari", "immobiliare · Bari"), "plan.json": {**p0, "cities": ["bari"]},
+                              "rules.json": {"final": [{"id": "R1"}, {"id": "R2"}]},
+                              "bundle.json": {"title": "Flats in Bari", "description": "Two-bed flats near the sea.\nSecond line.", "author": "Sanne",
+                                              "created_at": "2026-09-27T09:00:00+00:00"}},
+                    "older": {"inky-main.json": merge("otodom · Łódź"), "plan.json": {**p0, "cities": ["lodz"]}, "rules.json": {"final": []},
+                              "bundle.json": {"created_at": "2026-09-26T09:00:00+00:00", "author": " "}},
+                    "not-a-bundle": {"README.md": "hi"}, "broken": {"inky-main.json": "{not json", "plan.json": {}}}.items():
+    (FULL / "shared" / name).mkdir(parents=True)
+    for f, doc in files.items():
+        (FULL / "shared" / name / f).write_text(doc if isinstance(doc, str) else json.dumps(doc))
+(FULL / "shared" / "stray.json").write_text("{}")
+code, r = http("/api/bundles")
+assert code == 200 and set(r) == {"bundles"} and all(set(b) == CARD for b in r["bundles"]), r
+ex, sanne, older = r["bundles"]
+assert ex["id"] == "example" and ex["example"] is True and ex["title"] == "Buy-to-let abroad" and ex["cities"] == ["porto", "bari", "lodz"], ex
+assert ex["rules"] == 7 and ex["sources"] > 0 and ex["description"].startswith("Where can") and serve.when(ex["created_at"]), ex
+assert sanne == {"id": "sanne", "title": "Flats in Bari", "description": "Two-bed flats near the sea.", "author": "Sanne", "cities": ["bari"],
+                 "rules": 2, "sources": 2, "created_at": "2026-09-27T09:00:00+00:00", "example": False}, sanne
+assert (older["id"], older["title"], older["author"], older["rules"], older["sources"]) == ("older", "Flats in Bari", None, 0, 1), older
+assert older["description"] == p0["question"], "no description in bundle.json: the plan's question"
+text = json.dumps(r)
+assert not any(s in text for s in ("INKY_", "n8n.cloud", "webhook", "credential", "budget")), "a card shows no placeholders, hosts or secrets"
+
 # ---- research run (C1): Server-Sent Events, on its own copy of the data ----
 RES = TMP / "res"
 shutil.copytree(HERE.parent / "data-offline", RES, ignore=shutil.ignore_patterns("n8n-*.json"))
+# E6: listing dates on two sources (ISO and unix seconds), 0-119 days old; idealista (Porto) has none, like the real data
+for f, made, seen, as_time in [("lodz-sale-otodom", "dateCreated", "scrapedAt", lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")),
+                               ("bari-sale-immobiliare", "creationDate", "lastModified", lambda t: int(t.timestamp()))]:
+    items, t0 = json.loads((RES / "raw" / f"{f}.json").read_text()), serve.when("2026-09-26T20:00:00Z")
+    for i, item in enumerate(items):
+        item.update({made: as_time(t0 - serve.timedelta(days=i)), seen: as_time(t0 - serve.timedelta(days=i % 3))})
+    (RES / "raw" / f"{f}.json").write_text(json.dumps(items))
 serve.DATA = RES
 rules_before = json.loads((RES / "rules.json").read_text())
 ev = sse("/api/research/run", {})
@@ -256,6 +292,11 @@ assert res == json.loads((RES / "research.json").read_text()) and res["llm_calls
 m = res["matches"][0]
 assert {"rent_month", "gross_yield", "net_yield", "zone_rent_listings", "price_vs_zone", "price_trend", "country", "rent_m2", "sale_m2", "n_rent"} <= set(m), m
 assert set(res["costs"]) == {"PT", "IT", "PL"} and set(res["best_by_city"]) == set(serve.plan()["cities"])
+sp = res["speed"]["by_city"]
+assert sp["porto"] == {"listings": 0, "reason": "idealista gives no listing dates for homes for sale"}, sp
+assert sp["lodz"] == {"sources": ["otodom"], "listings": 120, "median_age_days": 59.5, "under_7_days_pct": 5.8, "new_24h": 1,
+                      "read_at": "2026-09-26T20:00:00+00:00"}, sp["lodz"]
+assert sp["bari"] == {**sp["lodz"], "sources": ["immobiliare"]}, sp["bari"]
 assert all(b["reason"] is None for b in res["best_by_city"].values() if b["matches"]), res["best_by_city"]
 assert "research" not in BAD_ONCE, "an invalid GLM answer is retried once"
 
@@ -510,6 +551,9 @@ serve.derive.glm = FakeN8n.call = serve.httpx.post = serve.httpx.get = serve.api
 plan_text = serve.PLAN.read_text()
 code, s = http("/api/state")
 assert code == 200 and s["n8n"]["demo"] is True and 0 < len(s["research"]["matches"]) <= 60 and s["rules"]["final"] and s["program"], s.keys()
+assert set(s["research"]["speed"]["by_city"]) == set(s["plan"]["cities"]), "E6 speed is in the demo research"
+code, r = http("/api/bundles")
+assert code == 200 and [b["id"] for b in r["bundles"]] == ["example"], r
 for path in ("/api/executions", "/api/run_detail", "/api/summary", "/api/end"):
     code, r = http(path)
     assert code == 200 and r, (path, r)

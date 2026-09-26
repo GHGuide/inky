@@ -1,7 +1,7 @@
 {
- "since": "2026-09-25T23:13:07+00:00",
- "runs": 12,
- "ok": 10,
+ "since": "2026-09-25T23:26:11+00:00",
+ "runs": 13,
+ "ok": 11,
  "failed": 2,
  "waiting": 0,
  "repairs": 1,
@@ -13,22 +13,40 @@
    "change": "Changed searchType from 'sale' to the allowed enum value 'sprzedaz'."
   }
  ],
- "listings_checked": 1729,
+ "listings_checked": 2023,
  "new_listings": 325,
  "matches": 1,
- "apify_usd": 19.95,
- "apify_usd_runs": 2.44,
- "apify_usd_per_run": 0.203,
+ "apify_usd": 20.33,
+ "apify_usd_runs": 2.66,
+ "apify_usd_per_run": 0.205,
  "ai_calls": 0,
  "glm_usd_research": 0.1549,
  "n8n_stats": {
-  "runs": 10,
-  "checked": 1652,
+  "runs": 11,
+  "checked": 1935,
   "fresh": 310,
   "matches": 1,
   "since": "2026-09-26T20:34:37.101Z"
  },
  "per_run": [
+  {
+   "id": "22",
+   "startedAt": "2026-09-26T23:15:41.103Z",
+   "status": "success",
+   "mode": "trigger",
+   "listings": 294,
+   "new": 0,
+   "matches": 0,
+   "secs": 150.3,
+   "sources": {
+    "idealista · Porto": 60,
+    "idealista · Bari": 60,
+    "immobiliare · Bari": 60,
+    "otodom · Łódź": 54,
+    "tecnocasa · Bari": 60
+   },
+   "apify_usd": 0.2175
+  },
   {
    "id": "21",
    "startedAt": "2026-09-26T23:00:41.105Z",

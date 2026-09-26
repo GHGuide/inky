@@ -8,6 +8,7 @@ GET  /api/executions   recent runs of the main and repair n8n workflows, newest 
 GET  /api/run_detail   items per step of the latest runs, and the latest repair's story with before/after (cached 60 s)
 GET  /api/summary      ?since=<iso>, default the last 24 h: runs, listings, matches, fixes, Apify cost (cached 60 s)
 GET  /api/end          the totals for the end card
+GET  /api/bundles      shared agents for the marketplace: share/bundle/ (the example) and <data>/shared/*/ (share/export.py --out)
 POST /api/interview    {messages}             -> the next 2-3 questions, or the finished plan (GLM-5.3)
 POST /api/command      {text, dry_run?}       -> one rule edit on rules.json 'final', then pushed to n8n
 POST /api/share        {to, text?}            -> plain-language description and a link; nothing is sent
@@ -533,9 +534,7 @@ def run_numbers(e):
     """One execution with its data -> what run-cache.json keeps: items per source step, matches, the fix, and short hashes
     of the listings read (for 'new'). Source steps are the ones wired into a Merge node, so a new source counts too."""
     rd = (((e.get("data") or {}).get("resultData")) or {}).get("runData") or {}
-    wd = e.get("workflowData") or {}
-    merges = {n["name"] for n in wd.get("nodes", []) if n.get("type") == "n8n-nodes-base.merge"}
-    srcs = [a for a, c in (wd.get("connections") or {}).items() if any(t.get("node") in merges for o in c.get("main", []) for t in (o or []))]
+    srcs = source_steps(e.get("workflowData") or {})
     items = lambda name: [i.get("json") or {} for o in (((rd[name][-1].get("data") or {}).get("main")) or []) for i in (o or [])]
     sources = {s: len(items(s)) for s in srcs if s in rd}
     keys = sorted({hashlib.sha1(f"{s}:{j.get('propertyCode') or j.get('id') or j.get('propertyUrl') or j.get('url')}".encode()).hexdigest()[:10]
@@ -544,6 +543,12 @@ def run_numbers(e):
     return {"sources": sources, "scored": workflow.SCORE in rd, "matches": len(items(workflow.SCORE)) if workflow.SCORE in rd else 0,
             "keys": keys, "fixed": "Save the fix" in rd and not rd["Save the fix"][-1].get("error"),
             "step": patch.get("step"), "change": patch.get("change")}
+
+
+def source_steps(wf):
+    """The steps wired into a Merge node: the sites a workflow reads."""
+    merges = {n["name"] for n in wf.get("nodes", []) if n.get("type") == "n8n-nodes-base.merge"}
+    return [a for a, c in (wf.get("connections") or {}).items() if any(t.get("node") in merges for o in c.get("main", []) for t in (o or []))]
 
 
 def apify_runs(since):
@@ -640,6 +645,30 @@ def end():
             "glm_usd_research": r.get("llm_cost_usd"), "ai_calls_per_run": 0, "repo": REPO}
 
 
+# ---- marketplace (I2): bundles from share/export.py ----
+
+def bundles():
+    """Only what a card shows, counted from the bundle's files: never their contents, ids or hosts. A folder that is not a bundle
+    is skipped. The example comes first, then the shared ones, newest first."""
+    found, text = [], lambda v: v.strip() if isinstance(v, str) and v.strip() else None
+    for d, example in [(ROOT / "share" / "bundle", True), *((d, False) for d in (DATA / "shared").glob("*/"))]:
+        main, p, rules, meta = (read_json(d / f) for f in ("inky-main.json", "plan.json", "rules.json", "bundle.json"))
+        if not (isinstance(main, dict) and isinstance(p, dict)):
+            continue
+        meta = meta if isinstance(meta, dict) else {}
+        found.append({"id": "example" if example else d.name,
+                      "title": text(meta.get("title")) or str(main.get("name") or d.name).removeprefix("Inky · "),
+                      "description": (text(meta.get("description")) or text(p.get("question")) or "").split("\n")[0][:240],
+                      "author": text(meta.get("author")),
+                      "cities": [c for c in p.get("cities") or [] if isinstance(c, str)],
+                      "rules": len(rules.get("final") or []) if isinstance(rules, dict) else 0,
+                      "sources": len(source_steps(main)),
+                      "created_at": text(meta.get("created_at")) or datetime.fromtimestamp((d / "inky-main.json").stat().st_mtime, timezone.utc).isoformat(timespec="seconds"),
+                      "example": example})
+    found.sort(key=lambda b: b["created_at"], reverse=True)
+    return {"bundles": sorted(found, key=lambda b: not b["example"])}
+
+
 # ---- demo mode (K4): the committed snapshot in data-demo/, made by app/make_demo.py ----
 
 def demo_file(name):
@@ -677,7 +706,7 @@ def replay(name):
 # ---- HTTP ----
 
 GETS = {"/api/state": lambda q: state(), "/api/executions": lambda q: executions(), "/api/run_detail": lambda q: run_detail(),
-        "/api/summary": lambda q: summary((q.get("since") or [None])[0]), "/api/end": lambda q: end()}
+        "/api/summary": lambda q: summary((q.get("since") or [None])[0]), "/api/end": lambda q: end(), "/api/bundles": lambda q: bundles()}
 POSTS = {"/api/interview": interview, "/api/command": command, "/api/share": share, "/api/plan": save_plan, "/api/best_now": best_now}
 STREAMS = {"/api/research/run": research_run, "/api/build/run": build_run}
 DEMO_GETS = {**GETS, "/api/executions": lambda q: demo_file("executions.json"), "/api/run_detail": lambda q: demo_file("run_detail.json"),

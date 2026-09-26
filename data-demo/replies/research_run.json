@@ -266,7 +266,7 @@
  {
   "type": "done",
   "research": {
-   "at": "2026-09-26T23:13:11+00:00",
+   "at": "2026-09-26T22:41:55+00:00",
    "listings_read": 17836,
    "for_sale": 13421,
    "for_rent": 4415,
@@ -415,6 +415,35 @@
      "failed": [],
      "reason": null
     }
+   },
+   "speed": {
+    "by_city": {
+     "porto": {
+      "listings": 0,
+      "reason": "idealista gives no listing dates for homes for sale"
+     },
+     "bari": {
+      "sources": [
+       "immobiliare"
+      ],
+      "listings": 3156,
+      "median_age_days": 133.6,
+      "under_7_days_pct": 4.8,
+      "new_24h": 12,
+      "read_at": "2026-09-26T19:19:48+00:00"
+     },
+     "lodz": {
+      "sources": [
+       "otodom"
+      ],
+      "listings": 2500,
+      "median_age_days": 19.1,
+      "under_7_days_pct": 19.3,
+      "new_24h": 30,
+      "read_at": "2026-09-26T20:11:23+00:00"
+     }
+    },
+    "note": "Age: from the date the site gives a listing to when Inky read it. Counted on the homes for sale Inky read, not on every listing in the city."
    },
    "costs": {
     "PT": {

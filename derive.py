@@ -2,7 +2,7 @@
 
     uv run python derive.py            # uses OpenRouter (GLM-5.3)
     uv run python derive.py --offline  # no LLM: fixed rules, for testing the pipeline
-    uv run python derive.py --rescore  # no LLM: re-evaluate the saved final rules, rewrite research.json only
+    uv run python derive.py --rescore  # no LLM: re-evaluate the saved final rules, rewrite research.json only (same "at")
 
 The same work is callable from Python: derive.run(progress, offline=False, data_dir=None, rescore=False, plan=None).
 
@@ -216,6 +216,45 @@ def best_by_city(known, rules, cities, matches):
     return out
 
 
+# E6: per site, the raw field with the date a listing went up, and a field that says when the scrape saw it.
+# idealista gives neither for homes for sale (firstActivationDate shows up on some rentals only).
+DATED = {"otodom": ("dateCreated", "scrapedAt"), "immobiliare": ("creationDate", "lastModified")}
+
+
+def stamp(v):
+    """ISO text or unix seconds -> aware datetime."""
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(v, timezone.utc)
+    t = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def speed(raw, cities):
+    """How fresh the homes for sale are, per city, from the dates in the raw items: no scrape, no model.
+    A listing's age runs from its date to the newest 'seen' time in the same file, so it never runs past the scrape."""
+    out = {}
+    for city in cities:
+        files = {Path(f).stem.split("-", 2)[2]: Path(f) for f in raw if Path(f).name.startswith(f"{city}-sale-")}
+        ages, used, read_at = [], [], None
+        for source, f in sorted(files.items()):
+            if source not in DATED:
+                continue
+            made, seen = DATED[source]
+            items = {str(i.get("id")): i for i in json.loads(f.read_text())}.values()  # the same listing twice counts once
+            ref = max((stamp(i[seen]) for i in items if i.get(seen)), default=None)
+            got = [(ref - stamp(i[made])).total_seconds() / 86400 for i in items if ref and i.get(made)]
+            if got:
+                ages, used, read_at = ages + got, used + [source], max(read_at or ref, ref)
+        if not ages:
+            out[city] = {"listings": 0, "reason": f"{' and '.join(sorted(files)) or 'no site'} {'give' if len(files) > 1 else 'gives'} no listing dates for homes for sale"}
+            continue
+        out[city] = {"sources": used, "listings": len(ages), "median_age_days": round(statistics.median(ages), 1),
+                     "under_7_days_pct": round(100 * sum(a < 7 for a in ages) / len(ages), 1), "new_24h": sum(a < 1 for a in ages),
+                     "read_at": read_at.isoformat(timespec="seconds")}
+    return {"by_city": out, "note": "Age: from the date the site gives a listing to when Inky read it. "
+                                    "Counted on the homes for sale Inky read, not on every listing in the city."}
+
+
 def run(progress=None, offline=False, data_dir=None, rescore=False, plan=None):
     """The research step. progress(event) gets {"type": "step", "text", "sub"?} and {"type": "version", "v", "matches", "zones", "rules"}.
     rescore=True: no GLM and no new market facts, re-test the saved versions and rewrite research.json only (rules.json stays).
@@ -296,7 +335,7 @@ def run(progress=None, offline=False, data_dir=None, rescore=False, plan=None):
                          "price_trend": costs[ms[0]["country"]]["price_trend"], "rent_listings": ms[0]["zone_rent_listings"]}
                         for (c, z), ms in by_zone.items()), key=lambda t: -t["net_yield"])
     research = {
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "at": old["at"] if rescore else datetime.now(timezone.utc).isoformat(timespec="seconds"),  # rescore changes no research
         "listings_read": len(listings), "for_sale": len(sale), "for_rent": len(listings) - len(sale),
         "neighbourhoods": len(zones), "with_rent_data": len(known), "pln_per_eur": pln, "price_trend_period": period,
         "versions": [{"v": h["v"], "matches": h["matches"], "zones": h["zones"]} for h in history], "final_v": doc.get("final_v", history[-1]["v"]),
@@ -304,6 +343,7 @@ def run(progress=None, offline=False, data_dir=None, rescore=False, plan=None):
         "by_city": {c: {"matches": sum(1 for m in matches if m["city"] == c),
                         "best_zone": next((t for t in top_zones if t["city"] == c), None)} for c in plan["cities"]},
         "best_by_city": best_by_city(known, final, plan["cities"], matches),
+        "speed": speed(raw, plan["cities"]),
         "costs": costs,
         "matches": [{**{k: m.get(k) for k in MATCH_KEYS}, **{k: zones[f"{m['city']}|{m['zone']}"][k] for k in ZONE_KEYS}} for m in matches[:200]],
         "llm_cost_usd": round(total_cost, 4), "llm_calls": calls,
