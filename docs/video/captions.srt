@@ -80,7 +80,7 @@ It told me after.
 
 18
 00:01:25,200 --> 00:01:27,713
-From any app I hold ⌥ Space:
+I type one line:
 
 19
 00:01:27,753 --> 00:01:32,089

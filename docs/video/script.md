@@ -13,7 +13,7 @@ If a placeholder can't be filled, use the fallback line in its block. Never roun
 
 ## Pronunciation
 
-Łódź: "Woodge". GLM is never spoken. n8n: "n-eight-n". Tecnocasa: "tek-no-KAH-sah". Libertà is not spoken. "Option-Space" for ⌥ Space.
+Łódź: "Woodge". GLM is never spoken. n8n: "n-eight-n". Tecnocasa: "tek-no-KAH-sah". Libertà is not spoken. 
 
 ---
 
@@ -58,12 +58,12 @@ On screen: Executions, Sat 23:30: the red run (otodom input), the repair run wit
 Caption: "Broken on purpose, as a test. At most one fix an hour."
 Only if a real overnight failure was repaired and you show that one instead: "At [time] a step broke. n8n caught it, the open model fixed the input in [seconds] seconds, published and reran. It told me after."
 
-### 7 · Talk to it, approve · 1:25–1:41 (16 s, 34 words, 2.1 w/s)
+### 7 · Tell it, approve · 1:25–1:41 (16 s, 32 words, 2.0 w/s)
 
-> From any app I hold Option-Space: "only places with the euro." Forty-six homes become fourteen. On Telegram I approve one; the email to the agent waits in Gmail, as a draft. Inky never sends.
+> I type one line: "only places with the euro." Forty-six homes become fourteen. On Telegram I approve one; the email to the agent waits in Gmail, as a draft. Inky never sends.
 
-On screen: the ⌥ Space pill (Listening… → the change → "46 → 14 homes"), the phone tap on “Save as draft” in Telegram, the draft in Gmail. Caption: "Draft only. Inky never sends."
-If the pill shows other counts (rules changed overnight), say those.
+On screen: the Results chat (the line typed → the change → "46 → 14 homes"), the phone tap on “Save as draft” in Telegram, the draft in Gmail. Caption: "Draft only. Inky never sends."
+If the reply shows other counts (rules changed overnight), say those.
 
 ### Flash · Share it · 1:41–1:44 (3 s, 5 words)
 

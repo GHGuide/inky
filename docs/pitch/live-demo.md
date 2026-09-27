@@ -4,7 +4,7 @@ One person talks, one drives. Every number below is real (Saturday's runs); fill
 
 ## At 15:45: set up
 
-- Laptop on power, Do Not Disturb on, ChatGPT/Raycast/Alfred quit (they take ⌥ Space). Phone on Wi-Fi, Focus letting only Telegram through, brightness up.
+- Laptop on power, Do Not Disturb on, ChatGPT/Raycast/Alfred quit. Phone on Wi-Fi, Focus letting only Telegram through, brightness up.
 - The app on the film copy, so nothing done on stage can change Saturday's numbers or the live workflow:
   ```bash
   INKY_DATA=data-film .venv/bin/python app/serve.py
@@ -16,7 +16,7 @@ One person talks, one drives. Every number below is real (Saturday's runs); fill
   4. `https://YOUR-N8N.app.n8n.cloud/workflow/YOUR-REPAIR-WORKFLOW-ID/executions` (the 23:30 repair run already open on "Patch the step"). The two workflow ids are in `data/n8n.json`, or open both links from the app's Workflow screen.
   5. Gmail → Drafts
 - The recorded video open in QuickTime, paused on the first frame, on the second desktop.
-- Test the hotspot on the phone once. Test ⌥ Space once.
+- Test the hotspot on the phone once.
 
 ## The two minutes
 
@@ -29,7 +29,7 @@ One person talks, one drives. Every number below is real (Saturday's runs); fill
 | 1:15–1:45 | tab 1, Results → **Send me the best 3 now**; phone: tap **Save as draft**; tab 5, Gmail Drafts | "Now live. I ask for the best three… here they are on my phone. I tap Save as draft… and the email to the agent is waiting in Gmail. It never sends anything for me." |
 | 1:45–2:00 | the end card, or the QR on the phone | "Inky. Tell it once. It's open source, the model is open, and the code is on GitHub." |
 
-If there's time left, the extra: hold ⌥ Space, "only places with the euro": 46 → 14 homes (the film copy, so the live workflow keeps Łódź).
+If there's time left, the extra: type "only places with the euro" in the Results chat: 46 → 14 homes (the film copy, so the live workflow keeps Łódź).
 
 ## Fallback plan
 
@@ -39,7 +39,7 @@ If there's time left, the extra: hold ⌥ Space, "only places with the euro": 46
 | n8n Cloud slow or down | Skip tabs 3 and 4 and play the video from 0:56 to 1:25 (beats 5 and 6). Say the same lines. |
 | The best-3 message doesn't arrive in 10 s | Scroll up in Inky's Telegram chat to an earlier question and tap Save as draft on that one. |
 | Gmail slow | Move on, and open Drafts again at the end. |
-| GLM/OpenRouter down | Nothing on the main path needs it. Skip the ⌥ Space extra. |
+| GLM/OpenRouter down | Nothing on the main path needs it. Skip the rule-change extra. |
 | The app won't start | `.venv/bin/python app/serve.py --demo` (bundled snapshot, no keys, no network). Otherwise play the video. |
 | The laptop | Play the video from the phone (AirDrop it there at 15:30) and walk through it with the same lines. |
 | Everything | Play the 1:52 video, then take questions. |

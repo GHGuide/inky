@@ -3,11 +3,11 @@
 What to record for each beat of [script.md](script.md): the screen, the command, the window size, the clicks, and a plan B.
 Storyboard with thumbnails: https://claude.ai/artifact/NQorqMxkSQ5WMvQt1BxW4d (page "Demo video").
 
-Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) → the read-only n8n and Apify console shots (beats 3A, 4B, 5, 6) → the app shots on the film copy (beats 2, 3B, flash, end) → learn.py and the race (beat 4, they call GLM) → voice and approve last (beat 7).
+Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) → the read-only n8n and Apify console shots (beats 3A, 4B, 5, 6) → the app shots on the film copy (beats 2, 3B, flash, end) → learn.py and the race (beat 4, they call GLM) → the rule change and approve last (beat 7).
 
 ## Set up once
 
-1. **Focus**: Do Not Disturb on the Mac. On the phone, a Focus that lets only Telegram through. Hide the Dock and desktop icons. Quit ChatGPT, Raycast and Alfred (they take ⌥ Space).
+1. **Focus**: Do Not Disturb on the Mac. On the phone, a Focus that lets only Telegram through. Hide the Dock and desktop icons. Quit ChatGPT, Raycast and Alfred.
 2. **Chrome**: a clean profile called "Inky film", with no extensions, no bookmarks bar and zoom at 100%. Sign in to n8n, the Apify console and Gmail in that profile only.
 3. **Window size**: every Chrome shot is one window at 1440×900 (the size the app and learn.py are laid out for). On a screen wider than 1920 px you can use 1920×1080 instead.
    ```bash
@@ -21,7 +21,7 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
    Add `?rec=1` to every app URL: it is the recording mode (the 1440-wide design scaled to the window, slower motion).
    Afterwards, `cp data-film/plan.saturday.json plan.json` (the interview saves plan.json in the repo root).
 5. **Screen Studio**, for every Mac shot:
-   - Recording: *Window* for Chrome shots, *Display* for the race and ⌥ Space (they cross windows). 60 fps. Microphone and system audio off (the voice-over goes on later).
+   - Recording: *Window* for Chrome shots, *Display* for the race (it crosses windows). 60 fps. Microphone and system audio off (the voice-over goes on later).
    - Cursor: size 1.4, smoothing on, hide when idle on, click sound off.
    - Zoom: automatic zoom on clicks at 1.6×, follow cursor on. Off for the race and the n8n glide, which get manual zoom keyframes instead.
    - Background: solid `#F7F6F3`, padding 48, corner radius 12, soft shadow. Race: no background, full bleed.
@@ -84,12 +84,12 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
 - **Edit**: stamp "REAL · n8n · Sat 23:30". Caption: "Broken on purpose, as a test. At most one fix an hour."
 - **Plan B**: n8n slow: the repair entry on the app's `?rec=1#activity` screen. Nothing works: break a staging copy of the workflow the same way at 12:00 (never the live one) and record that run.
 
-## 7 · Talk to it, approve (1:25–1:41)
+## 7 · Tell it, approve (1:25–1:41)
 
-- **A. ⌥ Space (6 s)**, Screen Studio on *Display*: the film-copy server running, another app in front (Notes with an empty note works). Hold ⌥ Space → say "only places with the euro" → let go → the pill: Listening… → Thinking… → the change and "46 → 14 homes". Manual zoom keyframe on the pill (bottom centre). Optionally 2 s of `?rec=1#results` with 14 homes.
+- **A. Change a rule (6 s)**, Chrome 1440×900 on the film-copy server: `?rec=1#results` → click the chat box (or press `/`) → type "only places with the euro" → Enter → the reply with the change and "46 → 14 homes". Manual zoom keyframe on the reply. The film copy never pushes rule edits to n8n, so a take changes nothing live. Reset between takes: `cp data/rules.json data/research.json data-film/`, then reload.
 - **B. Phone (5 s)**: an Inky question in Telegram with **Save as draft** and **Skip** → tap **Save as draft**.
 - **C. Gmail (4 s)**, Chrome 1440×900: Gmail → Drafts → open the new draft to the agent. Move the cursor next to Send and stop, then cut. **Don't click Send.**
-- **Plan B**: ⌥ Space doesn't fire: in Terminal, `.venv/bin/python voice/listen.py --seconds 4` (the same local whisper.cpp path; Terminal needs the microphone). No mic: `.venv/bin/python voice/listen.py --text "only places with the euro" --dry-run` changes nothing and shows the effect (say "typed", not "said"). No question waiting in Telegram: Results → **Send me the best 3 now**.
+- **Plan B**: the reply is slow (one GLM call): cut the wait in the edit. No question waiting in Telegram: Results → **Send me the best 3 now**.
 
 ## Flash · Share it (1:41–1:44)
 
