@@ -1128,7 +1128,7 @@ function end() {
       <div class="end-logo">${critter(112)}<span>Inky</span></div>
       <h1>Tell it once.</h1>
       <p>Describe a task in plain words. Inky learns it once, then runs it on its own with Apify and n8n, and only asks you when it must.</p>
-      ${facts.length ? h`<span class="end-facts">Last night: ${facts.map((f, i) => h`${i ? ' · ' : ''}${f}`)}</span>` : ''}
+      ${facts.length ? h`<span class="end-facts">Since Saturday night: ${facts.map((f, i) => h`${i ? ' · ' : ''}${f}`)}</span>` : ''}
       ${cost.length ? h`<span class="end-facts dim">${cost.join(' · ')}</span>` : ''}
     </div>
     <div class="end-foot">

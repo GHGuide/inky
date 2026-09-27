@@ -180,9 +180,19 @@ def run_detail():
                 out["main"] = summarize(full(runs[0]["id"]))
                 ok = next((e for e in runs if e.get("status") == "success"), None)
                 out["ok"] = out["main"] if ok and ok["id"] == runs[0]["id"] else summarize(full(ok["id"])) if ok else None
-            reps = api.call("GET", "/executions", params={"workflowId": s["repair"], "limit": 1}).get("data", []) if s.get("repair") else []
-            if reps:
-                rep = full(reps[0]["id"])
+            # The latest repair that saved a fix and whose rerun worked; a rate-limited or temporary-error run changes nothing.
+            reps = api.call("GET", "/executions", params={"workflowId": s["repair"], "limit": 25}).get("data", []) if s.get("repair") else []
+            rep = None
+            for r in reps:
+                if r.get("status") != "success":
+                    continue
+                cand = full(r["id"])
+                rd = ((cand.get("data") or {}).get("resultData") or {}).get("runData") or {}
+                nxt = next((e for e in reversed(runs) if (e.get("startedAt") or "") > (cand.get("startedAt") or "")), None)
+                if "Save the fix" in rd and not rd["Save the fix"][-1].get("error") and nxt and nxt.get("status") == "success":
+                    rep = cand
+                    break
+            if rep:
                 t0 = rep.get("startedAt") or ""
                 failed = next((e for e in runs if (e.get("stoppedAt") or "") <= t0 and e.get("status") == "error"), None)
                 again = next((e for e in reversed(runs) if (e.get("startedAt") or "") > t0), None)
@@ -620,8 +630,11 @@ def summary(since=None):
                          "secs": round((stop - start).total_seconds(), 1) if stop else None, "sources": c["sources"],
                          # the Apify runs this n8n run started: they begin within its time window
                          "apify_usd": round(sum(u for at, u in apify if start <= at <= (stop or start + timedelta(minutes=10)) + timedelta(seconds=30)), 4)})
+        # A fix counts only when the next run worked: on 27 Sep a 502 made GLM "fix" Porto into porto, and the rerun failed.
+        rerun_ok = lambda e: next((m.get("status") == "success" for m in sorted(main, key=lambda m: m.get("startedAt") or "")
+                                   if (m.get("startedAt") or "") > (e.get("startedAt") or "")), False)
         fixes = [{"id": str(e["id"]), "startedAt": e["startedAt"], "step": cache[str(e["id"])]["step"], "change": cache[str(e["id"])]["change"]}
-                 for e in reps if str(e["id"]) in cache and cache[str(e["id"])]["fixed"] and when(e["startedAt"]) >= t0]
+                 for e in reps if str(e["id"]) in cache and cache[str(e["id"])]["fixed"] and when(e["startedAt"]) >= t0 and rerun_ok(e)]
         in_runs = sum(r["apify_usd"] for r in rows)
         out = {"since": t0.isoformat(timespec="seconds"), "runs": len(rows),
                "ok": sum(r["status"] in ("success", "waiting") for r in rows), "failed": sum(r["status"] in ("error", "crashed") for r in rows),
