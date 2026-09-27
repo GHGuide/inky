@@ -97,7 +97,7 @@ Overnight rules I follow:
 - [x] J4 P2 me: The repair checks that the fixed step works before it publishes.
 
 ## K. Repo and open source
-- [ ] K1 P0 you: Decide on the MIT license (the end card says MIT). Then me: add LICENSE.
+- [x] K1 P0 you: Decide on the MIT license (the end card says MIT). Then me: add LICENSE.
 - [ ] K2 P0 you: OK to merge `build` into `main`. Then me: merge.
 - [x] K3 P1 me: README rewrite: one-line pitch, a 60-second quickstart without keys, a diagram, real results, screenshots, honest licensing.
 - [x] K4 P1 me: Demo mode without keys: `app/serve.py --demo` with a bundled data snapshot, so anyone who clones it sees the app working.

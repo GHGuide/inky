@@ -86,7 +86,7 @@ Optional parts, each with its own README: [teach/](teach/README.md) (learn a sit
 
 ## What's open and what isn't
 
-- **Inky's code** (this repo): open source, MIT.
+- **Inky's code** (this repo): open source, [MIT](LICENSE).
 - **The model**: GLM-5.3, open weights (MIT). Inky calls it through OpenRouter, which is a hosted service.
 - **Speech**: whisper.cpp (MIT), running locally. Your voice never leaves the Mac.
 - **Browser**: Playwright (Apache-2.0) and your own Chrome. The actor uses the Apify SDK (Apache-2.0).
