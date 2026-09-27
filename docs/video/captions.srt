@@ -1,107 +1,143 @@
 1
-00:00:00,200 --> 00:00:07,660
-Good flats go in days. Inky just sent
-me the three best that fit my plan.
+00:00:01,270 --> 00:00:02,250
+This is Inky.
 
 2
-00:00:08,200 --> 00:00:10,048
-I described it once:
+00:00:02,350 --> 00:00:03,950
+You tell it a job once.
 
 3
-00:00:10,088 --> 00:00:16,468
-€200,000, a flat to rent out, prices
-rising, easy for a Dutch buyer.
+00:00:04,060 --> 00:00:06,050
+It researches, learns the sites,
 
 4
-00:00:16,508 --> 00:00:21,660
-Inky asked what it couldn't guess, then
-wrote the plan.
+00:00:06,150 --> 00:00:08,750
+builds its own workflow
+and keeps it running.
 
 5
-00:00:22,200 --> 00:00:28,801
-Through Apify it read nearly 18,000 real
-listings in Porto, Bari and Łódź.
+00:00:09,020 --> 00:00:10,350
+You just decide.
 
 6
-00:00:28,841 --> 00:00:33,468
-An open model wrote rules, and the data
-tested them:
+00:00:11,260 --> 00:00:14,400
+I didn't set anything up or write any code.
 
 7
-00:00:33,508 --> 00:00:39,660
-15, 70, then 46 homes. Porto's prices
-climb, but the rents don't pay.
+00:00:14,490 --> 00:00:19,200
+I just said: €200,000,
+a flat to rent out abroad.
 
 8
-00:00:40,200 --> 00:00:45,327
-Tecnocasa, Italy's largest agency network,
-had no Apify scraper.
+00:00:19,750 --> 00:00:22,600
+It asked what it couldn't guess,
+then wrote the plan.
 
 9
-00:00:45,367 --> 00:00:51,301
-Inky used it once, found its data feed,
-and published its own Apify actor.
+00:00:23,380 --> 00:00:28,850
+Through Apify it read almost 18,000
+listings in Porto, Bari and Łódź.
 
 10
-00:00:51,341 --> 00:00:55,660
-Eight windows, no model: 96 flats in under
-20 seconds.
+00:00:29,040 --> 00:00:34,750
+An open model wrote rules, the data
+tested them, and 46 homes passed.
 
 11
-00:00:56,200 --> 00:01:00,632
-Inky built this n8n workflow itself,
-through the API.
+00:00:36,260 --> 00:00:40,600
+Tecnocasa had no scraper,
+so Inky borrowed my screen once.
 
 12
-00:01:00,672 --> 00:01:07,298
-Every 15 minutes, five Apify scrapers feed
-compiled scoring. No AI. Last night:
+00:00:40,680 --> 00:00:44,750
+It found the data feed and
+published its own Apify actor.
 
 13
-00:01:07,338 --> 00:01:09,660
-36 runs, 9,009 listings.
+00:00:44,920 --> 00:00:50,350
+Then eight windows with no AI
+read 96 flats in 20 seconds.
 
 14
-00:01:10,200 --> 00:01:12,903
-I broke one step on purpose.
+00:00:50,440 --> 00:00:54,700
+A clicking AI agent got 15, for 13 cents.
 
 15
-00:01:12,943 --> 00:01:14,961
-n8n caught the error.
+00:00:56,260 --> 00:01:00,150
+Inky built this n8n workflow itself.
 
 16
-00:01:15,001 --> 00:01:22,994
-The open model read it and fixed the input
-in 7 seconds, then published it and ran it again.
+00:01:00,340 --> 00:01:04,750
+Every 15 minutes, five Apify
+scrapers feed plain code.
 
 17
-00:01:23,034 --> 00:01:24,660
-It told me after.
+00:01:04,920 --> 00:01:09,500
+A run costs about 20 cents,
+and makes zero AI calls.
 
 18
-00:01:25,200 --> 00:01:27,713
-I type one line:
+00:01:10,260 --> 00:01:13,050
+To test it, I broke one step on purpose.
 
 19
-00:01:27,753 --> 00:01:32,089
-"only places with the euro." 46 homes
-become 14.
+00:01:13,300 --> 00:01:18,050
+n8n caught it, and the open model
+fixed the input in 7 seconds,
 
 20
-00:01:32,129 --> 00:01:34,460
-On Telegram I approve one;
+00:01:18,200 --> 00:01:21,400
+published the fix and ran
+it again. Then it told me.
 
 21
-00:01:34,500 --> 00:01:40,660
-the email to the agent waits in Gmail, as
-a draft. Inky never sends.
+00:01:22,260 --> 00:01:24,400
+Changing it takes one sentence:
 
 22
-00:01:41,200 --> 00:01:43,660
-Share it in a sentence.
+00:01:24,540 --> 00:01:26,450
+“only places with the euro.”
 
 23
-00:01:44,200 --> 00:01:51,660
-Inky. Tell it once. It watches every 15
-minutes; you only decide.
+00:01:26,680 --> 00:01:29,100
+46 homes become 14.
 
+24
+00:01:29,240 --> 00:01:33,850
+I approve one on Telegram, and the
+email waits in Gmail as a draft.
+
+25
+00:01:34,060 --> 00:01:35,500
+Inky never sends.
+
+26
+00:01:37,440 --> 00:01:40,000
+Sharing takes one sentence too.
+
+27
+00:01:40,290 --> 00:01:43,350
+Inky writes what it does
+and leaves my budget out.
+
+28
+00:01:43,810 --> 00:01:46,200
+My sister changes it by describing it.
+
+29
+00:01:46,450 --> 00:01:48,500
+Or start from someone else's agent,
+
+30
+00:01:48,610 --> 00:01:52,300
+for prices, invoices,
+whatever you check by hand.
+
+31
+00:01:53,260 --> 00:01:55,400
+That's Inky. Tell it once.
+
+32
+00:01:55,630 --> 00:01:58,800
+It checks every 15 minutes,
+and you only decide.

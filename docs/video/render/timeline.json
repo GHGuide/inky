@@ -1,0 +1,1699 @@
+{
+ "duration": 119,
+ "audio": "data/voiceover/inky-voiceover.mp3",
+ "assets": "data/film/assets",
+ "manifest": "app/manifest.json",
+ "captions": {
+  "srt": "docs/video/captions.srt"
+ },
+ "caption_top": [
+  [
+   2.3,
+   10.95
+  ],
+  [
+   40.5,
+   44.95
+  ],
+  [
+   64.85,
+   69.55
+  ],
+  [
+   73.25,
+   78.1
+  ],
+  [
+   81.9,
+   89.45
+  ]
+ ],
+ "shots": [
+  {
+   "id": "h-title",
+   "type": "card",
+   "theme": "light",
+   "text": "Inky",
+   "logo": "app/static/favicon.svg",
+   "start": 0,
+   "end": 2.3,
+   "transition": {
+    "type": "cut"
+   }
+  },
+  {
+   "id": "h-tell",
+   "type": "clip",
+   "src": "app/b2-ask.mp4",
+   "start": 2.3,
+   "end": 3.95,
+   "bleed": true,
+   "transition": {
+    "type": "cut"
+   },
+   "map": [
+    [
+     0,
+     4.8
+    ],
+    [
+     1.65,
+     6.45
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.45,
+     "cx": 0.577,
+     "cy": 0.47
+    },
+    {
+     "t": 1.65,
+     "zoom": 1.53,
+     "ease": "linear"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "h-research",
+   "type": "clip",
+   "src": "app/b3-research.mp4",
+   "start": 3.95,
+   "end": 5.05,
+   "bleed": true,
+   "transition": {
+    "type": "cut"
+   },
+   "map": [
+    [
+     0,
+     1.8
+    ],
+    [
+     1.1,
+     1.95
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.6,
+     "cx": 0.66,
+     "cy": 0.27
+    },
+    {
+     "t": 1.1,
+     "zoom": 1.68,
+     "ease": "linear"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "h-learn",
+   "type": "clip",
+   "src": "screen/learn.mov",
+   "start": 5.05,
+   "end": 6.1,
+   "bleed": true,
+   "transition": {
+    "type": "cut"
+   },
+   "alt": {
+    "src": "app/b4-learn.mp4",
+    "map": [
+     [
+      0,
+      11.3
+     ],
+     [
+      1.05,
+      12.2
+     ]
+    ],
+    "camera": [
+     {
+      "t": 0,
+      "zoom": 1.3,
+      "cx": 0.5,
+      "cy": 0.45
+     },
+     {
+      "t": 1.05,
+      "zoom": 1.38,
+      "ease": "linear"
+     }
+    ]
+   },
+   "map": [
+    [
+     0,
+     21.2
+    ],
+    [
+     1.05,
+     22.0
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.7,
+     "cx": 0.5,
+     "cy": 0.36
+    },
+    {
+     "t": 1.05,
+     "zoom": 1.8,
+     "ease": "linear"
+    }
+   ],
+   "vf": "crop=3402:1914:0:424"
+  },
+  {
+   "id": "h-build",
+   "type": "still",
+   "src": "web/clean/n8n-run-zoom-read.png",
+   "start": 6.1,
+   "end": 7.7,
+   "bleed": true,
+   "transition": {
+    "type": "cut"
+   },
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.3,
+     "cx": 0.55,
+     "cy": 0.56
+    },
+    {
+     "t": 1.6,
+     "zoom": 1.4,
+     "cx": 0.6,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "h-keep",
+   "type": "still",
+   "src": "web/clean/n8n-rerun-ok.png",
+   "start": 7.7,
+   "end": 8.95,
+   "bleed": true,
+   "transition": {
+    "type": "cut"
+   },
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.6,
+     "cx": 0.47,
+     "cy": 0.38
+    },
+    {
+     "t": 1.25,
+     "zoom": 1.7,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "h-decide",
+   "type": "still",
+   "src": "tg/chat-pane.png",
+   "crop": [
+    0,
+    1610,
+    925,
+    390
+   ],
+   "maxScale": 1.5,
+   "start": 8.95,
+   "end": 10.95,
+   "transition": {
+    "type": "cut"
+   },
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0
+    },
+    {
+     "t": 2.3,
+     "zoom": 1.07,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b2-ask",
+   "type": "clip",
+   "src": "app/b2-ask.mp4",
+   "start": 10.95,
+   "end": 22.95,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     1.3
+    ],
+    [
+     1.35,
+     2.8
+    ],
+    [
+     7.1,
+     9.7
+    ],
+    [
+     8.2,
+     11.9
+    ],
+    [
+     8.201,
+     19.4
+    ],
+    [
+     10.2,
+     21.4
+    ],
+    [
+     10.201,
+     35.5
+    ],
+    [
+     12.4,
+     37.7
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.577,
+     "cy": 0.47
+    },
+    {
+     "t": 0.4,
+     "zoom": 1.0
+    },
+    {
+     "t": 1.3,
+     "zoom": 1.4
+    },
+    {
+     "t": 7.1,
+     "zoom": 1.4
+    },
+    {
+     "t": 7.9,
+     "zoom": 1.0,
+     "cx": 0.5,
+     "cy": 0.5
+    },
+    {
+     "t": 8.25,
+     "zoom": 1.0
+    },
+    {
+     "t": 9.1,
+     "zoom": 1.25,
+     "cx": 0.3,
+     "cy": 0.4
+    },
+    {
+     "t": 10.2,
+     "zoom": 1.27
+    },
+    {
+     "t": 10.201,
+     "zoom": 1.05,
+     "cx": 0.5,
+     "cy": 0.5,
+     "ease": "linear"
+    },
+    {
+     "t": 12.0,
+     "zoom": 1.3,
+     "cx": 0.34,
+     "cy": 0.38,
+     "ease": "cubic"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "b3-apify",
+   "type": "still",
+   "src": "web/clean/apify-runs.png",
+   "start": 22.95,
+   "end": 25.0,
+   "note": "Apify console, Saturday's runs: idealista, immobiliare, otodom",
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.12,
+     "cx": 0.5,
+     "cy": 0.3
+    },
+    {
+     "t": 2.4,
+     "cy": 0.55,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b3-research",
+   "type": "clip",
+   "src": "app/b3-research.mp4",
+   "start": 25.0,
+   "end": 35.9,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     0
+    ],
+    [
+     2.0,
+     2.0
+    ],
+    [
+     6.0,
+     2.05
+    ],
+    [
+     6.3,
+     3.11
+    ],
+    [
+     7.0,
+     5.64
+    ],
+    [
+     7.75,
+     8.18
+    ],
+    [
+     10.9,
+     9.0
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.45,
+     "cx": 0.6,
+     "cy": 0.26
+    },
+    {
+     "t": 2.0,
+     "zoom": 1.45
+    },
+    {
+     "t": 3.6,
+     "cx": 0.72,
+     "ease": "cubic"
+    },
+    {
+     "t": 4.5,
+     "zoom": 1.4,
+     "cx": 0.2,
+     "cy": 0.45
+    },
+    {
+     "t": 5.6,
+     "zoom": 1.42
+    },
+    {
+     "t": 6.25,
+     "zoom": 1.3,
+     "cx": 0.75,
+     "cy": 0.4
+    },
+    {
+     "t": 10.9,
+     "zoom": 1.36,
+     "ease": "linear"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "b4-learn",
+   "type": "clip",
+   "src": "screen/learn.mov",
+   "start": 35.9,
+   "end": 40.55,
+   "bleed": true,
+   "map": [
+    [
+     0,
+     4.5
+    ],
+    [
+     2.85,
+     8.5
+    ],
+    [
+     2.851,
+     12.0
+    ],
+    [
+     4.65,
+     14.2
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.5,
+     "cy": 0.33
+    },
+    {
+     "t": 2.85,
+     "zoom": 1.06,
+     "ease": "linear"
+    },
+    {
+     "t": 2.851,
+     "zoom": 1.55,
+     "cx": 0.5,
+     "cy": 0.3,
+     "ease": "linear"
+    },
+    {
+     "t": 4.65,
+     "zoom": 1.62,
+     "ease": "linear"
+    }
+   ],
+   "vf": "crop=3402:1914:0:424"
+  },
+  {
+   "id": "b4-feed",
+   "type": "still",
+   "src": "app/learn-shots/end.png",
+   "start": 40.55,
+   "end": 42.8,
+   "note": "learn.py (headless take): shortcut found, 8 steps became 1 request",
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.15,
+     "cx": 0.4,
+     "cy": 0.5
+    },
+    {
+     "t": 2.2,
+     "zoom": 1.25,
+     "cx": 0.35,
+     "cy": 0.62,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b4-actor",
+   "type": "still",
+   "src": "web/clean/apify-actor.png",
+   "start": 42.8,
+   "end": 44.9,
+   "note": "cavernous_stew/inky-tecnocasa-homes, test run 20 of 20",
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.2,
+     "cx": 0.3,
+     "cy": 0.45
+    },
+    {
+     "t": 2.6,
+     "zoom": 1.32,
+     "cx": 0.32,
+     "cy": 0.5,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b4-race",
+   "type": "clip",
+   "src": "screen/race.mov",
+   "start": 44.9,
+   "end": 55.95,
+   "bleed": true,
+   "map": [
+    [
+     0,
+     7.0
+    ],
+    [
+     2.8,
+     22.5
+    ],
+    [
+     5.4,
+     32.0
+    ],
+    [
+     11.05,
+     34.5
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.5,
+     "cy": 0.5
+    },
+    {
+     "t": 11.05,
+     "zoom": 1.08,
+     "ease": "linear"
+    }
+   ],
+   "vf": "crop=3600:2025:0:313"
+  },
+  {
+   "id": "b5-full",
+   "type": "still",
+   "src": "web/clean/n8n-run-full.png",
+   "start": 55.95,
+   "end": 60.1,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.62,
+     "cy": 0.45
+    },
+    {
+     "t": 4.15,
+     "zoom": 1.2,
+     "ease": "cubic"
+    }
+   ]
+  },
+  {
+   "id": "b5-read",
+   "type": "still",
+   "src": "web/clean/n8n-run-zoom-read.png",
+   "start": 60.1,
+   "end": 63.6,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.6,
+     "cx": 0.45,
+     "cy": 0.56
+    },
+    {
+     "t": 1.0,
+     "zoom": 1.6
+    },
+    {
+     "t": 2.1,
+     "cx": 0.62
+    },
+    {
+     "t": 3.5,
+     "cx": 0.72,
+     "ease": "cubic"
+    }
+   ]
+  },
+  {
+   "id": "b5-score",
+   "type": "still",
+   "src": "web/clean/n8n-score-node.png",
+   "start": 63.6,
+   "end": 66.1,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.3,
+     "cx": 0.45,
+     "cy": 0.55
+    },
+    {
+     "t": 2.7,
+     "zoom": 1.42,
+     "cy": 0.58,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b5-activity",
+   "type": "clip",
+   "src": "app/b6-activity.mp4",
+   "start": 66.1,
+   "end": 69.95,
+   "zoomBase": 1.15,
+   "map": [
+    [
+     0,
+     10.2
+    ],
+    [
+     3.85,
+     13.9
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.45,
+     "cx": 0.33,
+     "cy": 0.36
+    },
+    {
+     "t": 1.7,
+     "zoom": 1.48
+    },
+    {
+     "t": 2.5,
+     "zoom": 1.6,
+     "cx": 0.74,
+     "cy": 0.97
+    },
+    {
+     "t": 3.85,
+     "zoom": 1.64,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b6-error",
+   "type": "still",
+   "src": "web/clean/n8n-error-run.png",
+   "start": 69.95,
+   "end": 74.85,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.52,
+     "cy": 0.56
+    },
+    {
+     "t": 0.6,
+     "zoom": 1.0
+    },
+    {
+     "t": 1.5,
+     "zoom": 1.8
+    },
+    {
+     "t": 2.9,
+     "zoom": 1.8
+    },
+    {
+     "t": 3.6,
+     "zoom": 1.9,
+     "cx": 0.87,
+     "cy": 0.86
+    }
+   ]
+  },
+  {
+   "id": "b6-patch",
+   "type": "still",
+   "src": "web/clean/n8n-repair-patch.png",
+   "start": 74.85,
+   "end": 77.05,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.86,
+     "cy": 0.3
+    },
+    {
+     "t": 0.25,
+     "zoom": 1.0
+    },
+    {
+     "t": 0.95,
+     "zoom": 2.0
+    }
+   ]
+  },
+  {
+   "id": "b6-repair",
+   "type": "still",
+   "src": "web/clean/n8n-repair-run.png",
+   "start": 77.05,
+   "end": 79.4,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.9,
+     "cx": 0.48,
+     "cy": 0.22
+    },
+    {
+     "t": 1.3,
+     "zoom": 1.9
+    },
+    {
+     "t": 2.35,
+     "zoom": 1.9,
+     "cx": 0.8,
+     "cy": 0.55,
+     "ease": "cubic"
+    }
+   ]
+  },
+  {
+   "id": "b6-fixed",
+   "type": "still",
+   "src": "tg/fixed.png",
+   "start": 79.4,
+   "end": 81.95,
+   "maxScale": 1.25,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0
+    },
+    {
+     "t": 2.9,
+     "zoom": 1.06,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b7-rule",
+   "type": "clip",
+   "src": "app/b7-rule.mp4",
+   "start": 81.95,
+   "end": 89.4,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     0.6
+    ],
+    [
+     2.6,
+     3.45
+    ],
+    [
+     4.35,
+     4.5
+    ],
+    [
+     5.0,
+     5.3
+    ],
+    [
+     5.001,
+     8.95
+    ],
+    [
+     7.45,
+     11.4
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.31,
+     "cy": 0.85
+    },
+    {
+     "t": 0.9,
+     "zoom": 1.0
+    },
+    {
+     "t": 1.8,
+     "zoom": 1.4
+    },
+    {
+     "t": 4.4,
+     "zoom": 1.4
+    },
+    {
+     "t": 4.95,
+     "zoom": 1.5,
+     "cx": 0.73,
+     "cy": 0.3,
+     "ease": "cubic"
+    },
+    {
+     "t": 7.45,
+     "zoom": 1.58,
+     "ease": "linear"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "b7-tg",
+   "type": "still",
+   "src": "tg/chat-pane.png",
+   "crop": [
+    0,
+    1610,
+    925,
+    390
+   ],
+   "maxScale": 1.5,
+   "start": 89.4,
+   "end": 91.9,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0
+    },
+    {
+     "t": 2.9,
+     "zoom": 1.06,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b7-approved",
+   "type": "still",
+   "src": "web/clean/n8n-approved-draft.png",
+   "start": 91.9,
+   "end": 94.15,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.3,
+     "cx": 0.6,
+     "cy": 0.4
+    },
+    {
+     "t": 2.6,
+     "zoom": 1.75,
+     "cx": 0.74,
+     "cy": 0.38,
+     "ease": "cubic"
+    }
+   ]
+  },
+  {
+   "id": "b7-gmail",
+   "type": "still",
+   "src": "web/clean/gmail-draft.png",
+   "start": 94.15,
+   "end": 96.95,
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.45,
+     "cx": 0.5,
+     "cy": 0.38
+    },
+    {
+     "t": 0.7,
+     "zoom": 1.45
+    },
+    {
+     "t": 1.7,
+     "zoom": 1.8,
+     "cx": 0.74,
+     "cy": 0.33
+    },
+    {
+     "t": 2.8,
+     "zoom": 1.85,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "b8-share",
+   "type": "clip",
+   "src": "app/b8-share.mp4",
+   "start": 96.95,
+   "end": 106.1,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     1.0
+    ],
+    [
+     3.0,
+     4.4
+    ],
+    [
+     3.001,
+     17.7
+    ],
+    [
+     4.75,
+     19.45
+    ],
+    [
+     4.751,
+     25.3
+    ],
+    [
+     6.35,
+     26.9
+    ],
+    [
+     6.351,
+     29.37
+    ],
+    [
+     9.15,
+     32.17
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.6,
+     "cy": 0.32
+    },
+    {
+     "t": 0.3,
+     "zoom": 1.0
+    },
+    {
+     "t": 1.1,
+     "zoom": 1.35
+    },
+    {
+     "t": 2.99,
+     "zoom": 1.37
+    },
+    {
+     "t": 3.0,
+     "zoom": 1.3,
+     "cx": 0.62,
+     "cy": 0.42,
+     "ease": "linear"
+    },
+    {
+     "t": 4.75,
+     "zoom": 1.34,
+     "ease": "linear"
+    },
+    {
+     "t": 5.4,
+     "zoom": 1.55,
+     "cx": 0.68,
+     "cy": 0.72
+    },
+    {
+     "t": 6.35,
+     "zoom": 1.57,
+     "ease": "linear"
+    },
+    {
+     "t": 7.1,
+     "zoom": 1.5,
+     "cx": 0.86,
+     "cy": 0.52
+    },
+    {
+     "t": 9.15,
+     "zoom": 1.56,
+     "ease": "linear"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "b8-market",
+   "type": "clip",
+   "src": "app/b8-market.mp4",
+   "start": 106.1,
+   "end": 108.6,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     1.7
+    ],
+    [
+     2.2,
+     2.78
+    ],
+    [
+     3.7,
+     6.01
+    ],
+    [
+     5.1,
+     9.56
+    ],
+    [
+     6.85,
+     10.83
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.0,
+     "cx": 0.5,
+     "cy": 0.45
+    },
+    {
+     "t": 2.5,
+     "zoom": 1.22,
+     "cx": 0.6,
+     "cy": 0.55,
+     "ease": "cubic"
+    }
+   ],
+   "zoomBase": 1.15
+  },
+  {
+   "id": "b8-ideas",
+   "type": "clip",
+   "src": "app/b8-ideas.mp4",
+   "start": 108.6,
+   "end": 112.95,
+   "zoomBase": 1.15,
+   "cursor": "manifest",
+   "map": [
+    [
+     0,
+     7.0
+    ],
+    [
+     1.56,
+     10.13
+    ],
+    [
+     2.16,
+     10.4
+    ],
+    [
+     2.161,
+     11.4
+    ],
+    [
+     3.73,
+     14.54
+    ],
+    [
+     4.35,
+     14.9
+    ]
+   ],
+   "camera": [
+    {
+     "t": 0,
+     "zoom": 1.3,
+     "cx": 0.577,
+     "cy": 0.48
+    },
+    {
+     "t": 4.35,
+     "zoom": 1.36,
+     "ease": "linear"
+    }
+   ]
+  },
+  {
+   "id": "end",
+   "type": "endcard",
+   "start": 112.95,
+   "end": 119,
+   "logo": "app/static/favicon.svg",
+   "qr": "app/static/qr-repo.svg",
+   "title": "Tell it once.",
+   "sub": "Describe a task in plain words. Inky learns it once, then runs it on its own with Apify and n8n, and only asks you when it must.",
+   "recap": [
+    "Describe",
+    "Research",
+    "Learn a site",
+    "Run on n8n",
+    "Fix itself",
+    "Ask you",
+    "Share"
+   ],
+   "totals": "Since Saturday night: 12,713 listings checked in 55 runs · 1 home found · 1 time I stepped in",
+   "totals2": "$0.21 a run on Apify · 0 AI calls a run",
+   "url": "github.com/GHGuide/inky",
+   "foot": "Open source · MIT · open models  ·  Built with Apify · n8n · Telegram"
+  }
+ ],
+ "overlays": [
+  {
+   "type": "stamp",
+   "start": 2.3,
+   "end": 3.95,
+   "text": "Describe it in one sentence",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 3.95,
+   "end": 5.05,
+   "text": "Researches with Apify · 17,836 listings",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 5.05,
+   "end": 6.1,
+   "text": "Takes the screen, learns a site",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 6.1,
+   "end": 7.7,
+   "text": "Builds its own n8n workflow",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 7.7,
+   "end": 8.95,
+   "text": "Runs every 15 min · fixes itself",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 8.95,
+   "end": 10.9,
+   "text": "Asks you on Telegram",
+   "fade": 0.1,
+   "pos": {
+    "x": 56,
+    "y": 956
+   },
+   "big": true
+  },
+  {
+   "type": "stamp",
+   "start": 70.1,
+   "end": 79.3,
+   "text": "REAL · n8n · Sat 23:30"
+  },
+  {
+   "type": "stamp",
+   "start": 79.55,
+   "end": 81.85,
+   "text": "REAL · Telegram · Sat 23:31"
+  },
+  {
+   "type": "lower_third",
+   "start": 70.5,
+   "end": 74.7,
+   "title": "A test",
+   "text": "Broken on purpose, as a test. At most one fix an hour."
+  },
+  {
+   "type": "highlight",
+   "shot": "b6-patch",
+   "start": 75.5,
+   "end": 77.1,
+   "space": "src",
+   "rect": [
+    2170,
+    430,
+    660,
+    125
+   ],
+   "margin": 10
+  },
+  {
+   "type": "highlight",
+   "shot": "b6-repair",
+   "start": 77.2,
+   "end": 78.8,
+   "space": "src",
+   "rect": [
+    1062,
+    218,
+    640,
+    62
+   ],
+   "margin": 10
+  },
+  {
+   "type": "cursor",
+   "shot": "b7-tg",
+   "start": 89.4,
+   "end": 91.9,
+   "touch": true,
+   "space": "src",
+   "points": [
+    {
+     "t": 0.45,
+     "x": 684,
+     "y": 343
+    },
+    {
+     "t": 0.85,
+     "x": 684,
+     "y": 343,
+     "click": true
+    }
+   ]
+  },
+  {
+   "type": "stamp",
+   "start": 92.05,
+   "end": 96.85,
+   "text": "REAL · n8n · Sun 11:24"
+  },
+  {
+   "type": "highlight",
+   "shot": "b7-gmail",
+   "start": 95.2,
+   "end": 96.95,
+   "space": "src",
+   "rect": [
+    1950,
+    505,
+    330,
+    95
+   ],
+   "margin": 8
+  },
+  {
+   "type": "lower_third",
+   "start": 94.4,
+   "end": 96.85,
+   "title": "Gmail",
+   "text": "Draft only. Inky never sends."
+  },
+  {
+   "type": "chapters",
+   "start": 2.3,
+   "end": 10.95,
+   "fade": 0.3,
+   "items": [
+    {
+     "label": "Describe",
+     "from": 2.3,
+     "to": 3.95
+    },
+    {
+     "label": "Research",
+     "from": 3.95,
+     "to": 5.05
+    },
+    {
+     "label": "Learn",
+     "from": 5.05,
+     "to": 6.1
+    },
+    {
+     "label": "Run",
+     "from": 6.1,
+     "to": 7.7
+    },
+    {
+     "label": "Fix",
+     "from": 7.7,
+     "to": 8.95
+    },
+    {
+     "label": "Decide",
+     "from": 8.95,
+     "to": 10.95
+    },
+    {
+     "label": "Share",
+     "from": 99,
+     "to": 99
+    }
+   ]
+  },
+  {
+   "type": "chapters",
+   "start": 10.95,
+   "end": 112.95,
+   "fade": 0.0001,
+   "items": [
+    {
+     "label": "Describe",
+     "from": 10.95,
+     "to": 22.95
+    },
+    {
+     "label": "Research",
+     "from": 22.95,
+     "to": 35.9
+    },
+    {
+     "label": "Learn",
+     "from": 35.9,
+     "to": 55.95
+    },
+    {
+     "label": "Run",
+     "from": 55.95,
+     "to": 69.95
+    },
+    {
+     "label": "Fix",
+     "from": 69.95,
+     "to": 81.95
+    },
+    {
+     "label": "Decide",
+     "from": 81.95,
+     "to": 96.95
+    },
+    {
+     "label": "Share",
+     "from": 96.95,
+     "to": 112.95
+    }
+   ]
+  },
+  {
+   "type": "scoreboard",
+   "start": 11.2,
+   "end": 112.95,
+   "fade": 0.4,
+   "rows": [
+    {
+     "label": "Listings read",
+     "steps": [
+      [
+       11.2,
+       0
+      ],
+      [
+       25.4,
+       17836
+      ]
+     ],
+     "dur": 1.6
+    },
+    {
+     "label": "AI calls",
+     "steps": [
+      [
+       11.2,
+       0
+      ],
+      [
+       29.3,
+       3
+      ],
+      [
+       40.9,
+       4
+      ],
+      [
+       75.1,
+       5
+      ],
+      [
+       87.0,
+       6
+      ],
+      [
+       100.1,
+       7
+      ]
+     ],
+     "dur": 0.6
+    },
+    {
+     "label": "Spent",
+     "steps": [
+      [
+       11.2,
+       0
+      ],
+      [
+       25.6,
+       17.64
+      ],
+      [
+       40.9,
+       17.66
+      ]
+     ],
+     "prefix": "$",
+     "decimals": 2,
+     "dur": 1.2
+    },
+    {
+     "label": "Runs since Sat",
+     "steps": [
+      [
+       60.3,
+       0
+      ],
+      [
+       60.5,
+       55
+      ]
+     ],
+     "dur": 3.0
+    }
+   ],
+   "note": {
+    "from": 65.0,
+    "text": "per run: $0.21 · 0 AI calls",
+    "pulse": [
+     67.9
+    ]
+   }
+  },
+  {
+   "type": "lower_third",
+   "start": 33.6,
+   "end": 35.85,
+   "title": "Homes that pass the rules",
+   "text": "Łódź 32 · Bari 14 · Porto 0 (prices +17.8% a year, Eurostat 2026-Q1). Otodom belongs to OLX, a Prosus company."
+  },
+  {
+   "type": "highlight",
+   "shot": "b4-feed",
+   "start": 40.9,
+   "end": 42.8,
+   "space": "src",
+   "rect": [
+    20,
+    845,
+    546,
+    32
+   ],
+   "margin": 6
+  },
+  {
+   "type": "stamp",
+   "start": 45.05,
+   "end": 50.2,
+   "text": "REAL screen · sped up 5×"
+  },
+  {
+   "type": "counter",
+   "start": 45.6,
+   "end": 50.25,
+   "title": "Inky's compiled program · 8 windows",
+   "count": 1.85,
+   "countEase": "cubic",
+   "pos": {
+    "right": 72,
+    "bottom": 56
+   },
+   "lift": false,
+   "items": [
+    {
+     "value": 96,
+     "label": "flats"
+    },
+    {
+     "value": 20,
+     "prefix": "~",
+     "label": "s"
+    },
+    {
+     "value": 0,
+     "label": "AI calls"
+    }
+   ]
+  },
+  {
+   "type": "compare",
+   "start": 52.6,
+   "end": 55.9,
+   "scrim": 0.5,
+   "pos": {
+    "bottom": 160
+   },
+   "tiles": [
+    {
+     "title": "Inky's program",
+     "rows": [
+      [
+       "96",
+       "flats"
+      ],
+      [
+       "~20 s",
+       "to read them"
+      ],
+      [
+       "0",
+       "AI calls"
+      ],
+      [
+       "$0",
+       "on AI"
+      ]
+     ]
+    },
+    {
+     "title": "Clicking AI agent",
+     "rows": [
+      [
+       "15",
+       "flats"
+      ],
+      [
+       "30 s",
+       "to read them"
+      ],
+      [
+       "4",
+       "AI calls"
+      ],
+      [
+       "$0.126",
+       "on AI"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "stamp",
+   "start": 56.1,
+   "end": 69.8,
+   "text": "REAL · n8n"
+  },
+  {
+   "type": "timesaved",
+   "start": 89.5,
+   "end": 91.85,
+   "pos": {
+    "x": 88,
+    "y": 100
+   },
+   "stagger": 0.7,
+   "hand": "3 portals · 3 languages · about an hour a day",
+   "inky": "checks every 15 min · you tap once"
+  },
+  {
+   "type": "badges",
+   "start": 92.2,
+   "end": 94.3,
+   "pos": {
+    "x": 88,
+    "bottom": 200
+   },
+   "stagger": 0.25,
+   "items": [
+    "Asks before acting",
+    "Never sends",
+    "At most one fix an hour"
+   ]
+  },
+  {
+   "type": "stamp",
+   "start": 108.75,
+   "end": 112.85,
+   "text": "Preview · other jobs you could describe",
+   "big": true,
+   "fade": 0.25,
+   "pos": {
+    "x": 56,
+    "y": 956
+   }
+  },
+  {
+   "type": "highlight",
+   "shot": "b4-race",
+   "start": 50.4,
+   "end": 52.7,
+   "space": "src",
+   "rect": [
+    1284,
+    640,
+    630,
+    370
+   ],
+   "margin": 4,
+   "label": "clicking AI agent",
+   "labelPos": "above"
+  }
+ ],
+ "caption_left": [
+  [
+   44.9,
+   50.4
+  ]
+ ],
+ "caption_keys": [
+  "zero AI calls",
+  "no AI",
+  "never sends",
+  "once",
+  "one sentence",
+  "20 cents",
+  "13 cents",
+  "7 seconds",
+  "15 minutes",
+  "plain code"
+ ],
+ "mix": {
+  "music": "data/film/audio/music.wav",
+  "args": [
+   "--music-under",
+   "18",
+   "--duck",
+   "6"
+  ]
+ }
+}
