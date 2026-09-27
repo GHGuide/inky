@@ -277,6 +277,8 @@ async def main():
 
         async def shoot(pg, i):
             await pg.evaluate("t => renderAt(t)", i / a.fps)
+            # let the compositor paint the new state (a fresh <img> src can otherwise be caught half-faded)
+            await pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
             return await pg.screenshot(type="jpeg", quality=95)
 
         last = time.time()
