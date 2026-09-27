@@ -72,7 +72,7 @@ n8n caught the error.
 16
 00:01:15,001 --> 00:01:22,994
 The open model read it and fixed the input
-in 7 seconds, then published and reran.
+in 7 seconds, then published it and ran it again.
 
 17
 00:01:23,034 --> 00:01:24,660

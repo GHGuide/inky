@@ -50,9 +50,9 @@ On screen: learn.py in Chrome (10 steps, 1 GLM call, chip "8 steps became 1 requ
 On screen: the n8n canvas (5 Apify steps → Merge → Score, a Code node running inky.js in about 1.8 s → Telegram approval → Gmail draft; 08:00 digest), then Executions.
 Fallback (no overnight totals): "…five Apify scrapers feed compiled scoring. No AI, all night long."
 
-### 6 · It fixes itself · 1:10–1:25 (15 s, 30 words, 2.0 w/s)
+### 6 · It fixes itself · 1:10–1:25 (15 s, 33 words, 2.2 w/s)
 
-> I broke one step on purpose. n8n caught the error. The open model read it and fixed the input in seven seconds, then published and reran. It told me after.
+> I broke one step on purpose. n8n caught the error. The open model read it and fixed the input in seven seconds, then published it and ran it again. It told me after.
 
 On screen: Executions, Sat 23:30: the red run (otodom input), the repair run with "Changed searchType from 'sale' to the allowed enum value 'sprzedaz'" (7.3 s), the green rerun.
 Caption: "Broken on purpose, as a test. At most one fix an hour."
