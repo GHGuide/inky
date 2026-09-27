@@ -33,7 +33,10 @@ The sample agents on the marketplace are a preview (hard-coded cards, labelled "
 We raced one. 8 compiled windows read all 96 Bari Tecnocasa flats under €200,000 in 19.7 s with 0 model calls. A click-by-click GLM agent read 30 in 60 s with 5 model calls ($0.085). The compiled program is also repeatable and testable.
 
 **What happens when a site changes its layout?**
-Store actors are maintained by their authors. The repair fixes bad inputs and steps that return nothing. The Tecnocasa program uses the site's JSON feed, which changes less often than the page. If it breaks, re-learning costs one GLM call (about $0.02). Repairing a change in the data's shape is on the list, not built yet.
+Store actors are maintained by their authors. The repair fixes bad inputs and steps that return nothing. The Tecnocasa program uses the site's JSON feed, which changes less often than the page. If it breaks, re-learning costs one GLM call (about $0.02). A change in the data's shape is detected (the run stops with "returned items Inky can't read" and the repair is called), but the repair can only rewrite a step's input, so a new data shape still needs a code change.
+
+**What if the repair gets it wrong?**
+It did, once, on Sunday morning. At 07:45 Apify answered one run with a 502, a hiccup on its side. The repair treated it as a bad input and GLM changed "Porto" to "porto": that passed the schema check but returns 0 homes, so Porto stayed empty until it was put back at 08:20. The one-fix-per-hour limit stopped it from trying again. Fixed the same morning: Apify steps now retry once, and a temporary error (5xx, 429, timeouts, network) never reaches GLM. Only input errors do, and a fix still has to pass the actor's schema before it is published. Every fix is announced on Telegram with the exact change, so a wrong one is visible.
 
 **Is scraping legal?**
 It's public listing data, read at low volume through Apify, and we never contact anyone automatically. Each site has its own terms. A production version should use portal feeds or partnerships, which is part of why OLX matters.

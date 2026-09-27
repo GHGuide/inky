@@ -1,7 +1,7 @@
 1
 00:00:00,200 --> 00:00:07,660
-Good flats go in days. At eight, Inky sent
-me the [3] best that fit my plan.
+Good flats go in days. Inky just sent
+me the three best that fit my plan.
 
 2
 00:00:08,200 --> 00:00:10,048
@@ -59,7 +59,7 @@ compiled scoring. No AI. Last night:
 
 13
 00:01:07,338 --> 00:01:09,660
-[40] runs, [8,000] listings.
+36 runs, 9,009 listings.
 
 14
 00:01:10,200 --> 00:01:12,903

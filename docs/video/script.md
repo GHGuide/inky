@@ -7,14 +7,7 @@ Shots and click paths: [shots.md](shots.md). Captions: [captions.srt](captions.s
 
 ## Fill these in before recording
 
-Only these come from tonight. Everything else is measured and fixed.
-
-| Placeholder | Beat | Where to read it |
-|---|---|---|
-| `[three]` | 1 | How many homes the 08:00 Telegram message lists that pass the rules ("Waiting for you" or "Best home right now" lines). "Almost" lines miss a rule, so they don't count as fitting the plan. If it is not 3, say the real count; if it is 0, use the fallback. |
-| `[forty]` | 5 | n8n → Executions of the main workflow, count the runs since Sat 23:00 (or the app's Activity screen). |
-| `[eight thousand]` | 5 | Listings checked overnight: the sum of items per run (Activity screen, or the "last night" summary if it is ready). |
-| `[N]` (end card only, on screen) | End | Same two numbers as beat 5. |
+Filled in on Sunday at 08:30 from the 08:00 digest: 36 runs and 9,009 listings checked overnight, 332 new, 1 match, 1 fix. The digest listed no homes, so beat 1 uses the "Send me the best 3 now" line. The end card reads its totals live from the app.
 
 If a placeholder can't be filled, use the fallback line in its block. Never round up.
 
@@ -26,10 +19,10 @@ If a placeholder can't be filled, use the fallback line in its block. Never roun
 
 ### 1 · Wake-up · 0:00–0:08 (8 s, 17 words, 2.1 w/s)
 
-> Good flats go in days. At eight, Inky sent me the [three] best that fit my plan.
+> Good flats go in days. Inky just sent me the three best that fit my plan.
 
-On screen: the phone, Telegram, Inky's 08:00 message; the thumb opens the top home (Łódź, Śródmieście, €78,915, 6.8% after costs).
-Fallback (nothing new overnight, you pressed "Send me the best ones now"): "Good flats go in days. Inky just sent me the three best that fit my plan."
+On screen: the phone, Telegram: press "Send me the best 3 now" in the app's Results thread first, then film the three messages arriving; the thumb opens the top home and taps "Save as draft".
+(Sunday's 08:00 digest had only counts, "36 runs · 9,009 listings checked · 332 new · 1 match · 1 fix", no home to show, so this is the line to use.)
 
 ### 2 · Describe it, it asks · 0:08–0:22 (14 s, 30 words, 2.1 w/s)
 
@@ -52,7 +45,7 @@ On screen: learn.py in Chrome (10 steps, 1 GLM call, chip "8 steps became 1 requ
 
 ### 5 · Runs in n8n, no AI · 0:56–1:10 (14 s, 26 words, 1.9 w/s)
 
-> Inky built this n8n workflow itself, through the API. Every fifteen minutes, five Apify scrapers feed compiled scoring. No AI. Last night: [forty] runs, [eight thousand] listings.
+> Inky built this n8n workflow itself, through the API. Every fifteen minutes, five Apify scrapers feed compiled scoring. No AI. Last night: thirty-six runs, nine thousand listings.
 
 On screen: the n8n canvas (5 Apify steps → Merge → Score, a Code node running inky.js in about 1.8 s → Telegram approval → Gmail draft; 08:00 digest), then Executions.
 Fallback (no overnight totals): "…five Apify scrapers feed compiled scoring. No AI, all night long."
