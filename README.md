@@ -31,7 +31,7 @@ flowchart LR
   voice["hold ⌥ Space<br/>whisper.cpp, local"] --> app["Inky app<br/>127.0.0.1:8765"] --> rules
 ```
 
-AI is used only where judgement is needed: the interview, proposing rules, labelling a learned site once, and repairing a broken step. Scraping, scoring and the 15-minute loop are compiled code with no model in them. More detail: [docs/architecture.md](docs/architecture.md).
+AI is used only where judgement is needed: the interview, proposing rules, labelling a learned site once, repairing a broken step, turning a spoken or typed change into a rule edit, and writing a share description. Scraping, scoring and the 15-minute loop are compiled code with no model in them. More detail: [docs/architecture.md](docs/architecture.md).
 
 ## Real results (Saturday 26 September 2026)
 
@@ -42,7 +42,7 @@ AI is used only where judgement is needed: the interview, proposing rules, label
 | Where | Łódź 32 homes (best: Śródmieście, 6.5% a year after costs). Bari 14 (best: Libertà, 6.3%). Porto 0: prices rose 17.8% in a year (Eurostat, 2026-Q1), but rents are too low for the price. |
 | Learn a site | Tecnocasa, Italy's largest agency network, had no Apify actor. Inky used the site once in Chrome: 10 steps, 1 GLM call ($0.02). It found the JSON feed behind the page, so 8 steps became 1 request, and published it as its own Apify actor, `cavernous_stew/inky-tecnocasa-homes`. Test run: 20 of 20 listings, under $0.001. |
 | Race | 8 windows running the compiled program read all 96 Bari Tecnocasa flats under €200,000 in 19.7 s with 0 model calls. A click-by-click GLM agent read 30 in 60 s with 5 model calls ($0.085). |
-| n8n | Inky created both workflows through the n8n API. The main one runs every 15 minutes: 5 Apify steps (the 4 Store actors plus Inky's own Tecnocasa actor) → Merge → compiled scoring (a Code node running `inky.js`, about 1.8 s, no AI) → Telegram approval → Gmail draft. Plus an 08:00 digest. |
+| n8n | Inky created both workflows through the n8n API. The main one runs every 15 minutes: 5 Apify steps (4 on the 3 Store actors, plus Inky's own Tecnocasa actor) → Merge → compiled scoring (a Code node running `inky.js`, about 1.8 s, no AI) → Telegram approval → Gmail draft. Plus an 08:00 digest. |
 | Repair | Tested live on Saturday at 23:30: we broke the otodom step's input on purpose. The run failed, and the repair workflow fixed it in 7.3 s ("Changed searchType from 'sale' to the allowed enum value 'sprzedaz'"), published it and reran. The rerun succeeded. |
 
 Yields are estimates: rent from the median €/m² of rentals in the same neighbourhood, minus agency (9%), empty months (8%), upkeep, tax on rent and buying costs. The price trend is per country. Łódź districts are approximated from coordinates, because otodom returns none.
@@ -105,7 +105,7 @@ inky.js           the compiled program: normalise and score listings, locally an
 workflow.py       writes the main and repair n8n workflows through the n8n API
 test_pipeline.py  offline check of the whole chain
 plan.json         the plan from the interview
-app/              the local app (serve.py, stdlib only) and its front-end
+app/              the local app (serve.py, on Python's built-in HTTP server) and its front-end
 teach/            learn a site once, replay it with no model, publish it as an Apify actor
 race/             8 compiled windows against a click-by-click LLM agent
 voice/            hold ⌥ Space: ffmpeg + whisper.cpp + Hammerspoon

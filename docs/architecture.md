@@ -14,9 +14,9 @@ Inky turns one sentence into a watcher that runs by itself. It uses a model wher
 | Run a program (`teach/run_program.py`, `teach/actor/`) | laptop, or Apify as the actor `cavernous_stew/inky-tecnocasa-homes` | no | Replays the program with no model: the shortcut (one request per page), or the recorded clicks in Chrome. |
 | Race (`race/race.py`) | laptop, 9 Chrome windows | the agent window only | 8 windows replay the compiled program; 1 click-by-click GLM agent does the same task, for comparison. Writes `data/race.json`. |
 | Workflow builder (`workflow.py`) | laptop → n8n API | no | Creates the credentials and both workflows, links the repair workflow as the main one's error workflow, and activates them. Keeps the ids in `data/n8n.json`, so a second run updates instead of duplicating. |
-| Main workflow | n8n Cloud | no | Every 15 min: 5 Apify steps (the 4 Store actors plus Inky's own Tecnocasa actor; the newest 60 listings per source, a USD cap on each) → Merge → Score (Code node with `inky.js` and the rules) → Telegram question with “Save as draft” / “Skip” buttons (`sendAndWait`) → Gmail draft to the agent, never sent. Plus an 08:00 digest, which also lists up to 3 “almost” homes: new ones that miss exactly one rule by a little (0.3 points on a yield or the price trend, 0.05 on price against the neighbourhood, 5% on price or counts). They are never asked about and never drafted. Quiet hours: matches found between 23:00 and 07:00 wait for the first run after 07:00. |
-| Repair workflow | n8n Cloud → OpenRouter | GLM-5.3, 1 call per fix | On an error: tells you on Telegram, finds the broken step, sends GLM-5.3 the error, the step's input and the actor's real input fields, and patches only that input. Before saving, it checks the new input against the actor's input schema, read from Apify (the actor's default build): required fields, allowed values, types, no new fields the actor doesn't have. A fix that fails the check is not published, and you get told on Telegram what GLM proposed and why it was rejected. A fix that passes is saved and published, you get told what changed, and the main workflow runs again. At most one fix an hour. |
-| App (`app/serve.py` + `app/static/`) | laptop, 127.0.0.1:8765 | only through the interview, rule commands and share | Shows research, the program, the race, results, the workflow and its runs. `/api/command` turns a sentence into one rule edit, keeps one version back, and pushes the rules to the main workflow. |
+| Main workflow | n8n Cloud | no | Every 15 min: 5 Apify steps (4 on the 3 Store actors plus Inky's own Tecnocasa actor; up to 60 listings per source, newest first on idealista and immobiliare, a USD cap on each) → Merge → Score (Code node with `inky.js` and the rules) → Telegram question with “Save as draft” / “Skip” buttons (`sendAndWait`) → Gmail draft to the agent, never sent. Plus an 08:00 digest, which also lists up to 3 “almost” homes: new ones that miss exactly one rule by a little (0.3 points on a yield or the price trend, 0.05 on price against the neighbourhood, 5% on price or counts). They are never asked about and never drafted. Quiet hours: matches found between 23:00 and 07:00 wait for the first run after 07:00. |
+| Repair workflow | n8n Cloud → OpenRouter | GLM-5.3, 1 call per fix | On an error: tells you on Telegram, finds the broken step, sends GLM-5.3 the error, the step's input and the actor's real input fields, and patches only that input. Before saving, it checks the new input against the actor's input schema, read from Apify (the actor's default build): required fields, allowed values, types, no new fields the actor doesn't have. A fix that fails the check is not published, and you get told on Telegram what GLM proposed and why it was rejected. A fix that passes is saved and published, you get told what changed, and the main workflow runs again. At most one fix an hour. The schema check was added after the 23:30 test, so that run doesn't show it. |
+| App (`app/serve.py` + `app/static/`) | laptop, 127.0.0.1:8765 | only through the interview, a research re-run (the rule rounds), rule commands and share | Shows research, the program, the race, results, the workflow and its runs. `/api/command` turns a sentence into one rule edit, keeps one version back, and pushes the rules to the main workflow. |
 | Voice (`voice/`) | laptop | no model for speech (whisper.cpp is local); the command goes to `/api/command` | Hold ⌥ Space in any app: ffmpeg records, whisper.cpp transcribes on the Mac, the text becomes a rule edit. |
 
 ## Data flow
@@ -39,7 +39,7 @@ sequenceDiagram
   Note over App: inky.js tests every rule on every listing
   App->>n8n: workflow.py: create + activate via API
   loop every 15 minutes
-    n8n->>Apify: 4 actors, newest listings
+    n8n->>Apify: 5 Apify steps, up to 60 listings each
     Apify-->>n8n: items
     Note over n8n: Code node: inky.js scores, no AI
     n8n->>TG: "Approve?" for each new match
@@ -84,14 +84,14 @@ A model never picks clicks at run time. We tested Laya, a small local model for 
 | Learning Tecnocasa: 1 GLM-5.3 call | $0.02 |
 | Actor test run: 20 listings | under $0.001 |
 | Race: the click-by-click agent (the compiled windows cost nothing) | $0.085 |
-| One 15-minute run: 5 Apify steps, 60 newest listings each | about $0.21 in actor fees (estimate from the actors' per-listing prices), [measured: from the Apify API] |
+| One 15-minute run: 5 Apify steps, up to 60 listings each | $0.22, measured from the Apify API (Saturday night's runs at this size; $0.21 on average over all runs so far, the early ones with 4 steps at 40 listings) |
 | One 15-minute run: AI | $0 (no model calls) |
 | One repair | one GLM-5.3 call, a few cents |
 | n8n | the n8n Cloud plan; self-hosting is free |
 
 ## Files
 
-`data/` (git-ignored) holds everything a run produces: `raw/` (Apify items), `zones.json`, `costs.json`, `rules.json`, `research.json`, `race.json`, `n8n.json` (ids of what `workflow.py` created, no secrets). `build.py --offline` writes the same files to `data-offline/` from fixtures. Keys live only in `.env` (git-ignored).
+`data/` (git-ignored) holds everything a run produces: `raw/` (Apify items), `zones.json`, `costs.json`, `rules.json`, `research.json`, `race.json`, `n8n.json` (ids of what `workflow.py` created and the secret path of the best-now webhook; no keys). `build.py --offline` writes the same files to `data-offline/` from fixtures. Keys live only in `.env` (git-ignored).
 
 ## Limits we know about
 

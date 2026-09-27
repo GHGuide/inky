@@ -26,7 +26,7 @@ Under the strip: "8 compiled windows: 96 flats in 19.7 s, 0 model calls. A click
 
 ## 3 · Proof, safety, and why OLX
 
-- Left, proof: overnight [N] runs, [N] listings checked, 0 AI calls in the loop. The 23:30 repair (broken on purpose): "Changed searchType from 'sale' to 'sprzedaz'", fixed and rerun.
+- Left, proof: overnight [N] runs, [N] listings checked, 0 AI calls in the loop. The 23:30 repair (broken on purpose): "Changed searchType from 'sale' to the allowed enum value 'sprzedaz'", fixed and rerun.
 - Middle, safety: never contacts anyone, only Gmail drafts. Asks before every draft. At most one fix an hour. A USD cap on every Apify step.
 - Right, why OLX: Otodom and Imovirtual are OLX, a Prosus company. 32 of the 46 matches came from Otodom. Every approved draft is a qualified buyer enquiry.
 - Footer: QR to github.com/GHGuide/inky · "Open source (MIT) · open models (GLM-5.3) · n8n is fair-code · Apify's platform is hosted".

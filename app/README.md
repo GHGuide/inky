@@ -1,6 +1,6 @@
 # Inky app server
 
-One stdlib file, `serve.py`. It serves the front-end in `app/static/` and a small JSON API on http://127.0.0.1:8765.
+One file, `serve.py`, on Python's built-in HTTP server (plus httpx and python-dotenv from the repo's dependencies). It serves the front-end in `app/static/` and a small JSON API on http://127.0.0.1:8765.
 
 ```bash
 .venv/bin/python app/serve.py          # from the repo root; optional port: app/serve.py 8799

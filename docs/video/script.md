@@ -11,7 +11,7 @@ Only these come from tonight. Everything else is measured and fixed.
 
 | Placeholder | Beat | Where to read it |
 |---|---|---|
-| `[three]` | 1 | How many homes the 08:00 Telegram message lists. If it is not 3, say the real count. |
+| `[three]` | 1 | How many homes the 08:00 Telegram message lists that pass the rules ("Waiting for you" or "Best home right now" lines). "Almost" lines miss a rule, so they don't count as fitting the plan. If it is not 3, say the real count; if it is 0, use the fallback. |
 | `[forty]` | 5 | n8n → Executions of the main workflow, count the runs since Sat 23:00 (or the app's Activity screen). |
 | `[eight thousand]` | 5 | Listings checked overnight: the sum of items per run (Activity screen, or the "last night" summary if it is ready). |
 | `[N]` (end card only, on screen) | End | Same two numbers as beat 5. |

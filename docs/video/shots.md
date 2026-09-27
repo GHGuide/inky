@@ -51,7 +51,7 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
 - **A. Apify console (6 s)**: `https://console.apify.com/actors/runs`. Scroll to Saturday's runs of `igolaizola/idealista-scraper`, `memo23/immobiliare-scraper` and `trev0n/otodom-scraper`, with their result counts and costs. Glide down slowly (manual zoom keyframe).
 - **B. Inky (12 s)**: `http://127.0.0.1:8765/?rec=1#research` on the unchanged copy. Hold on "17,836 listings · 39 neighbourhoods", then click the versions v1 → v2 → v3 on the right, about 2 s each, so the count goes 15 → 70 → 46.
 - **Edit**: lower third, "Łódź 32 · Bari 14 · Porto 0 (prices +17.8% a year, Eurostat 2026-Q1). Otodom belongs to OLX, a Prosus company."
-- **Plan B**: Apify console slow: a screenshot of Saturday's Runs list, stamped "Saturday". The Research screen reads `data-film/research.json` locally and needs no network. Last resort: `.venv/bin/python app/serve.py --demo`, if it is in the repo by then.
+- **Plan B**: Apify console slow: a screenshot of Saturday's Runs list, stamped "Saturday". The Research screen reads `data-film/research.json` locally and needs no network. Last resort: `.venv/bin/python app/serve.py --demo`.
 
 ## 4 · Learns a site, ships an actor (0:40–0:56)
 
@@ -70,7 +70,7 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
 
 ## 5 · Runs in n8n, no AI (0:56–1:10)
 
-- **Screen**: Chrome 1440×900, `https://YOUR-N8N.app.n8n.cloud/workflow/8PuVKxiSlGuJO4CU/executions`. Open a green run from last night: the canvas shows every node with a green check and its item count.
+- **Screen**: Chrome 1440×900, `https://YOUR-N8N.app.n8n.cloud/workflow/YOUR-MAIN-WORKFLOW-ID/executions` (both workflow ids are in `data/n8n.json`, or open the links from the app's Workflow screen). Open a green run from last night: the canvas shows every node with a green check and its item count.
 - **Clicks**: fit the view (the fit button at the bottom left) → manual zoom keyframes from left to right: the 15-minute trigger → the 5 Apify steps → Merge → **Score · rules** → click it to show that it's a Code node and how long it took (about 1.8 s) → Telegram → Gmail draft. Then back to the executions list and scroll through the night's runs.
 - **Count for the voice-over**: the runs since Sat 23:00 in this list → `[forty]`. Listings checked → `[eight thousand]` (the app's Activity screen, or the "last night" summary).
 - **Careful**: only look. Don't press Execute, Save or the Active switch on the live workflow.
@@ -79,7 +79,7 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
 ## 6 · It fixes itself (1:10–1:25)
 
 - **Screen**: Chrome 1440×900.
-- **Clicks**: `https://YOUR-N8N.app.n8n.cloud/workflow/8PuVKxiSlGuJO4CU/executions` → the red run on Saturday around 23:30 → the red otodom step → zoom on the error. Then `https://YOUR-N8N.app.n8n.cloud/workflow/s1PH8DN9pBhQ7pky/executions` → the repair run from the same minute → click **Patch the step** → zoom on its output, "Changed searchType from 'sale' to the allowed enum value 'sprzedaz'" → **Tell me it's fixed**. Back to the main executions: the green rerun right after.
+- **Clicks**: `https://YOUR-N8N.app.n8n.cloud/workflow/YOUR-MAIN-WORKFLOW-ID/executions` → the red run on Saturday around 23:30 → the red otodom step → zoom on the error. Then `https://YOUR-N8N.app.n8n.cloud/workflow/YOUR-REPAIR-WORKFLOW-ID/executions` → the repair run from the same minute → click **Patch the step** → zoom on its output, "Changed searchType from 'sale' to the allowed enum value 'sprzedaz'" → **Tell me it's fixed**. Back to the main executions: the green rerun right after.
 - **Insert (optional, 2 s)**: a screenshot of the phone's Telegram at 23:30, "Fixed otodom · Łódź: … Running it again now."
 - **Edit**: stamp "REAL · n8n · Sat 23:30". Caption: "Broken on purpose, as a test. At most one fix an hour."
 - **Plan B**: n8n slow: the repair entry on the app's `?rec=1#activity` screen. Nothing works: break a staging copy of the workflow the same way at 12:00 (never the live one) and record that run.
@@ -98,7 +98,7 @@ Suggested order, so nothing waits on anything else: the phone at 08:00 (beat 1) 
 
 ## End card (1:44–1:52)
 
-- **Screen**: the app's end screen if it exists by then (`?rec=1#end`, with the real totals). Otherwise the EndCard artboard in the storyboard canvas, in Play, full screen, or exported as a 1920×1080 PNG.
+- **Screen**: the app's end screen (`?rec=1#end`, with the real totals). Or the EndCard artboard in the storyboard canvas, in Play, full screen, or exported as a 1920×1080 PNG.
 - **Record**: still, 8 s, no cursor. The QR opens github.com/GHGuide/inky; check it with a phone before the final export.
 - **Plan B**: the exported PNG as a still.
 

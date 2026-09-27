@@ -402,7 +402,7 @@ def main_workflow(rules, zones, costs, pln, creds, chat_id, repair_id=None, mode
     link(conns, digest, send)
     sites = len(SOURCES)
     nodes += [
-        note("Note · Read", f"## 1 · Read\n{sites} sites through Apify, every 15 minutes: the {MAX_ITEMS} newest homes for sale on each. "
+        note("Note · Read", f"## 1 · Read\n{sites} sites through Apify, every 15 minutes: up to {MAX_ITEMS} homes for sale on each, newest first where the site allows. "
              f"At most {MAX_RUNS_A_DAY} runs a day.", (-60, -120), 640, 900, 5),
         note("Note · Score", "## 2 · Score\nInky's compiled rules, no AI. Only new homes; the same flat on two sites counts once. "
              "23:00-07:00 matches wait for the morning.", (640, 160), 400, 360, 6),

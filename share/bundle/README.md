@@ -36,5 +36,5 @@ own credential (Apify: header auth `Authorization: Bearer <token>`; Telegram; n8
 Replace `INKY_TELEGRAM_CHAT_ID` with your chat id, set the repair's "Run it again" to the main workflow, set the main
 workflow's error workflow (Settings) to the repair one, and give the "Send me the best now" webhook a secret path.
 
-Costs: about $0.23 of Apify per run at 60 listings per site (at most 120 runs a day), and a few cents of
+Costs: about $0.22 of Apify per run at up to 60 listings per site, measured (at most 120 runs a day), and a few cents of
 OpenRouter only when a repair runs.
