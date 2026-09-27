@@ -241,6 +241,14 @@ def test_repair(nodes, main_wf, repair, r3):
     assert repair["connections"]["On error"]["main"][0] == [{"node": "Read the error", "type": "main", "index": 0}]
     drift = {**err, "execution": {"error": {"message": "Step idealista · Porto returned items Inky can't read"}}}
     assert run_code(nodes["Read the error"]["parameters"]["jsCode"], json_=drift)["out"][0]["step"] == "idealista · Porto"
+    # A temporary failure is not a bad input: no GLM rewrite, no message, and the hourly attempt is not used up.
+    for tmp in ({"message": "Bad gateway - the service failed to handle your request", "description": "<html>502 Bad Gateway</html>"},
+                {"message": "The service is receiving too many requests from you", "httpCode": "429"},
+                {"message": "Request failed", "httpCode": "503"}, {"message": "connect ETIMEDOUT 3.2.1.4:443"}):
+        t = run_code(nodes["Read the error"]["parameters"]["jsCode"], json_={**err, "execution": {"error": tmp, "lastNodeExecuted": "idealista · Porto"}})
+        assert t["out"] == [] and not (t["statics"] or {}).get("fixes"), (tmp, t)
+    bad = {"message": "Bad request - please check your parameters", "description": '{"maxItems": 500, "location": "x"}', "httpCode": "400"}
+    assert run_code(nodes["Read the error"]["parameters"]["jsCode"], json_={**err, "execution": {"error": bad, "lastNodeExecuted": "otodom · Łódź"}})["out"][0]["step"] == "otodom · Łódź"
     limited = run_code(nodes["Read the error"]["parameters"]["jsCode"], json_=err, statics=read["statics"] | {"fixes": [9e15]})
     assert limited["out"] == [], "safety limit"
     wf = {"id": "W1", **main_wf}

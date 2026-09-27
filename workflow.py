@@ -317,6 +317,10 @@ def score_code(rules, zones, costs, pln, near=None):
             + js_const("ZONE_NEAR", near or {}) + js_const("QUIET", list(QUIET)) + COMMON_JS + TEXTS_JS + SCORE_JS)
 
 
+# A 502 or a dropped connection on Apify's side: try the step once more before the run fails.
+RETRY = {"retryOnFail": True, "maxTries": 2, "waitBetweenTries": 5000}
+
+
 def apify_step(name, actor, body, creds, pos, mode, limits):
     """The official Apify node when it is installed in n8n, otherwise n8n's HTTP node on Apify's API."""
     memory, timeout, usd = limits
@@ -326,14 +330,14 @@ def apify_step(name, actor, body, creds, pos, mode, limits):
             "authentication": "apifyApi", "resource": "Actors", "operation": "Run actor and get dataset",
             "actorId": {"__rl": True, "value": actor, "mode": "id"}, "customBody": text,
             "memory": memory, "timeout": timeout, "maxTotalChargeUsd": usd,
-        }, pos, {"apifyApi": creds["apify"]})
+        }, pos, {"apifyApi": creds["apify"]}, **RETRY)
     return node(name, "n8n-nodes-base.httpRequest", 4.2, {
         "method": "POST", "url": f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
         "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
         "sendQuery": True, "queryParameters": {"parameters": [
             {"name": "maxTotalChargeUsd", "value": str(usd)}, {"name": "timeout", "value": str(timeout)}, {"name": "memory", "value": str(memory)}]},
         "sendBody": True, "specifyBody": "json", "jsonBody": text, "options": {"timeout": 300000},
-    }, pos, {"httpHeaderAuth": creds["apify"]})
+    }, pos, {"httpHeaderAuth": creds["apify"]}, **RETRY)
 
 
 def main_workflow(rules, zones, costs, pln, creds, chat_id, repair_id=None, mode="node", best_path=None, near=None, best=None):
@@ -432,6 +436,10 @@ const e = $json.execution || {};
 const msg = e.error?.message || '';
 // "returned 0 homes": an empty result. "returned items Inky can't read": the site changed its format.
 const m = msg.match(/Step (.+?) returned (?:0 homes|items Inky can't read)/);
+// A temporary failure on Apify's or the site's side is not a bad input: GLM must not rewrite a step that worked
+// (on 27 Sep a 502 made it "fix" Porto into porto, which returns 0 homes). The next run in 15 minutes tries again.
+const TRANSIENT = /bad gateway|service unavailable|gateway time-?out|internal server error|too many requests|timed? ?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up/i;
+if (!m && (/^(5\\d\\d|429)$/.test(String(e.error?.httpCode || '')) || TRANSIENT.test(`${msg} ${e.error?.description || ''}`))) return [];
 const state = $getWorkflowStaticData('global');
 state.fixes = (state.fixes || []).filter((t) => Date.now() - t < 3600e3);
 if (state.fixes.length) return [];  // safety limit: one message and one fix per hour, then a human decides
@@ -513,7 +521,8 @@ return [{{ json: {{ workflowId: wf.id, step: pick.step, change: answer.change ||
     link(conns, valid, rejected, out=1)
     nodes.append(note("Note · Repair", "## Repair\nFixes one broken step, at most once an hour. GLM-5.3 rewrites only that step's Apify input; "
                       "the fix is checked against the actor's input schema on Apify, then saved and published, you get told on Telegram, "
-                      "and the run starts again. A fix that fails the check is not published: you get told what GLM proposed and why.",
+                      "and the run starts again. A fix that fails the check is not published: you get told what GLM proposed and why. "
+                      "A temporary error on Apify's side (a 502, a timeout) is retried and never rewritten.",
                       (-60, -20), 3200, 580, 2))
     return {"name": "Inky · repair one step", "nodes": nodes, "connections": conns,
             "settings": {"executionOrder": "v1", "timezone": "Europe/Amsterdam"}}
