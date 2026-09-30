@@ -59,7 +59,9 @@ def main():
 def write_engine_file(home, url, pid):
     """engine.json tells the desktop app an engine already runs on this data folder, so it attaches instead of starting a second."""
     from inky import __version__
-    (Path(home) / "engine.json").write_text(json.dumps({"url": url, "pid": pid, "version": __version__}), encoding="utf-8")
+    tmp = Path(home) / f"engine.json.{pid}.tmp"  # write then rename, so a reader never sees half a file
+    tmp.write_text(json.dumps({"url": url, "pid": pid, "version": __version__}), encoding="utf-8")
+    os.replace(tmp, Path(home) / "engine.json")
 
 
 def remove_engine_file(home):
