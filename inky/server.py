@@ -22,6 +22,7 @@ UI = Path(__file__).parent / "ui"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
          ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json"}
 ROUTES = []
+INSTALL_URL = os.environ.get("INKY_INSTALL_URL", "https://raw.githubusercontent.com/GHGuide/inky/main/install.sh")
 
 
 def route(method, pattern):
@@ -354,6 +355,32 @@ def test_model(E, h, q, body):
         return {"ok": False, "reply": str(e)[:200]}
 
 
+@route("POST", "/api/models/connect")
+def connect_model(E, h, q, body):
+    """After a key is pasted: pick a model the provider really has, test it, and use it everywhere."""
+    prov = body.get("provider")
+    if prov not in PROVIDERS:
+        raise HTTPError(400, "unknown provider")
+    try:
+        model = body.get("model") or E.llm.pick_model(prov)
+        if not model:
+            return {"ok": False, "reply": "No models found. Download one first." if prov == "ollama" else "This key has no chat models."}
+        res = E.llm.test(prov, model)
+    except Exception as e:
+        msg = str(e)
+        if " 401" in msg or " 403" in msg:
+            msg = "That key was refused. Check you copied all of it."
+        return {"ok": False, "reply": msg[:200]}
+    if res["ok"]:
+        E.llm.remember_default(prov, model)
+    return {**res, "model": model}
+
+
+@route("POST", "/api/models/local/start")
+def start_local(E, h, q, body):
+    return {"running": E.llm.start_ollama()}
+
+
 @route("POST", "/api/models/custom")
 def custom(E, h, q, body):
     E.store.set_setting("custom_provider", {"base": body["base"].strip()})
@@ -518,7 +545,8 @@ def setup(E, h, q, body):
     return {"platform": platform.system(), "docker": health.docker(), "ollama": st["ollama"], "hardware": st["hardware"],
             "keys": {p["name"]: p["key"] for p in E.llm.providers() if not p["local"]}, "roles": E.llm.roles(),
             "claude": bool(shutil.which("claude")), "codex": bool(shutil.which("codex")),
-            "telegram": E.store.setting("telegram", {"enabled": False}), "pair_code": transfer.pair_code(E.token)}
+            "telegram": E.store.setting("telegram", {"enabled": False}), "telegram_key": E.keys.source("telegram"),
+            "pair_code": transfer.pair_code(E.token), "install": f"curl -fsSL {INSTALL_URL} | sh"}
 
 
 @route("POST", "/api/telegram/test")

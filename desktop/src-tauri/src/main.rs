@@ -135,6 +135,15 @@ fn autostart(app: AppHandle, on: Option<bool>) -> bool {
 }
 
 #[tauri::command]
+fn open_url(app: AppHandle, url: String) {
+    // links from the engine page open in your own browser, never inside the app window
+    if url.starts_with("https://") || url.starts_with("http://") {
+        #[allow(deprecated)]
+        let _ = app.shell().open(&url, None);
+    }
+}
+
+#[tauri::command]
 fn app_info(app: AppHandle) -> serde_json::Value {
     serde_json::json!({ "bar_key": app.state::<Shared>().bar_key.lock().unwrap().clone(), "version": env!("CARGO_PKG_VERSION") })
 }
@@ -362,7 +371,7 @@ fn main() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![tray, notify, bar, open_needs, autostart, app_info])
+        .invoke_handler(tauri::generate_handler![tray, notify, bar, open_needs, autostart, app_info, open_url])
         .setup(move |app| {
             let handle = app.handle().clone();
             // the main window shows a small "waking up" page until the engine answers

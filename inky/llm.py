@@ -29,6 +29,22 @@ ROLES = {
 }
 
 
+# What to pick when you paste a key: first pattern that matches wins; within a pattern the newest,
+# undated, non-preview model wins. ponytail: name patterns rot as providers ship models; the "" fallback keeps it working.
+PICK = {
+    "anthropic": ["sonnet", "haiku", "opus"],
+    "openai": ["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "gpt-5", "gpt-4.1", "gpt-4o"],
+    "gemini": ["flash", "pro"],
+    "groq": ["gpt-oss-120b", "llama-3.3-70b", "qwen3", "llama"],
+    "xai": ["grok-4-fast", "grok-4", "grok-3-mini", "grok"],
+    "mistral": ["mistral-medium", "mistral-small", "mistral-large", "mistral"],
+}
+NOT_CHAT = re.compile(r"embed|whisper|tts|audio|image|dall-e|moderation|realtime|transcribe|search|guard|rerank|ocr|"
+                      r"computer-use|codex|sora|babbage|davinci|instruct|aqa|imagen|veo|learnlm", re.I)
+NOISE = re.compile(r"lite|preview|exp|nano|thinking|deep-research", re.I)
+LOCAL_PREFS = ("qwen3", "llama3", "gemma3", "mistral", "phi")
+
+
 class NoModel(RuntimeError):
     pass
 
@@ -80,16 +96,53 @@ class LLM:
 
     def default_roles(self):
         roles = {}
+        d = self.store.setting("default_model") or {}
+        if d.get("provider") in PROVIDERS and (PROVIDERS[d["provider"]].get("local") or self.keys.get(d["provider"])):
+            return {r: {"provider": d["provider"], "model": d["model"]} for r in ROLES}
         if self.keys.get("openrouter"):
             m = os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
             roles = {r: {"provider": "openrouter", "model": m} for r in ROLES}
         if roles:  # you have a key: keep using it until you pick a local model in Models
             return roles
         local = sorted((m["name"] for m in self.local_models()),
-                       key=lambda n: next((i for i, f in enumerate(("qwen3", "llama3", "gemma3", "mistral", "phi")) if n.startswith(f)), 99))
+                       key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))
         if local:
             roles = {r: {"provider": "ollama", "model": local[0]} for r in ROLES}
         return roles
+
+    def remember_default(self, provider, model):
+        self.store.set_setting("default_model", {"provider": provider, "model": model})
+
+    def list_models(self, provider):
+        """Ask a provider which models it has (every provider here serves GET /models)."""
+        p, key = PROVIDERS[provider], self.keys.get(provider)
+        base = self.store.setting("custom_provider", {}).get("base", p["base"]) if provider == "custom" else p["base"]
+        if p.get("kind") == "anthropic":
+            headers, params = {"x-api-key": key or "", "anthropic-version": "2023-06-01"}, {"limit": 100}
+        else:
+            headers, params = ({"Authorization": f"Bearer {key}"} if key else {}), None
+        r = httpx.get(base.rstrip("/") + "/models", headers=headers, params=params, timeout=15)
+        self._record(provider, r)
+        r.raise_for_status()
+        return [m["id"].removeprefix("models/") for m in r.json().get("data", []) if m.get("id")]
+
+    def pick_model(self, provider):
+        """A good everyday model for this provider, chosen from what it actually offers."""
+        if provider == "openrouter":  # hundreds of models; this one is cheap and good at tools
+            return os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
+        if provider == "ollama":
+            local = [m["name"] for m in self.local_models()]
+            return sorted(local, key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))[0] if local else None
+        ids = [i for i in self.list_models(provider) if not NOT_CHAT.search(i)]
+        prefs = PICK.get(provider, []) + [""]
+
+        def score(t):
+            i, m = t
+            rank = next(n for n, pat in enumerate(prefs) if pat in m)
+            v = re.search(r"(?<!\d)(\d{1,2})(?:[.-](\d{1,2}))?(?!\d)", m)  # 4.5 in gemini-2.5 or claude-sonnet-4-5
+            ver = float(f"{v.group(1)}.{v.group(2) or 0}") if v else 0
+            return (rank, bool(NOISE.search(m)), bool(re.search(r"\d{4}", m)), -ver, len(m), i)
+        return min(enumerate(ids), key=score)[1] if ids else None
 
     def roles(self):
         saved = self.store.setting("roles") or {}
@@ -203,6 +256,25 @@ class LLM:
         return {"ollama": {"installed": bool(ollama_bin), "running": running, "models": self.local_models()},
                 "lmstudio": {"installed": lmstudio}, "custom": {"base": custom, "reachable": custom_ok},
                 "hardware": hardware()}
+
+    def start_ollama(self, wait=8):
+        """Start Ollama if it is installed but not running. True once it answers."""
+        up = lambda: self.local_status()["ollama"]["running"]
+        if up():
+            return True
+        if platform.system() == "Darwin" and os.path.exists("/Applications/Ollama.app"):
+            subprocess.Popen(["open", "-g", "-a", "Ollama"])
+        elif shutil.which("ollama"):
+            kw = {"creationflags": 0x08000000} if os.name == "nt" else {"start_new_session": True}  # CREATE_NO_WINDOW
+            subprocess.Popen([shutil.which("ollama"), "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, **kw)
+        else:
+            return False
+        for _ in range(wait * 2):
+            time.sleep(0.5)
+            if up():
+                return True
+        return False
 
     def pull(self, name, on_progress=None):
         """Download a local model through Ollama's API (streams progress)."""

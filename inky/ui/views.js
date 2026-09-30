@@ -6,73 +6,199 @@ const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in",
 
 // ================================================================ setup wizard
 const STEPS = ["Welcome", "Computers", "Model", "Your screen", "Phone", "Ready"];
+const CLOUD = ["openrouter", "anthropic", "openai", "gemini", "groq", "xai", "mistral"];
+const KEY_URL = { openrouter: "https://openrouter.ai/settings/keys", anthropic: "https://console.anthropic.com/settings/keys", openai: "https://platform.openai.com/api-keys",
+  gemini: "https://aistudio.google.com/apikey", groq: "https://console.groq.com/keys", xai: "https://console.x.ai", mistral: "https://console.mistral.ai/api-keys" };
+const KEY_ABOUT = { openrouter: "Hundreds of models, one key", anthropic: "Claude models", openai: "GPT models", gemini: "Free tier in AI Studio",
+  groq: "Very fast · free tier", xai: "Grok models", mistral: "Made in Europe" };
 VIEWS.setup = {
   bare: true,
   async show(el, [n = "1"]) {
-    n = +n;
-    const st = await get("/api/setup");
-    const models = await get("/api/models");
+    n = +n; this.el = el; this.n = n;
+    let dir = "fwd"; try { dir = sessionStorage.getItem("wizDir") || "fwd"; sessionStorage.removeItem("wizDir"); } catch (e) {}
+    const [st, models] = await Promise.all([get("/api/setup"), get("/api/models")]);
+    this.st = st; this.label = Object.fromEntries(models.providers.map((p) => [p.name, p.label]));
     const pills = STEPS.map((t, i) => `<li class="${i + 1 < n ? "done" : i + 1 === n ? "on" : ""}"><i>${i + 1 < n ? "✓" : i + 1}</i><span>${t}</span></li>`).join("");
-    const nav = (back, next, label = "Continue", skip) => `<div class="between" style="border-top:1px solid #F0EEE9;padding-top:16px">
-      ${back ? `<a href="#/setup/${back}" class="muted">Back</a>` : `<span class="mono small muted">open source · MIT · no account needed</span>`}
+    const nav = (back, next, label = "Continue", skip) => `<div class="wfoot between">
+      ${back ? `<a href="#/setup/${back}" class="muted" data-back>Back</a>` : `<span class="mono small muted">open source · MIT · no account needed</span>`}
       <span class="row">${skip ? `<a href="#/setup/${next}" class="muted small">${skip}</a>` : ""}<a class="btn p" href="${typeof next === "number" ? "#/setup/" + next : next}" id="wnext" style="min-height:44px">${label}</a></span></div>`;
     const ok = (b) => `<i class="${b ? "ok" : "bad"}">${b ? "✓" : "!"}</i>`;
-    let body = "";
-    if (n === 1) body = `<h1>Bots that work on their own computers</h1><p class="lede">Inky is open source and runs on your computer. Setup takes about 3 minutes, and only the first 3 steps are needed.</p>
+    let body = "", foot = "";
+    if (n === 1) {
+      body = `<h1>Bots that work on their own computers</h1><p class="lede">Inky is open source and runs on your computer. Setup takes about 3 minutes, and only the first 3 steps are needed.</p>
       <div class="row" style="justify-content:center;align-items:flex-end;gap:18px">${critter("octopus", "#E9A23B", "glasses", 60)}${critter("octopus", "#E86F51", "none", 104)}${critter("cat", "#7C6CF2", "none", 60)}${critter("blob", "#2BA59B", "headphones", 60)}</div>
       <div class="grid3">${[["monitor", "Each bot has its own computer", "A browser of its own, on this computer or your server. Your screen stays yours."],
         ["activity", "Learns once, then repeats for free", "It uses a model to learn a job. After that, no AI, so it can run all day."],
         ["lock", "Asks before it can’t undo", "Sending, buying, deleting or signing up always waits for your yes."]].map(([i, t, x]) =>
-        `<div class="card panel"><span class="iconbtn" style="border-radius:10px">${icon(i)}</span><b>${t}</b><span class="small muted">${x}</span></div>`).join("")}</div>${nav(0, 2, "Get started")}`;
-    if (n === 2) body = `<h1>Where should your bots’ computers run?</h1><p class="lede">Each bot gets its own browser in a sandbox. It never sees your screen unless you allow that later.</p>
+        `<div class="card panel"><span class="iconbtn" style="border-radius:10px">${icon(i)}</span><b>${t}</b><span class="small muted">${x}</span></div>`).join("")}</div>`;
+      foot = nav(0, 2, "Get started");
+    }
+    if (n === 2) {
+      body = `<h1>Where should your bots’ computers run?</h1><p class="lede">Each bot gets its own browser in a sandbox. It never sees your screen unless you allow that later.</p>
       <div class="grid2"><div class="opt on"><b style="font-size:17px">This computer</b><span class="small muted">free · private · start here</span>
         <div class="chk">${ok(true)}<span>Bots run as isolated browsers here<br><span class="small muted">no install needed</span></span></div>
-        <div class="chk">${ok(st.docker.running)}<span>Docker ${st.docker.running ? "is running" : st.docker.installed ? "is installed but stopped" : "is not installed"}<br><span class="small muted">only needed to run Inky on a server</span></span></div>
         <div class="chk">${ok(true)}<span>${st.hardware.memory_gb || "?"} GB memory · ${esc(st.hardware.cpu || "")}<br><span class="small muted">room for about ${Math.max(1, Math.floor((st.hardware.memory_gb || 8) / 3))} bots</span></span></div></div>
-      <div class="opt"><b style="font-size:17px">Your server</b><span class="small muted">always on · any Linux server</span><span class="small">Run this on the server:</span>
-        <pre class="code">git clone github.com/GHGuide/inky\ncd inky && python -m inky --host 0.0.0.0 --no-open</pre>
-        <span class="small">Then pair it in Computers with the code it prints.</span><a class="btn s" href="#/computers">Pair a server</a></div></div>${nav(1, 3)}`;
-    if (n === 3) {
-      const env = Object.entries(st.keys).filter(([, v]) => v).map(([k]) => k);
-      body = `<h1>Which model should think for them?</h1><p class="lede">Only to learn a job or understand you. Repeating a job needs no model at all.</p>
-      <div class="grid2"><div class="opt"><b style="font-size:17px">On this computer</b><span class="small muted">free · private · works offline</span>
-        <div class="chk">${ok(st.ollama.installed)}<span>Ollama ${st.ollama.installed ? "installed" : "not installed"}${st.ollama.installed ? (st.ollama.running ? " and running" : ", not running (run: ollama serve)") : ""}</span></div>
-        <div class="chk">${ok(st.ollama.models.length)}<span>${st.ollama.models.length ? st.ollama.models.map((m) => esc(m.name)).join(", ") : "No local models yet"}</span></div>
-        <a class="btn s" href="#/models/local">Pick a local model</a></div>
-      <div class="opt ${env.length ? "on" : ""}"><b style="font-size:17px">With your API key</b><span class="small muted">smarter on hard sites · you pay the provider</span>
-        <div class="chk">${ok(env.length)}<span>${env.length ? `Key found for ${env.map(cap).join(", ")}` : "No key yet"}</span></div>
-        <span class="small muted">Usually a few cents a week: bots only call it to learn or fix something.</span><a class="btn s" href="#/keys">Paste a key</a></div></div>
-      <div class="card panel small">${Object.entries(models.roles).map(([r, v]) => `<div class="between"><span>${esc(models.role_labels[r])}</span><span class="mono">${esc(v.model)} · ${esc(v.provider)}</span></div>`).join("") || "No model set yet."}</div>${nav(2, 4)}`;
+      <div class="opt"><span class="row">${logo("linux", 30)}<b style="font-size:17px">A server too</b></span><span class="small muted">optional · always on · any Linux server or spare Mac</span>
+        <span class="small">1. On the server, run this once:</span>
+        <div class="row"><pre class="code grow" id="oneliner" style="margin:0">${esc(st.install)}</pre><button class="btn s" id="copyinst">Copy</button></div>
+        <span class="small">2. It prints an address and a pairing code. Put them here:</span>
+        <input class="f" id="pairurl" placeholder="http://192.168.1.20:8800" autocomplete="off" spellcheck="false" aria-label="Server address">
+        <div class="row"><input class="f grow" id="paircode" placeholder="Pairing code" autocomplete="off" spellcheck="false" aria-label="Pairing code"><button class="btn" id="pairgo">Pair</button></div>
+        <span class="small" id="pairmsg" role="status"></span></div></div>`;
+      foot = nav(1, 3);
     }
-    if (n === 4) body = `<h1>Let bots use your own screen too?</h1><p class="lede">Optional. A bot can drive a visible browser window on your desktop, inside a coral frame, and ask every time.</p>
+    if (n === 3) {
+      body = `<h1>Which model should think for them?</h1><p class="lede">Only to learn a job or understand you. Repeating a job needs no model at all.</p>
+      <div class="usingm" id="usingm" role="status"></div>
+      <h3 class="wsec">With your API key<span class="small muted">smarter on hard sites · usually cents a week</span></h3>
+      <div class="ptiles">${CLOUD.map((p) => `<button class="ptile ${st.keys[p] ? "has" : ""}" data-prov="${p}" aria-expanded="false">${providerLogo(p, 36)}<span><b>${esc(this.label[p])}</b><span class="small muted" data-sub>${st.keys[p] ? "✓ key saved" : KEY_ABOUT[p]}</span></span></button>`).join("")}</div>
+      <div class="keyfield hidden" id="keyfield"></div>
+      <h3 class="wsec">Or on this computer<span class="small muted">free · private · works offline</span></h3>
+      <div class="card panel" id="localm"><span class="small muted">Looking for Ollama and LM Studio…</span></div>`;
+      foot = nav(2, 4);
+    }
+    if (n === 4) {
+      body = `<h1>Let bots use your own screen too?</h1><p class="lede">Optional. A bot can drive a visible browser window on your desktop, inside a coral frame, and ask every time.</p>
       <div class="grid2"><div class="card panel"><b>How it looks</b><span class="small">A coral frame shows while a bot drives. Its cursor carries its name, each step gets a label, and a pill has Chat, Pause, Take over and Stop.</span>
         <span class="small">Move your mouse and it pauses. <b>Esc</b> stops it. <b>⌥C</b> opens a chat: your typing goes to the bot, never into the page.</span></div>
       <div class="col"><div class="between card"><span><b>Allow bots on my screen</b><br><span class="small muted">You still turn it on per bot</span></span><button class="toggle ${S.settings.screen_allowed ? "on" : ""}" id="scr" role="switch" aria-checked="${!!S.settings.screen_allowed}" aria-label="Allow bots on my screen"></button></div>
-        <span class="small muted">${st.platform === "Darwin" ? "macOS: a browser window needs no extra permission. Driving other apps needs Screen Recording and Accessibility, which this version doesn’t use." : st.platform === "Windows" ? "Windows: nothing to allow." : "Linux: on Wayland the window is shared through the screen-sharing prompt once; on X11 nothing to allow."}</span></div></div>${nav(3, 5, "Continue", "Skip")}`;
-    if (n === 5) body = `<h1>Hear from your bots on your phone?</h1><p class="lede">Optional. They can ask you things and send summaries while you’re away.</p>
-      <div class="grid2"><div class="opt on"><b style="font-size:17px">Telegram</b>
-        <span class="small">1. In Telegram, open <b>@BotFather</b> and send <span class="mono">/newbot</span>.</span>
-        <span class="small">2. Paste the token it gives you in <a href="#/keys">API keys</a> (Telegram bot).</span>
+        <span class="small muted">${st.platform === "Darwin" ? "macOS: a browser window needs no extra permission. Driving other apps needs Screen Recording and Accessibility, which this version doesn’t use." : st.platform === "Windows" ? "Windows: nothing to allow." : "Linux: on Wayland the window is shared through the screen-sharing prompt once; on X11 nothing to allow."}</span></div></div>`;
+      foot = nav(3, 5, "Continue", "Skip");
+    }
+    if (n === 5) {
+      const tg = st.telegram || {};
+      body = `<h1>Hear from your bots on your phone?</h1><p class="lede">Optional. They can ask you things and send summaries while you’re away.</p>
+      <div class="grid2"><div class="opt on"><span class="row">${logo("telegram", 30)}<b style="font-size:17px">Telegram</b></span>
+        <span class="small">1. <a href="https://t.me/BotFather" target="_blank" rel="noopener">Open @BotFather ↗</a> and send <span class="mono">/newbot</span>. Any name works.</span>
+        <span class="small">2. Paste the token it sends you:</span>
+        <div class="row"><input class="f grow" id="tgtoken" type="password" autocomplete="off" placeholder="${st.telegram_key ? "A token is saved. Paste a new one to replace it." : "123456789:AA…"}" aria-label="Telegram bot token"><button class="btn" id="tgsave">Connect</button></div>
+        <span class="small" id="tgmsg" role="status">${st.telegram_key ? "✓ A bot token is saved." : ""}</span>
         <span class="small">3. Send <span class="mono">/start</span> to your bot, then put your chat id here:</span>
-        <input class="f" id="chat" placeholder="Chat id" value="${esc((st.telegram || {}).chat_id || "")}"><div class="between"><span class="small">Send my alerts there</span><button class="toggle ${(st.telegram || {}).enabled ? "on" : ""}" id="tg" role="switch" aria-checked="${!!(st.telegram || {}).enabled}" aria-label="Send my alerts on Telegram"></button></div></div>
-      <div class="opt"><b style="font-size:17px">Or the web app</b><span class="small">Start Inky with <span class="mono">--host 0.0.0.0</span> and open this computer’s address on your phone, on the same Wi-Fi. Sign in there with the pairing code <b class="mono">${esc(S.pair || "")}</b>. It installs like an app.</span></div></div>${nav(4, 6, "Continue", "Skip for now")}`;
-    if (n === 6) body = `<h1>You’re set</h1><div class="row" style="justify-content:center">${critter("octopus", "#E86F51", "none", 72)}</div>
-      <div class="col list">${[["Computers", "Bots run as browsers on this computer"], ["Model", Object.values(models.roles)[0] ? `${models.roles.learn ? models.roles.learn.model : ""} for learning` : "none yet"],
+        <input class="f" id="chat" placeholder="Chat id" value="${esc(tg.chat_id || "")}" aria-label="Telegram chat id"><div class="between"><span class="small">Send my alerts there</span><button class="toggle ${tg.enabled ? "on" : ""}" id="tg" role="switch" aria-checked="${!!tg.enabled}" aria-label="Send my alerts on Telegram"></button></div></div>
+      <div class="opt"><b style="font-size:17px">Or the web app</b><span class="small">Open this computer’s address on your phone, on the same Wi-Fi, and sign in with the pairing code <b class="mono">${esc(st.pair_code || S.pair || "")}</b>. It installs like an app.</span></div></div>`;
+      foot = nav(4, 6, "Continue", "Skip for now");
+    }
+    if (n === 6) {
+      body = `<h1>You’re set</h1><div class="row" style="justify-content:center">${critter("octopus", "#E86F51", "none", 72)}</div>
+      <div class="col list">${[["Computers", "Bots run as browsers on this computer"], ["Model", models.roles.learn ? `${models.roles.learn.model} for learning` : "none yet"],
         ["Your screen", S.settings.screen_allowed ? "Allowed · bots ask each time" : "Off"], ["Phone", (st.telegram || {}).enabled ? "Telegram" : "Off"]].map(([a, b]) =>
         `<div class="between" style="padding:9px 0"><span class="muted">${a}</span><span>${esc(b)}</span></div>`).join("")}</div>
       <div class="composer" style="width:100%"><label class="l" for="job">Make your first bot</label><textarea id="job" rows="2" placeholder="Describe a job in your own words"></textarea>
-        <div class="between"><span class="mono small muted">⌘K opens the command bar anywhere</span><button class="btn p" id="start">Start</button></div></div>
-      ${nav(5, "#/bots", "Go to your bots")}`;
-    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b style="font-size:19px">inky</b></span><ol class="wsteps">${pills}</ol><a href="#/bots" id="skipall" class="small muted">Skip setup</a></header><div class="wcard">${body}</div></div>`;
+        <div class="between"><span class="mono small muted">⌘K opens the command bar anywhere</span><button class="btn p" id="start">Start</button></div></div>`;
+      foot = nav(5, "#/bots", "Go to your bots");
+    }
+    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b style="font-size:19px">inky</b></span><ol class="wsteps">${pills}</ol><a href="#/bots" id="skipall" class="small muted">Skip setup</a></header>
+      <div class="wbody"><div class="wcard"><div class="wstep ${dir}">${body}</div>${foot}</div></div></div>`;
     const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; try { if (!localStorage.getItem("inkyTour")) sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} };
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
+    if ($("[data-back]")) $("[data-back]").onclick = () => { try { sessionStorage.setItem("wizDir", "back"); } catch (e) {} };
     if ($("#scr")) $("#scr").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); S.settings = await post("/api/settings", { screen_allowed: on }); };
-    if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); await post("/api/settings", { telegram: { enabled: on, chat_id: $("#chat").value.trim() } }); };
+    if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); await post("/api/settings", { telegram: { enabled: on, chat_id: $("#chat").value.trim() } }); };
     if ($("#chat")) $("#chat").onchange = () => post("/api/settings", { telegram: { chat_id: $("#chat").value.trim() } });
+    if (n === 2) this.bindPair();
+    if (n === 3) { this.showUsing(models.roles.learn); $$("[data-prov]").forEach((b) => (b.onclick = () => this.openKey(b.dataset.prov))); this.renderLocal(); }
+    if (n === 5) this.bindTelegram();
     if (n === 6) {
       $("#wnext").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
       $("#start").onclick = async () => { await finish(); location.hash = `#/new?job=${encodeURIComponent($("#job").value)}`; };
     }
+  },
+  say(sel, text, good) { const m = $(sel); if (m) { m.textContent = text; m.className = "small " + (good === true ? "good" : good === false ? "bad" : "muted"); } },
+  bindPair() {
+    $("#copyinst").onclick = async () => { try { await navigator.clipboard.writeText(this.st.install); $("#copyinst").textContent = "Copied"; } catch (e) { toast("Select the line and copy it with ⌘C."); } };
+    const go = async () => {
+      const url = $("#pairurl").value.trim(), code = $("#paircode").value.trim();
+      if (!url || !code) return this.say("#pairmsg", "Put in the address and the code the server printed.", false);
+      this.say("#pairmsg", "Pairing…");
+      try { await post("/api/computers", { url, code }); this.say("#pairmsg", "✓ Paired. Its bots show up in Computers.", true); SOUND.play("chime"); }
+      catch (e) { this.say("#pairmsg", e.message, false); }
+    };
+    $("#pairgo").onclick = go;
+    $("#paircode").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  },
+  showUsing(r) {
+    this.using = r; const u = $("#usingm"); if (!u) return;
+    u.classList.toggle("ok", !!r);
+    u.innerHTML = r ? `${icon("check", 16)}<span>Using <b class="mono">${esc(r.model)}</b> from ${esc(this.label[r.provider] || r.provider)}</span>`
+      : `<span class="muted">No model yet. Pick one below, or skip and add one later in Models.</span>`;
+  },
+  async connect(provider, model, msgSel) {
+    this.say(msgSel, provider === "ollama" || provider === "custom" ? "Checking the model…" : "Checking which models your key has…");
+    const r = await post("/api/models/connect", { provider, model });
+    if (!r.ok) { this.say(msgSel, r.reply || "That didn’t work.", false); return false; }
+    this.say(msgSel, `✓ Works. Using ${r.model}, answered in ${r.seconds}s.`, true); SOUND.play("chime");
+    this.showUsing({ provider, model: r.model });
+    return true;
+  },
+  openKey(p) {
+    $$("[data-prov]").forEach((b) => { b.classList.toggle("on", b.dataset.prov === p); b.setAttribute("aria-expanded", b.dataset.prov === p); });
+    const kf = $("#keyfield"), has = this.st.keys[p], L = esc(this.label[p]);
+    kf.classList.remove("hidden");
+    kf.innerHTML = `<div class="row">${providerLogo(p, 28)}<b>Your ${L} key</b></div>
+      <span class="small">1. <a href="${KEY_URL[p]}" target="_blank" rel="noopener">Make a key at ${esc(KEY_URL[p].replace("https://", ""))} ↗</a></span>
+      <span class="small">2. Paste it here. It stays on this computer and only goes to ${L}.</span>
+      <div class="row"><input class="f grow" id="keyin" type="password" autocomplete="off" placeholder="${has ? "A key is saved. Paste a new one to replace it." : "Paste the key"}" aria-label="${L} key"><button class="btn p" id="keysave">Save & test</button></div>
+      <div class="between"><span class="small" id="keymsg" role="status"></span>${has ? `<button class="btn s" id="keyuse">Use the saved key</button>` : ""}</div>`;
+    $("#keyin").focus();
+    const tile = $(`[data-prov="${p}"]`);
+    const save = async () => {
+      const v = $("#keyin").value.trim(); if (!v) return this.say("#keymsg", "Paste a key first.", false);
+      try { await post("/api/keys", { provider: p, key: v }); } catch (e) { return this.say("#keymsg", e.message, false); }
+      $("#keyin").value = ""; this.st.keys[p] = "saved"; tile.classList.add("has"); $("[data-sub]", tile).textContent = "✓ key saved";
+      await this.connect(p, null, "#keymsg");
+    };
+    $("#keysave").onclick = save;
+    $("#keyin").onkeydown = (e) => { if (e.key === "Enter") save(); };
+    if ($("#keyuse")) $("#keyuse").onclick = () => this.connect(p, null, "#keymsg");
+  },
+  async renderLocal() {
+    const box = $("#localm"); if (!box) return;
+    const loc = await get("/api/models/local"), o = loc.ollama, pulls = loc.pulls || {};
+    const head = (s, t) => `<div class="lrow"><span class="row">${logo(s, 34)}<span><b>${s === "ollama" ? "Ollama" : "LM Studio"}</b><br><span class="small muted">${t}</span></span></span>`;
+    let h;
+    if (!o.installed && !o.running) h = `${head("ollama", "not installed yet")}<span class="row"><a class="btn" href="https://ollama.com/download" target="_blank" rel="noopener">Install Ollama ↗</a><button class="btn s" data-lrefresh>Check again</button></span></div>
+      <span class="small muted">Ollama runs models on this computer for free. Install it, then press Check again.</span>`;
+    else if (!o.running) h = `${head("ollama", "installed, not running")}<button class="btn" id="ollstart">Start Ollama</button></div><span class="small" id="lmsg" role="status"></span>`;
+    else if (!o.models.length) {
+      const pick = loc.catalog.filter((c) => c.fit === "fits well" || c.fit === "tight" || c.fit === "unknown").slice(0, 3);
+      h = `${head("ollama", "running · pick a model to download")}</div>${pick.map((c) => {
+        const p = pulls[c.name];
+        return `<div class="lrow"><span><b class="mono">${esc(c.name)}</b> <span class="small muted">${c.gb} GB${c.badge === "recommended" ? " · recommended" : ""}</span><br><span class="small muted">${esc(c.about)}</span></span>
+        <span class="row">${p && p.status !== "success" && !String(p.status).startsWith("failed") ? `<span class="prog" data-prog="${esc(c.name)}"><i style="width:${p.total ? Math.round(100 * p.completed / p.total) : 2}%"></i></span>` : `<button class="btn s" data-pull="${esc(c.name)}">Download</button>`}</span></div>`;
+      }).join("") || `<span class="small muted">No model in our list fits this computer’s memory. Use an API key instead.</span>`}<span class="small" id="lmsg" role="status"></span>`;
+    } else h = `${head("ollama", "running")}</div>${o.models.map((m) => `<div class="lrow"><b class="mono">${esc(m.name)}</b>${this.using && this.using.provider === "ollama" && this.using.model === m.name ? `<span class="small good">✓ In use</span>` : `<button class="btn s" data-use="${esc(m.name)}">Use this</button>`}</div>`).join("")}<span class="small" id="lmsg" role="status"></span>`;
+    if (loc.custom.reachable) h += `${head("lmstudio", "running at " + esc(loc.custom.base))}<button class="btn s" id="uselms">Use LM Studio</button></div>`;
+    else if (loc.lmstudio.installed) h += `${head("lmstudio", "installed · start its local server to use it")}<button class="btn s" data-lrefresh>Check again</button></div>`;
+    box.innerHTML = h;
+    $$("[data-lrefresh]", box).forEach((b) => (b.onclick = () => this.renderLocal()));
+    if ($("#ollstart")) $("#ollstart").onclick = async () => {
+      $("#ollstart").disabled = true; this.say("#lmsg", "Starting Ollama…");
+      const r = await post("/api/models/local/start", {});
+      if (r.running) this.renderLocal(); else { $("#ollstart").disabled = false; this.say("#lmsg", "Ollama didn’t start. Open the Ollama app once, then try again.", false); }
+    };
+    $$("[data-pull]", box).forEach((b) => (b.onclick = async () => { b.disabled = true; b.textContent = "Starting…"; await post("/api/models/pull", { name: b.dataset.pull }); }));
+    $$("[data-use]", box).forEach((b) => (b.onclick = async () => { b.disabled = true; if (await this.connect("ollama", b.dataset.use, "#lmsg")) this.renderLocal(); else b.disabled = false; }));
+    if ($("#uselms")) $("#uselms").onclick = () => this.connect("custom", null, "#lmsg");
+  },
+  bindTelegram() {
+    const save = async () => {
+      const v = $("#tgtoken").value.trim(); if (!v) return this.say("#tgmsg", "Paste the token from @BotFather first.", false);
+      try {
+        await post("/api/keys", { provider: "telegram", key: v }); $("#tgtoken").value = "";
+        this.say("#tgmsg", "Checking with Telegram…");
+        const r = await post("/api/telegram/test", {});
+        this.say("#tgmsg", r.ok ? `✓ Connected to @${r.bot}. Now send /start to @${r.bot} in Telegram.` : "Telegram didn’t accept that token. Copy it again from @BotFather.", r.ok);
+      } catch (e) { this.say("#tgmsg", e.message, false); }
+    };
+    $("#tgsave").onclick = save;
+    $("#tgtoken").onkeydown = (e) => { if (e.key === "Enter") save(); };
+  },
+  onEvent(m) {
+    if (m.kind !== "pull" || this.n !== 3) return;
+    const bar = $(`[data-prog="${m.name}"] i`);
+    if (m.status === "success") { this.connect("ollama", m.name, "#lmsg").then(() => this.renderLocal()); return; }
+    if (String(m.status || "").startsWith("failed")) { this.renderLocal().then(() => this.say("#lmsg", `Download stopped: ${m.status.slice(8)}`, false)); return; }
+    if (bar) { if (m.total) bar.style.width = Math.round(100 * m.completed / m.total) + "%"; } else this.renderLocal();
   },
 };
 
@@ -708,7 +834,15 @@ VIEWS.keys = {
     $("#paste").onclick = async () => { try { $("#key").value = await navigator.clipboard.readText(); } catch (e) { toast("Your browser didn’t allow reading the clipboard. Paste with ⌘V."); } };
     $("#save").onclick = async () => {
       const v = $("#key").value.trim(); if (!v) return toast("Paste a key first");
-      try { await post("/api/keys", { provider: cur.provider, key: v, limit: $("#lim") && $("#lim").value !== "" ? +$("#lim").value : null }); $("#key").value = ""; toast(`Saved your ${cur.label} key`); this.refresh(); }
+      try {
+        await post("/api/keys", { provider: cur.provider, key: v, limit: $("#lim") && $("#lim").value !== "" ? +$("#lim").value : null }); $("#key").value = "";
+        if (CLOUD.includes(cur.provider)) {  // find a model this key really has and check it answers
+          $("#kstat").textContent = "Saved. Checking which models it has…";
+          const r = await post("/api/models/connect", { provider: cur.provider });
+          toast(r.ok ? `Saved. Your bots now use ${r.model}.` : `Saved, but the test failed: ${r.reply}`);
+        } else toast(`Saved your ${cur.label} key`);
+        this.refresh();
+      }
       catch (e) { $("#kstat").textContent = e.message; }
     };
     if ($("#rm")) $("#rm").onclick = async () => { if (await confirmBox(`Remove your ${cur.label} key?`, "Remove", true)) { await del(`/api/keys/${cur.provider}`); this.refresh(); } };

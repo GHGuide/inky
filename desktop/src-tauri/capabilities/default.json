@@ -21,6 +21,7 @@
     "allow-bar",
     "allow-open-needs",
     "allow-autostart",
-    "allow-app-info"
+    "allow-app-info",
+    "allow-open-url"
   ]
 }

@@ -250,7 +250,11 @@ window.addEventListener("hashchange", () => {
   if (!BAR) return route();
   if (location.hash !== "#/bar") { native({ type: "open", hash: location.hash }); history.replaceState(null, "", "?bar=1#/bar"); }
 });
-document.addEventListener("click", (e) => { const b = e.target.closest("[data-dl]"); if (b) { e.preventDefault(); download(b.dataset.dl, b.dataset.name); } });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dl]"); if (b) { e.preventDefault(); download(b.dataset.dl, b.dataset.name); }
+  const a = e.target.closest("a[target=_blank]");  // in the app, outside links open in your own browser
+  if (a && APP && /^https?:/.test(a.href)) { e.preventDefault(); invoke("open_url", { url: a.href }); }
+});
 
 // ---------------------------------------------------------------- command bar (⌘K, Ctrl+K, Alt+Space)
 const CMD = { open: false, sel: 0, items: [] };

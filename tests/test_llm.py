@@ -73,3 +73,52 @@ class LLMTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelList(BaseHTTPRequestHandler):
+    ids = ["text-embedding-3-large", "gpt-4o", "gpt-5-mini", "gpt-5", "whisper-1", "gpt-5-mini-tts"]
+
+    def do_GET(self):
+        data = json.dumps({"data": [{"id": i} for i in ModelList.ids]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        data = json.dumps({"choices": [{"message": {"content": "OK"}}], "usage": {}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+class PickModelTest(unittest.TestCase):
+    """Paste a key for any provider: Inky asks it which models it has and picks a good one."""
+
+    def test_pick_and_default_roles_for_any_provider(self):
+        from inky import llm as llm_mod
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), ModelList)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old = llm_mod.PROVIDERS["openai"]["base"]
+        llm_mod.PROVIDERS["openai"]["base"] = f"http://127.0.0.1:{srv.server_port}/v1"
+        try:
+            home = tempfile.mkdtemp()
+            store = Store(os.path.join(home, "t.db"))
+            keys = Keys(home, backend="file")
+            keys.set("openai", "sk-test-not-real")
+            llm = LLM(store, keys)
+            self.assertEqual(llm.pick_model("openai"), "gpt-5-mini")  # skips embeddings, audio, tts
+            from types import SimpleNamespace
+            from inky.server import connect_model
+            r = connect_model(SimpleNamespace(llm=llm), None, {}, {"provider": "openai"})
+            self.assertEqual((r["ok"], r["model"]), (True, "gpt-5-mini"))
+            self.assertEqual(llm.default_roles()["learn"], {"provider": "openai", "model": "gpt-5-mini"})
+        finally:
+            llm_mod.PROVIDERS["openai"]["base"] = old
+            srv.shutdown()
