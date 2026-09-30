@@ -206,7 +206,7 @@ class Engine:
         bot = {"name": (d.get("name") or "New Bot").strip()[:40], "job": d.get("job") or d.get("summary") or "",
                "summary": d.get("summary") or "", "goal": d.get("goal") or d.get("job") or "", "start_url": d.get("start_url"),
                "look": look, "rules": rules, "filters": d.get("filters") or [], "memory": [], "automations": [],
-               "schedule": {"every_minutes": int(d.get("every_minutes") or 0), "summary_at": d.get("summary_at"),
+               "schedule": {"every_minutes": int(d.get("every_minutes") or 0), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
                             "quiet_from": "23:00", "quiet_to": "07:00"},
                "mode": "own", "computer": "local", "created": time.time(),
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
