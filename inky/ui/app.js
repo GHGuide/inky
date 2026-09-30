@@ -236,17 +236,25 @@ async function route() {
   $("#nav").style.display = v.bare ? "none" : "";
   renderNav();
   const el = $("#view").cloneNode(false);  // fresh node per route: a slow render of the last view lands on a detached one
-  const swap = async () => {
+  let shown;
+  const swap = () => {
     $("#view").replaceWith(el);
-    try {
-      await v.show(el, rest.filter(Boolean), qs);
-      MOTION.enter(el);
-    } catch (e) {
-      el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
-    }
+    shown = (async () => {
+      try {
+        await v.show(el, rest.filter(Boolean), qs);
+        MOTION.enter(el);
+      } catch (e) {
+        el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
+      }
+    })();
+    return Promise.race([shown, new Promise((r) => setTimeout(r, 300))]);  // a slow page never freezes the screen mid-transition
   };
-  if (document.startViewTransition && !calmMotion() && !(prev === v && v === VIEWS.bot)) await document.startViewTransition(swap).updateCallbackDone;
-  else await swap();
+  if (document.startViewTransition && !calmMotion() && !(prev === v && v === VIEWS.bot)) {
+    const t = document.startViewTransition(swap);
+    t.ready.catch(() => {}); t.finished.catch(() => {});  // skipped or cut short: the page still shows, just without the slide
+    await t.updateCallbackDone.catch(() => {});
+  } else swap();
+  await shown;
 }
 window.addEventListener("hashchange", () => {
   if (!BAR) return route();

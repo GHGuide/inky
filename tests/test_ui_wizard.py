@@ -32,10 +32,14 @@ class WizardTest(unittest.TestCase):
         pg.on("pageerror", lambda e: self.errors.append(str(e)))
         return pg
 
+    def on_step(self, pg, n):
+        """The new step is on screen (not the last one's button, which is about to go)."""
+        pg.wait_for_function(f"(document.querySelector('.wsteps li.on i') || {{}}).textContent === '{n}' && document.querySelector('#wnext')", timeout=20000)
+
     def walk(self, w, h):
         pg = self.page(w, h)
         pg.goto(self.url + "#/setup/1")
-        pg.wait_for_selector("#wnext")
+        self.on_step(pg, 1)
         for n in range(1, 7):
             self.assertTrue(pg.evaluate("location.hash").startswith(f"#/setup/{n}"), f"step {n} at {w}x{h}")
             nxt = pg.locator("#wnext")
@@ -45,7 +49,7 @@ class WizardTest(unittest.TestCase):
             if n < 6:
                 nxt.click()
                 pg.wait_for_function(f"location.hash.startsWith('#/setup/{n + 1}')")
-                pg.wait_for_selector("#wnext")
+                self.on_step(pg, n + 1)
         self.assertEqual(self.errors, [])
         pg.close()
 
@@ -66,6 +70,22 @@ class WizardTest(unittest.TestCase):
         pg.goto(self.url + "#/setup/5")
         pg.wait_for_selector("#tgtoken", state="visible")
         self.assertTrue(pg.evaluate("location.hash").startswith("#/setup/5"))
+        self.assertEqual(self.errors, [])
+        pg.close()
+
+    def test_a_slow_page_doesnt_freeze_or_break_the_transition(self):
+        """CI caught it: a page whose data takes over 4 s aborted the view transition (and froze the screen until then)."""
+        import time
+        from inky import server
+        i = next(i for i, r in enumerate(server.ROUTES) if r[0] == "GET" and r[1].pattern == "^/api/setup$")
+        method, rx, fn = server.ROUTES[i]
+        server.ROUTES[i] = (method, rx, lambda *a, **k: (time.sleep(5), fn(*a, **k))[1])
+        self.addCleanup(server.ROUTES.__setitem__, i, (method, rx, fn))
+        pg = self.page(900, 600)
+        pg.goto(self.url + "#/setup/1")
+        self.on_step(pg, 1)
+        pg.evaluate("location.hash = '#/setup/2'")
+        self.on_step(pg, 2)
         self.assertEqual(self.errors, [])
         pg.close()
 
