@@ -25,6 +25,7 @@ class FakeLLM(LLM):
         super().__init__(store, keys, on_usage)
         self.scripted = ScriptedModel(repair_answer=("Salva ricerca", 0.3))
         self.chat_reply = {"reply": "OK", "actions": []}
+        self.script = []  # scripted chat replies, used in order before chat_reply
 
     def roles(self):
         return {r: {"provider": "custom", "model": "scripted"} for r in ("learn", "chat", "repair", "smart")}
@@ -32,7 +33,7 @@ class FakeLLM(LLM):
     def chat(self, role, messages, bot_id=None, **kw):
         if self.on_usage:
             self.on_usage(bot_id, {"role": role, "model": "scripted", "in": 10, "out": 5, "local": True})
-        return json.dumps(self.chat_reply), {}
+        return json.dumps(self.script.pop(0) if self.script else self.chat_reply), {}
 
     def ask_json(self, role, system, user, bot_id=None, **kw):
         if self.on_usage:
@@ -297,3 +298,39 @@ class GrowthEngineTest(unittest.TestCase):
         self.assertIn("10 runs", E.write_diary(bid))
         self.assertIsNone(E.write_diary(bid))
         E.close()
+
+
+class TeamTest(unittest.TestCase):
+    def setUp(self):
+        self.E = make_engine()
+        self.a = self.E.create_bot({"name": "Bari Flats", "job": "find flats"})["id"]
+        self.b = self.E.create_bot({"name": "Flat Checker", "job": "message agencies"})["id"]
+
+    def tearDown(self):
+        self.E.close()
+
+    def test_ask_bot_reaches_the_other_bot_and_is_guarded(self):
+        E = self.E
+        E.llm.script = [{"reply": "On it, I'll ask before sending.", "actions": []}] * 5
+        r = E.ask_bot(self.a, "flat checker", "Found one: bari-3. Want to message the agency?")
+        self.assertIn("ask before", r)
+        peer = [m for m in E.store.find("messages", bot_id=self.b) if m["role"] == "peer"]
+        self.assertEqual((peer[0]["sender"], peer[0]["sender_id"]), ("Bari Flats", self.a))
+        with self.assertRaises(ValueError):
+            E.ask_bot(self.a, "bari flats", "hi me")
+        with self.assertRaises(ValueError):
+            E.ask_bot(self.a, "nobody", "hello?")
+        E.ask_bot(self.a, "Flat Checker", "2")
+        E.ask_bot(self.a, "Flat Checker", "3")
+        with self.assertRaises(ValueError):
+            E.ask_bot(self.a, "Flat Checker", "4: too many hops")
+        self.assertEqual(len(E.store.find("needs", status="open")), 0)
+
+    def test_chat_action_and_team_feed(self):
+        E = self.E
+        E.llm.script = [{"reply": "I'll tell Flat Checker.", "actions": [{"type": "ask_bot", "bot": "Flat Checker", "text": "Get ready for bari-3"}]},
+                        {"reply": "Ready when the user says yes.", "actions": []}]
+        E.chat(self.a, "Tell Flat Checker to get ready")
+        self.assertTrue(wait(lambda: any(m["role"] == "peer" for m in E.store.find("messages", bot_id=self.b)), 10))
+        feed = E.team_feed()
+        self.assertTrue(any(f["kind"] == "peer" and f["sender"] == "Bari Flats" for f in feed))

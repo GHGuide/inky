@@ -49,12 +49,14 @@ Actions:
 {{"type":"pause"}} {{"type":"resume"}} {{"type":"stop"}} {{"type":"speed","value":"slow|normal|turbo"}}
 {{"type":"delegate","server":"<connector>","tool":"<tool>","args":{{...}},"label":"<what you hand over>"}}   (hand a job to Claude Code, Codex or another connector now)
 {{"type":"add_automation","when":"new_results|every_run","server":..,"tool":..,"args":{{...}},"label":".."}}   (use {{{{new_json}}}}, {{{{count}}}}, {{{{bot}}}} in args)
+{{"type":"ask_bot","bot":"<other bot's name>","text":"<what you need or want to tell it>"}}   (talk to another bot; anything irreversible still needs the user's yes)
 Only take actions the user's LATEST message asks for; talking about earlier ones is not a reason to repeat them.
 Only use tools that are listed. Result fields you have seen: {fields}.
 YOUR RULES: {rules}
 WHAT YOU REMEMBER: {memory}
 YOUR SKILLS: {skills}
 STATUS: {status}
+OTHER BOTS (your team): {others}
 CONNECTED TOOLS:
 {tools}"""
 
@@ -148,6 +150,7 @@ class Engine:
         self.llm = LLM(self.store, self.keys, on_usage=self._usage)
         self.mcp = MCPManager(self.store, str(self.home))
         self.computers, self.runs, self.waits = {}, {}, {}
+        self.hops = {}  # (from bot, to bot) -> times, so two bots can't talk in circles
         self.lock = threading.RLock()
         self._sched = None
 
@@ -384,9 +387,13 @@ class Engine:
             self.control(bid, "takeover", reason="You have its computer. Press Hand back when you’re done, and I’ll carry on.")
 
     # ---------------------------------------------------------- chat
-    def chat(self, bid, text, source="app"):
+    def chat(self, bid, text, source="app", sender=None):
+        """sender=(bot id, name) when another bot is talking, not you."""
         b = self.store.get("bots", bid)
-        self.store.message(bid, "you", text, source=source)
+        if sender:
+            self.store.message(bid, "peer", text, source=source, sender=sender[1], sender_id=sender[0], team=True)
+        else:
+            self.store.message(bid, "you", text, source=source)
         self.bus.publish("messages", bot=bid)
         run = self.runs.get(bid)
         if run and run.kind == "learn" and run.thread and run.thread.is_alive():
@@ -405,7 +412,8 @@ class Engine:
                                  fields=", ".join(fields) or "none yet", rules="; ".join(r["text"] for r in b.get("rules", [])),
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
                                  skills="; ".join(f"{s['name']} ({len(s['steps'])} steps)" for s in sk) or "none yet",
-                                 status=status, tools="\n".join(self.mcp.catalog()) or "none")
+                                 status=status, tools="\n".join(self.mcp.catalog()) or "none",
+                                 others="; ".join(f"{o['name']} ({(o.get('job') or '')[:70]}; {o['status'].replace('_', ' ')})" for o in self.bots() if o["id"] != bid) or "none")
         def worth_remembering(e):  # run summaries, not every step
             if e.get("kind") == "replay":
                 return "pass your rules" in e.get("text", "") or e.get("text", "").startswith("Done in")
@@ -415,8 +423,9 @@ class Engine:
         sys += "\n" + persona_mod.prompt_lines(b, self.store.setting("app", {}).get("user_name", ""), datetime.now(), notable)
         msgs = [{"role": "system", "content": sys}] + [
             {"role": "assistant", "content": m["text"]} if m["role"] == "bot" else
-            {"role": "user", "content": f"[settings note] {m['text']}" if m["role"] == "note" else m["text"]} for m in hist[:-1]] + [
-            {"role": "user", "content": text}]
+            {"role": "user", "content": f"[settings note] {m['text']}" if m["role"] == "note" else
+             f"(from {m.get('sender')}, another bot) {m['text']}" if m["role"] == "peer" else m["text"]} for m in hist[:-1]] + [
+            {"role": "user", "content": f"(from {sender[1]}, another bot) {text}" if sender else text}]
         try:
             t, _ = self.llm.chat("chat", msgs, bot_id=bid, max_tokens=900)
             if not t.strip():  # a reasoning model can spend its whole budget thinking: ask once more
@@ -440,7 +449,7 @@ class Engine:
             except Exception as e:
                 done.append(f"couldn’t {a.get('type')}: {e}")
         reply = d.get("reply") or "OK."
-        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done)
+        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
 
@@ -483,6 +492,10 @@ class Engine:
         if t == "delegate":
             threading.Thread(target=self.delegate, args=(bid, a), daemon=True).start()
             return f"handing to {a.get('server')}"
+        if t == "ask_bot":
+            target = self.find_bot(a.get("bot"), bid)  # fail now if it's unknown or itself
+            threading.Thread(target=self._ask_quietly, args=(bid, target["name"], a.get("text") or ""), daemon=True).start()
+            return f"asked {target['name']}"
         if t == "add_automation":
             auto = {k: a.get(k) for k in ("when", "server", "tool", "args", "label")}
             self.store.update("bots", bid, automations=b.get("automations", []) + [auto])
@@ -866,6 +879,55 @@ class Engine:
 
     def evening(self, bid, now):
         self.write_diary(bid, now)
+
+    # ---------------------------------------------------------- team life: bots talking to each other
+    def find_bot(self, name, from_bid=None):
+        low = str(name or "").strip().lower()
+        bots = [b for b in self.store.find("bots", desc=False) if b.get("status") != "moved"]
+        t = next((b for b in bots if b["name"].lower() == low), None) or next((b for b in bots if b["name"].lower().startswith(low) and low), None)
+        if not t:
+            raise ValueError(f"there's no bot called {name}")
+        if t["id"] == from_bid:
+            raise ValueError("a bot can't ask itself")
+        return t
+
+    def ask_bot(self, from_bid, to_name, text):
+        """One bot talks to another. At most 3 times an hour per pair; the other bot's own rules and gates apply."""
+        src = self.store.get("bots", from_bid)
+        dst = self.find_bot(to_name, from_bid)
+        now = time.time()
+        key = (from_bid, dst["id"])
+        recent = [t for t in self.hops.get(key, []) if now - t < 3600]
+        if len(recent) >= 3:
+            raise ValueError(f"{src['name']} and {dst['name']} have talked enough this hour")
+        self.hops[key] = recent + [now]
+        self.store.event(from_bid, "team", f"Asked {dst['name']}: {text[:120]}")
+        return self.chat(dst["id"], text, source=f"bot:{from_bid}", sender=(from_bid, src["name"]))["reply"]
+
+    def _ask_quietly(self, from_bid, to_name, text):
+        try:
+            self.ask_bot(from_bid, to_name, text)
+        except Exception as e:
+            self.store.message(from_bid, "bot", f"I couldn't reach {to_name}: {e}")
+            self.bus.publish("messages", bot=from_bid)
+
+    def team_feed(self, limit=100):
+        bots = {b["id"]: b for b in self.store.find("bots")}
+        feed = []
+        for bid, b in bots.items():
+            for m in self.store.find("messages", bot_id=bid, limit=200):
+                if m["role"] == "peer":
+                    kind = "peer"
+                elif m.get("paper"):
+                    kind = "paper"
+                elif m.get("team"):
+                    kind = "reply" if m["role"] == "bot" else "note"
+                else:
+                    continue
+                feed.append({"ts": m["ts"], "bot": bid, "name": b["name"], "look": b.get("look"), "kind": kind,
+                             "text": m["text"], "sender": m.get("sender"), "sender_id": m.get("sender_id")})
+        feed.sort(key=lambda f: -f["ts"])
+        return feed[:limit]
 
     # ---------------------------------------------------------- growth
     def check_level(self, bid):

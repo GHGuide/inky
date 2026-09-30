@@ -31,6 +31,7 @@ const ICON = {
   mic: "M9 3h6v11H9z M5 11a7 7 0 0 0 14 0 M12 18v3", send: "M12 19V5 M6 11l6-6 6 6", phone: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z",
   server: "M4 3h16v7H4z M4 14h16v7H4z M8 6.5h.01 M8 17.5h.01", lock: "M6 11h12v10H6z M8 11V7a4 4 0 0 1 8 0v4", menu: "M4 6h16 M4 12h16 M4 18h16",
   store: "M3 9l1.5-5h15L21 9 M3 9h18v11H3z M9 20v-6h6v6", check: "M5 12l5 5 9-10", x: "M6 6l12 12 M18 6L6 18", keys: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
+  users: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1 M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7 M21 19v-1a4 4 0 0 0-3-3.8 M15.5 4.2a3.5 3.5 0 0 1 0 6.6",
   speaker: "M11 5L6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14", micoff: "M9 9v2a3 3 0 0 0 5.1 2.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.9 5 M12 18v3 M3 3l18 18",
 };
 const icon = (n, s = 17, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
@@ -152,6 +153,7 @@ function renderNav() {
     <div class="navbottom">
       <a class="navlink needlink${on("#/needs")}" href="#/needs"><i></i>${S.needs} need you</a>
       <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
+      <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>
       <a class="navlink${on("#/computers")}" href="#/computers">${icon("monitor")}Computers</a>
       <a class="navlink${r.startsWith("#/models") || r.startsWith("#/keys") ? " on" : ""}" href="#/models">${icon("models")}Models</a>
       <a class="navlink${on("#/connectors")}" href="#/connectors">${icon("plug")}Connectors</a>

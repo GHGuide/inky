@@ -167,6 +167,11 @@ def apply_chip(E, h, q, body, bid):
     return {"bot": E.apply_chip(int(bid), body.get("apply"), body.get("message"))}
 
 
+@route("GET", "/api/team")
+def team(E, h, q, body):
+    return {"feed": E.team_feed(int(q.get("limit", 100)))}
+
+
 @route("GET", "/api/recap")
 def recap(E, h, q, body):
     return {"recap": insights.recap(E.store, float(q.get("since") or 0))}

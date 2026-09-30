@@ -239,6 +239,8 @@ VIEWS.bot = {
       lastDay = d;
       if (m.role === "you") return `${day}<div class="m you"><div class="body">${esc(m.text)}</div></div>`;
       if (m.role === "note") return `${day}<div class="m sys">${esc(m.text)}</div>`;
+      if (m.role === "peer") { const sb = S.bots.find((x) => x.id === m.sender_id) || { look: {}, status: "idle" };
+        return `${day}<div class="m peer">${botCritter(sb, 26)}<div class="body"><span class="small" style="color:var(--coral-t);font-weight:600">${esc(m.sender)}</span><span>${esc(m.text)}</span></div></div>`; }
       const need = m.need && needIds.has(m.need) ? this.data.needs.find((n) => n.id === m.need) : null;
       const card = need ? `<div class="card hot" style="padding:12px 14px"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${esc(need.title)}</b>${need.body ? `<span class="small muted">${esc(need.body)}</span>` : ""}
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
@@ -495,6 +497,21 @@ async function answerNeed(id, decision) {
 }
 
 // ================================================================ needs you
+VIEWS.team = {  // bots talking to each other, morning papers, milestones
+  async show(el) { this.el = el; await this.refresh(); },
+  async refresh() {
+    const { feed } = await get("/api/team?limit=120");
+    const by = (id) => S.bots.find((b) => b.id === id) || { look: {}, status: "idle", schedule: {} };
+    const line = (f) => {
+      const speaker = f.kind === "peer" ? by(f.sender_id) : by(f.bot);
+      const who = f.kind === "peer" ? `${esc(f.sender)} → ${esc(f.name)}` : f.kind === "paper" ? `${esc(f.name)} · morning paper` : esc(f.name);
+      return `<div class="m">${botCritter(speaker, 30)}<div class="body"><span class="small" style="font-weight:600">${who} <span class="muted" style="font-weight:400">${ago(f.ts)}</span></span><span>${esc(f.text)}</span></div></div>`;
+    };
+    this.el.innerHTML = `${mobileBar("Team")}<div class="page"><div><h1>Team</h1><p class="lede">Your bots talk to each other here: hand-offs, morning papers and milestones. Anything that can’t be undone still waits for you.</p></div>
+      <div class="card"><div class="msgs" style="display:flex;flex-direction:column-reverse;gap:12px">${feed.map(line).join("") || `<span class="small muted">Quiet so far. Tell a bot “ask Flat Checker to …” and they’ll talk here.</span>`}</div></div></div>`;
+  },
+};
+
 VIEWS.needs = {
   async show(el, _, qs) { this.el = el; this.tab = qs.get("tab") || "decisions"; await this.refresh(); },
   async refresh() {
