@@ -138,6 +138,7 @@ class Engine:
         self.token = tok.read_text().strip()
         self.store = Store(str(self.home / "inky.db"))
         self.bus = Bus()
+        self.store.on_event = lambda bid, kind, text: self.bus.publish("event", bot=bid, ev=kind, text=text)
         self.keys = Keys(self.home)
         self.llm = LLM(self.store, self.keys, on_usage=self._usage)
         self.mcp = MCPManager(self.store, str(self.home))
@@ -603,6 +604,7 @@ class Engine:
                 _, is_new = self.store.upsert_key("results", bid, skills.item_key(it), {**it, "skill": skill["name"], "run": run.run_id, "new": True})
                 if is_new:
                     new.append(it)
+            self.bus.publish("results", bot=bid, new=len(new))
             for r in self.store.find("results", bot_id=bid, limit=1000):
                 if r.get("new") and r.get("run") != run.run_id:
                     self.store.update("results", r["id"], new=False)

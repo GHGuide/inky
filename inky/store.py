@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import time
 
-TABLES = ("bots", "skills", "runs", "results", "messages", "events", "needs", "computers", "mcp")
+TABLES = ("bots", "skills", "runs", "results", "messages", "events", "needs", "computers", "mcp", "diary")
 
 
 def now():
@@ -16,6 +16,7 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        self.on_event = None  # the engine publishes each event live
         with self.lock:
             for t in TABLES:
                 self.db.execute(f"create table if not exists {t} (id integer primary key, bot_id integer, "
@@ -100,7 +101,10 @@ class Store:
 
     # ---- conveniences
     def event(self, bot_id, kind, text, **meta):
-        return self.insert("events", dict(kind=kind, text=text, **meta), bot_id=bot_id, status=kind)
+        i = self.insert("events", dict(kind=kind, text=text, **meta), bot_id=bot_id, status=kind)
+        if self.on_event:
+            self.on_event(bot_id, kind, text)
+        return i
 
     def message(self, bot_id, role, text, **meta):
         return self.insert("messages", dict(role=role, text=text, **meta), bot_id=bot_id, status=role)

@@ -70,6 +70,16 @@ class EngineTest(unittest.TestCase):
         cls.E.close()
         cls.site.shutdown()
 
+    def test_0_events_are_published_live(self):
+        E = self.E
+        q = E.bus.subscribe()
+        E.store.event(1, "learned", "Learned something")
+        msgs = []
+        while not q.empty():
+            msgs.append(q.get_nowait())
+        E.bus.unsubscribe(q)
+        self.assertIn({"kind": "event", "bot": 1, "ev": "learned", "text": "Learned something"}, msgs)
+
     def test_1_draft_chat_learn_replay(self):
         E = self.E
         d = E.draft_bot("Every morning find flats in Bari under 150k")
