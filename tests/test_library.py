@@ -122,6 +122,7 @@ class PublishTest(unittest.TestCase):
         self.assertTrue(r["url"].startswith("https://github.com/GHGuide/inky/new/main/library/agents?filename=book-bargains.inky&value="))
         self.assertIn("Book Bargains", r["public"])  # you see exactly what becomes public
 
+    @unittest.skipIf(os.name == "nt", "uses a shell script as a fake gh")
     def test_with_gh_it_forks_branches_commits_and_opens_a_pr(self):
         E, bid = self.make()
         d = tempfile.mkdtemp()

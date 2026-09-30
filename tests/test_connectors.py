@@ -91,6 +91,7 @@ class ConnectorTest(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
+    @unittest.skipIf(os.name == "nt", "uses a shell script as a fake program")
     def test_fix_path_adds_login_shell_and_common_dirs(self):
         d = tempfile.mkdtemp()
         shell = os.path.join(d, "fakeshell")
@@ -105,6 +106,7 @@ class ConnectorTest(unittest.TestCase):
         self.assertIn("/opt/homebrew/bin", parts)
         self.assertEqual(len(parts), len(set(parts)))
 
+    @unittest.skipIf(os.name == "nt", "uses a shell script as a fake program")
     def test_claude_code_signed_out_says_how_to_fix(self):
         d = tempfile.mkdtemp()
         exe = os.path.join(d, "claude")
