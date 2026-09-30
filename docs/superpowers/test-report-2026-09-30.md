@@ -101,7 +101,8 @@ Plan: `docs/superpowers/plans/2026-09-30-inky-app-and-personality.md`. Unit test
 | Notification | The app sent "Flat Checker needs you" (no error) while its window was hidden | Sent; the banner wasn't seen on screen (macOS may need permission for the unsigned build) |
 | Tray menu | The tray item exists (checked through accessibility), but this Mac's full, notched menu bar hides it | Not opened; macOS behavior. Everything in it is also in the window, the bar and shortcuts |
 | Launch at login | Reads its state from the app | Not switched on: it installs a login item on your Mac, so that's yours to turn on |
-| CI | Engine binary + app build on macOS, Windows, Linux | See the latest run |
+| Release app, fresh install | The release `.app` on an empty data folder: started its engine, downloaded the bots' browser by itself (557 MB installed), quit cleanly | Pass |
+| CI | Unit tests (Python + UI) and the app build (engine binary check, `cargo test`, `tauri build`) on macOS, Windows and Linux | Pass on all three (fixes: a Windows-only test assumption; engine.json is now written atomically, a race CI caught) |
 
 ## Limits
 
