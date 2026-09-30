@@ -68,9 +68,45 @@ Models used: OpenRouter `z-ai/glm-5.3` (key in the macOS Keychain), local Ollama
 | Voice | Stand-in recognizer and synthesizer in the page: speech → message → spoken reply; mic paused while it speaks (the bot's own voice is ignored), resumed after; refused mic shows "microphone blocked" | Pass |
 | Voice, real microphone | Chrome, mic allowed by you; the Mac spoke through its speakers with `say`. Heard "hello flat checker what did you do on your last run" and answered from the last run out loud. No echo of its own voice. A second spoken turn ("check again every morning") became a schedule change | Pass (fix: an empty speech result no longer sends an empty message) |
 
+## Third pass: the desktop app and personality
+
+Plan: `docs/superpowers/plans/2026-09-30-inky-app-and-personality.md`. Unit tests: 38 Python, 5 Node (`node --test inky/ui/*.test.mjs`), 2 Rust (`cargo test`).
+
+| Feature | How it was checked | Result |
+|---|---|---|
+| Moods | Gallery of all 9 moods × 3 critters, plus live runs: calm → focused while working → waving while it waits for your yes → calm after Deny | Pass (fix: a run waiting on you now waves instead of looking busy) |
+| Blinking, breathing, eyes that follow you | In the page: blinks on a per-critter schedule that never syncs (unit test), pupils follow the pointer | Pass |
+| Sounds | Each event mapped (plip, knock, chime, rise); Sounds off and quiet hours silence them | Pass (fix: "Sounds off" was ignored) |
+| Typing bubble, confetti, page transitions | Live chat; confetti on level-up | Pass |
+| Persona | Edited in Make it yours (sliders, catchphrase, bio). The real model then used your name, the cat's naps and its catchphrase | Pass (fixes: it re-ran old actions it was only recounting; settings you change are now noted in its chat) |
+| Drafted persona | New bot on books.toscrape.com: the model wrote "Bon voyage, bargain hunter!" | Pass |
+| While you were away | Card after 3 h away: runs, new results, waiting items, each critter in its mood | Pass |
+| Near-miss suggestion | Limit set to £36: "2 results were just outside your under £36 rule", with the chip "Raise it to £40" | Pass |
+| Chip | One tap: rule updated, chip marked done, next run found 3 new (the two near-misses and one more) | Pass |
+| Levels | Real runs up to 10: confetti, toast, "I unlocked the scarf", the scarf wearable, the others locked with their run counts | Pass (fix: the level message came before the run's own message) |
+| Diary, stats, About you | Diary tab stats and level bar; memory add and edit | Pass (diary entries are written at quiet-hours start, covered by a unit test) |
+| Team life | Real model: Travel Hunter told Flat Checker about 3 books; Flat Checker answered in character and asked you. No approval was needed or created | Pass |
+| Team room, office view | Feed shows the exchange; office at desktop and 375 px, evening sky | Pass |
+| Hatch, tour, goodbye | Hatch shows the intro in its own words; 4-step tour saved; goodbye "packed its goo" then deleted | Pass |
+| App: its own window | Tauri window, no browser, no address bar, no localhost visible | Pass |
+| App: first launch | Fresh folder: the app started its own engine and downloaded Chromium into its folder | Pass |
+| App: attach | With a CLI engine already on the same folder, the app used it and started none, and the CLI engine survived the app quitting | Pass |
+| App: quit | Quitting stops the engine it started and removes engine.json | Pass (fix: PyInstaller's loader left the real engine running; the engine now stops when its stdin closes) |
+| App: bundled engine | Travel Hunter ran inside the app: 11 results, 0 AI | Pass |
+| App: open .inky file | macOS "open with Inky": bot imported, says hello | Pass (fix: shared files no longer carry what the bot knows about you or its results) |
+| App: native link | Page → app commands (tray state, bar, buddy, notify) | Pass (fix: app commands must be declared and allowed for the local engine page) |
+| Shortcuts | ⌃⌥Space opened the floating bar, typing filtered it, "Open Needs you" opened the main window; ⌃⌥P paused | Pass (fix: ⌥Space is taken by another app on this Mac even though registering it works, so ⌃⌥Space always opens the bar too) |
+| Dock badge | Red "1" on the Inky icon while a bot waited, cleared after Deny | Pass |
+| Desktop buddy | Flat Checker peeked in at the bottom right while it waited; clicking it opened Needs you; it hid after Deny | Pass (fix: buddy mode reused the bar's hidden container) |
+| Notification | The app sent "Flat Checker needs you" (no error) while its window was hidden | Sent; the banner wasn't seen on screen (macOS may need permission for the unsigned build) |
+| Tray menu | The tray item exists (checked through accessibility), but this Mac's full, notched menu bar hides it | Not opened; macOS behavior. Everything in it is also in the window, the bar and shortcuts |
+| Launch at login | Reads its state from the app | Not switched on: it installs a login item on your Mac, so that's yours to turn on |
+| CI | Engine binary + app build on macOS, Windows, Linux | See the latest run |
+
 ## Limits
 
-- **Pressing the global shortcuts with a real keyboard** wasn't automated: it needs control of the whole desktop, which was declined. The self-test runs the same actions the shortcuts trigger, and the OS confirmed the shortcuts are registered.
-- **Menu bar on Windows and Linux**: not built (macOS only). The web app and command bar work there.
+- **The desktop app is unsigned**: macOS asks you to right-click → Open the first time; Windows SmartScreen asks too.
+- **Approve/Deny inside a desktop notification** isn't possible with Tauri; the notification brings you to the decision.
+- **Windows and Linux builds** come from CI; their tray, buddy and shortcuts were not tried by hand.
 - **"Your screen" means a visible browser window** the bot drives, not your whole desktop (a non-goal in the spec).
 - **Live view and events** still pass the token in the URL (`?t=`), because images and EventSource can't send headers. These URLs are never shown as links.
