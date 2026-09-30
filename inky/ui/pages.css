@@ -1,1 +1,64 @@
 /* pages.css: setup, home, new bot, library, computers, needs, activity, team (loaded after app.css) */
+
+/* a button that's working */
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;display:inline-block;flex-shrink:0;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+.btn:disabled{cursor:default;opacity:.62}
+
+/* setup: header, cards that are only information, footer */
+.wmark{font-size:19px}
+.wcount{display:none;font-weight:600;white-space:nowrap}
+#skipall{white-space:nowrap}
+.opt{cursor:default}
+.opt:hover,.opt:active{transform:none;box-shadow:none}
+.wfoot{flex-wrap:nowrap}
+.wfoot>:first-child{min-width:0}
+.wfoot #wnext{margin-left:auto;flex-shrink:0}
+.keyrow{flex-wrap:wrap}
+.keyrow>.f{flex:1 1 170px;min-width:0}
+.prog+[data-pct]{min-width:3.2em;text-align:right}
+.wcard .list .between{flex-wrap:nowrap}.wcard .list .between>:last-child{text-align:right}
+.composer .between{flex-wrap:nowrap}.composer .between>.mono,.composer .between>.small{min-width:0}
+.composer .between>.btn{flex-shrink:0}
+@media (max-width:560px){
+  .wiz header{padding:0 16px;gap:12px}
+  .wiz .wmark,.wsteps{display:none}
+  .wcount{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .wiz .lrow{flex-wrap:wrap}
+}
+
+/* new bot: rule rows keep their ✕ on the row; answers to its questions */
+.frow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) auto;gap:8px;align-items:center}
+.wonders{gap:12px}
+@media (max-width:560px){
+  .frow{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}
+  .frow>[data-k=value]{grid-column:1/3;grid-row:2}
+  .frow>[data-del]{grid-column:3;grid-row:1}
+}
+
+/* library */
+#ltags .chip{border:0;cursor:pointer;min-height:32px}
+
+/* computers */
+.cname{overflow-wrap:break-word;min-width:0}
+.clist>.card>.row>.pill{flex-shrink:0}
+.cbot{padding:10px;gap:8px;min-width:0}
+.cbot>.btn{align-self:flex-start}
+.cbot.nolink{cursor:default}
+.cbot.nolink:hover,.cbot.nolink:active{transform:none;box-shadow:none}
+.frow2{flex-wrap:wrap}
+
+/* needs you: the side panel gives way to the cards */
+.needrow{align-items:flex-start;gap:28px}
+.needside{flex:0 1 330px;min-width:240px}
+@media (max-width:1100px){.needrow{flex-wrap:wrap}.needside{flex:1 1 100%}}
+
+/* activity */
+a.ev{text-decoration:none;color:inherit}
+a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
+@media (max-width:760px){
+  .stats5{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ev{grid-template-columns:auto 24px minmax(0,1fr);gap:8px 10px}
+  .ev>.badge{grid-column:3;justify-self:start}
+}
