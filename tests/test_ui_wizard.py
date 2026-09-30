@@ -69,6 +69,26 @@ class WizardTest(unittest.TestCase):
         self.assertEqual(self.errors, [])
         pg.close()
 
+    def test_telegram_guided_in_the_wizard(self):
+        """Paste the token, send /start (the fake already has one), and Inky finds you and says hello."""
+        import os
+        from http.server import ThreadingHTTPServer
+        from unittest import mock
+        from tests.test_connectors import Fake
+        fake = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.shutdown)
+        with mock.patch.dict(os.environ, {"TELEGRAM_API": f"http://127.0.0.1:{fake.server_port}"}):
+            pg = self.page(1280, 820)
+            pg.goto(self.url + "#/setup/5")
+            pg.fill("#tgtoken", "123:abc")
+            pg.click("#tgsave")
+            pg.wait_for_function("document.querySelector('#tgmsg').textContent.includes('Found you')", timeout=15000)
+        self.assertEqual(self.E.store.setting("telegram")["chat_id"], 4242)
+        self.assertTrue(any(p.endswith("/sendMessage") for m, p, b in Fake.seen))
+        self.assertEqual(self.errors, [])
+        pg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

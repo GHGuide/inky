@@ -339,9 +339,9 @@ function modal(html, onmount) {
   m.onclick = (e) => { if (e.target === m) closeModal(); };
   if (onmount) onmount(m);
 }
-function confirmBox(text, ok = "OK", danger = false) {
+function confirmBox(text, ok = "OK", danger = false, detail = "") {  // detail: the exact change, shown as code
   return new Promise((res) => {
-    modal(`<h2>${esc(text)}</h2><div class="row" style="justify-content:flex-end"><button class="btn" id="cno">Cancel</button><button class="btn ${danger ? "hot" : "p"}" id="cyes">${esc(ok)}</button></div>`, () => {
+    modal(`<h2>${esc(text)}</h2>${detail ? `<pre class="code" style="max-height:40vh;overflow:auto">${esc(detail)}</pre>` : ""}<div class="row" style="justify-content:flex-end"><button class="btn" id="cno">Cancel</button><button class="btn ${danger ? "hot" : "p"}" id="cyes">${esc(ok)}</button></div>`, () => {
       $("#cno").onclick = () => { closeModal(); res(false); };
       $("#cyes").onclick = () => { closeModal(); res(true); };
     });

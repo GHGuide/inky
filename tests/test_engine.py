@@ -45,6 +45,7 @@ class FakeLLM(LLM):
 
 
 def make_engine():
+    os.environ["INKY_KEYS"] = "file"  # tests never touch your real Keychain
     e = Engine(tempfile.mkdtemp())
     e.llm = FakeLLM(e.store, e.keys, on_usage=e._usage)
     return e

@@ -152,8 +152,8 @@ class Telegram(Provider):
         if not E.keys.get("telegram"):
             return "Not set up yet."
         if not tg.get("chat_id"):
-            return f"Send /start to @{tg.get('bot') or 'your bot'} in Telegram to finish."
-        return f"Messages go to you through @{tg.get('bot') or 'your bot'}."
+            return f"Send /start to {'@' + tg['bot'] if tg.get('bot') else 'your bot'} in Telegram to finish."
+        return f"Messages go to you through {'@' + tg['bot'] if tg.get('bot') else 'your bot'}."
 
     def save(self, E, values):
         token = (values.get("token") or "").strip()
@@ -195,7 +195,8 @@ class Telegram(Provider):
         if not E.keys.get("telegram"):
             return {"ok": False, "text": "Paste your bot token first."}
         if not E.store.setting("telegram", {}).get("chat_id") and not self.find_chat(E):
-            return {"ok": False, "text": f"Send /start to @{E.store.setting('telegram', {}).get('bot') or 'your bot'} in Telegram, then test again."}
+            bot = E.store.setting("telegram", {}).get("bot")
+            return {"ok": False, "text": f"Send /start to {'@' + bot if bot else 'your bot'} in Telegram, then test again."}
         try:
             self.send(E, "Inky is connected. Your bots will message you here.")
             return {"ok": True, "text": "Sent you a message on Telegram."}

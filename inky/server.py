@@ -568,6 +568,7 @@ def settings_view(E):
     d.update(E.store.setting("app", {}))
     d["data_folder"] = str(E.home)
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
+    d["n8n_connected"] = connectors.PROVIDERS["n8n"].configured(E)
     return d
 
 

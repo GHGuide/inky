@@ -72,9 +72,9 @@ VIEWS.setup = {
         <span class="small">1. <a href="https://t.me/BotFather" target="_blank" rel="noopener">Open @BotFather ↗</a> and send <span class="mono">/newbot</span>. Any name works.</span>
         <span class="small">2. Paste the token it sends you:</span>
         <div class="row"><input class="f grow" id="tgtoken" type="password" autocomplete="off" placeholder="${st.telegram_key ? "A token is saved. Paste a new one to replace it." : "123456789:AA…"}" aria-label="Telegram bot token"><button class="btn" id="tgsave">Connect</button></div>
-        <span class="small" id="tgmsg" role="status">${st.telegram_key ? "✓ A bot token is saved." : ""}</span>
-        <span class="small">3. Send <span class="mono">/start</span> to your bot, then put your chat id here:</span>
-        <input class="f" id="chat" placeholder="Chat id" value="${esc(tg.chat_id || "")}" aria-label="Telegram chat id"><div class="between"><span class="small">Send my alerts there</span><button class="toggle ${tg.enabled ? "on" : ""}" id="tg" role="switch" aria-checked="${!!tg.enabled}" aria-label="Send my alerts on Telegram"></button></div></div>
+        <span class="small" id="tgmsg" role="status">${tg.chat_id ? `✓ Connected${tg.bot ? " through @" + esc(tg.bot) : ""}.` : st.telegram_key ? `✓ Token saved. Send /start to ${tg.bot ? "@" + esc(tg.bot) : "your bot"} to finish.` : ""}</span>
+        <span class="small">3. Send <span class="mono">/start</span> to your new bot. Inky finds you and says hello.</span>
+        ${tg.chat_id ? `<div class="between"><span class="small">Send my alerts there</span><button class="toggle ${tg.enabled ? "on" : ""}" id="tg" role="switch" aria-checked="${!!tg.enabled}" aria-label="Send my alerts on Telegram"></button></div>` : ""}</div>
       <div class="opt"><b style="font-size:17px">Or the web app</b><span class="small">Open this computer’s address on your phone, on the same Wi-Fi, and sign in with the pairing code <b class="mono">${esc(st.pair_code || S.pair || "")}</b>. It installs like an app.</span></div></div>`;
       foot = nav(4, 6, "Continue", "Skip for now");
     }
@@ -93,8 +93,7 @@ VIEWS.setup = {
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
     if ($("[data-back]")) $("[data-back]").onclick = () => { try { sessionStorage.setItem("wizDir", "back"); } catch (e) {} };
     if ($("#scr")) $("#scr").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); S.settings = await post("/api/settings", { screen_allowed: on }); };
-    if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); await post("/api/settings", { telegram: { enabled: on, chat_id: $("#chat").value.trim() } }); };
-    if ($("#chat")) $("#chat").onchange = () => post("/api/settings", { telegram: { chat_id: $("#chat").value.trim() } });
+    if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); await post("/api/settings", { telegram: { enabled: on } }); };
     if (n === 2) this.bindPair();
     if (n === 3) { this.showUsing(models.roles.learn); $$("[data-prov]").forEach((b) => (b.onclick = () => this.openKey(b.dataset.prov))); this.renderLocal(); }
     if (n === 5) this.bindTelegram();
@@ -181,18 +180,21 @@ VIEWS.setup = {
     if ($("#uselms")) $("#uselms").onclick = () => this.connect("custom", null, "#lmsg");
   },
   bindTelegram() {
+    const say = (t, ok) => this.say("#tgmsg", t, ok);
     const save = async () => {
-      const v = $("#tgtoken").value.trim(); if (!v) return this.say("#tgmsg", "Paste the token from @BotFather first.", false);
-      try {
-        await post("/api/keys", { provider: "telegram", key: v }); $("#tgtoken").value = "";
-        this.say("#tgmsg", "Checking with Telegram…");
-        const r = await post("/api/telegram/test", {});
-        this.say("#tgmsg", r.ok ? `✓ Connected to @${r.bot}. Now send /start to @${r.bot} in Telegram.` : "Telegram didn’t accept that token. Copy it again from @BotFather.", r.ok);
-      } catch (e) { this.say("#tgmsg", e.message, false); }
+      const v = $("#tgtoken").value.trim(); if (!v) return say("Paste the token from @BotFather first.", false);
+      say("Checking with Telegram…");
+      const r = await post("/api/connectors/telegram/setup", { values: { token: v } });
+      if (!r.ok) return say(r.text, false);
+      $("#tgtoken").value = "";
+      waitForTelegram(r.bot, say);
     };
+    const tg = this.st.telegram || {};
+    if (this.st.telegram_key && !tg.chat_id && tg.bot) waitForTelegram(tg.bot, say);  // token saved earlier: keep listening for /start
     $("#tgsave").onclick = save;
     $("#tgtoken").onkeydown = (e) => { if (e.key === "Enter") save(); };
   },
+  leave() { clearInterval(tgPoll); },
   onEvent(m) {
     if (m.kind !== "pull" || this.n !== 3) return;
     const bar = $(`[data-prog="${m.name}"] i`);
@@ -494,11 +496,12 @@ VIEWS.bot = {
           ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
           <div class="card small"><b>If the page changes</b><span>1. It finds the button again by its name. No AI.</span><span>2. If that fails, it asks the model once and only acts when sure.</span><span>3. Otherwise it stops and asks you.</span></div>
           <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
-          <button class="btn" data-dl="/api/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">Export to n8n</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`}
+          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`}
       <div class="card"><b>Learn a new site</b><div class="grid2"><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
     $$("[data-sk]").forEach((x) => (x.onclick = () => { this.skillSel = +x.dataset.sk; this.tab_skills(tb); }));
     $$("[data-ask]").forEach((x) => (x.onclick = async () => { const steps = sel.steps.map((s, i) => (i === +x.dataset.ask ? { ...s, approved_always: false } : s)); await patch(`/api/skills/${sel.id}`, { steps }); this.refresh(); }));
     if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
+    if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; const r = await post(`/api/skills/${sel.id}/send-n8n`); toast(r.text); $("#sendn8n").disabled = false; };
     if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/skills/${sel.id}`); this.refresh(); } };
     $("#learn").onclick = () => post(`/api/bots/${b.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
     $("#skf").onchange = async (e) => {
@@ -849,39 +852,112 @@ VIEWS.keys = {
   },
 };
 
-// ================================================================ connectors (MCP)
+// ================================================================ connectors
+let tgPoll = null;
+function waitForTelegram(bot, say) {  // after the token: poll until you send /start, then say hello. say(text, good)
+  clearInterval(tgPoll);
+  say(`Now open Telegram and send /start to @${bot}. Waiting…`);
+  const t0 = Date.now();
+  return new Promise((done) => {
+    tgPoll = setInterval(async () => {
+      if (Date.now() - t0 > 120e3) { clearInterval(tgPoll); say(`Didn’t hear from you yet. Send /start to @${bot}, then press Test.`, false); return done(false); }
+      const { chat_id } = await post("/api/connectors/telegram/find-chat");
+      if (!chat_id) return;
+      clearInterval(tgPoll);
+      const t = await post("/api/connectors/telegram/test");
+      say(t.ok ? "✓ Found you and sent a hello. Alerts go to Telegram now." : t.text, t.ok);
+      if (t.ok) { SOUND.play("chime"); confetti(); }
+      done(t.ok);
+    }, 2000);
+  });
+}
+const MCP_PRESETS = [["github", "GitHub", "github", "npx -y @modelcontextprotocol/server-github", "GITHUB_PERSONAL_ACCESS_TOKEN="],
+  ["filesystem", "Files", "mcp", "npx -y @modelcontextprotocol/server-filesystem ~/Documents", ""], ["fetch", "Fetch", "mcp", "uvx mcp-server-fetch", ""]];
 VIEWS.connectors = {
-  async show(el) { this.el = el; await this.refresh(); },
+  async show(el) { this.el = el; this.open = null; await this.refresh(); },
+  leave() { clearInterval(tgPoll); },
+  state(c) {
+    if (c.kind === "builtin") return c.connected ? ["ok", "set up"] : c.name === "telegram" && /\/start/.test(c.detail) ? ["warn", "almost there"] : ["off", "not set up"];
+    if (!c.installed) return ["off", "not installed"];
+    if (c.connected) return ["ok", `connected · ${c.tools.length} tools`];
+    if (c.signed_in === false) return ["warn", "signed out"];
+    return ["", "ready to connect"];
+  },
+  card(c) {
+    const [cls, txt] = this.state(c), editing = this.open === c.name || (c.kind === "builtin" && !c.connected && this.open === c.name);
+    const btns = c.kind === "builtin"
+      ? `${c.connected || c.detail.includes("/start") ? `<button class="btn s" data-test="${c.name}">Test</button>` : ""}<button class="btn s ${c.connected ? "" : "p"}" data-edit="${c.name}">${c.connected ? "Change" : "Set up"}</button>`
+      : !c.installed ? (c.fix_url ? `<a class="btn s" href="${esc(c.fix_url)}" target="_blank" rel="noopener">How to install ↗</a>` : "")
+      : c.connected ? `<button class="btn s" data-test="${c.name}">Test</button><button class="btn s" data-off="${c.name}">Disconnect</button>` : `<button class="btn s p" data-on="${c.name}">Connect</button>`;
+    return `<div class="card conn" data-c="${c.name}"><div class="row">${logo(c.logo, 44)}<div class="grow"><div class="row" style="gap:8px"><b style="font-size:16px">${esc(c.label)}</b><span class="cstate ${cls}">${esc(txt)}</span></div><div class="small muted">${esc(c.about || "")}</div></div>
+      <span class="row">${btns}${c.kind === "mcp" && !c.preset ? `<button class="btn s hot" data-rm="${c.name}">Remove</button>` : ""}</span></div>
+      ${c.detail && !(c.kind === "builtin" && c.connected && !editing) ? `<div class="small ${cls === "warn" || cls === "off" ? "" : "muted"}">${esc(c.detail)}${c.fix ? ` <b>${esc(c.fix)}</b>` : ""}</div>` : ""}
+      ${c.kind === "builtin" && editing ? `<div class="keyfield" data-form="${c.name}">${c.fields.map((f) => `<label class="small" for="f-${c.name}-${f.key}">${esc(f.label)}</label><input class="f ${f.secret ? "" : "mono"}" id="f-${c.name}-${f.key}" data-field="${f.key}" ${f.secret ? `type="password" placeholder="${c.connected ? "Saved. Paste a new one to replace it." : esc(f.placeholder)}"` : `placeholder="${esc(f.placeholder)}"`} autocomplete="off" spellcheck="false">`).join("")}
+        <div class="row"><button class="btn p s" data-save="${c.name}">Save & check</button>${c.name === "telegram" ? `<a class="small" href="https://t.me/BotFather" target="_blank" rel="noopener">Open @BotFather ↗</a>` : c.name === "apify" ? `<a class="small" href="https://console.apify.com/settings/integrations" target="_blank" rel="noopener">Get your token ↗</a>` : ""}</div></div>` : ""}
+      ${c.tools.length && (c.connected || c.kind === "builtin") ? `<div class="row wrap" style="gap:6px">${c.tools.slice(0, 10).map((t) => `<span class="chip mono">${esc(t)}</span>`).join("")}${c.tools.length > 10 ? `<span class="chip">+${c.tools.length - 10} more</span>` : ""}</div>` : ""}
+      ${c.kind === "mcp" && c.connected ? `<details><summary class="small">Try a tool</summary><div class="grid3" style="margin-top:8px"><select class="f" data-tool="${c.name}">${c.tools.map((t) => `<option ${t === ({ "claude-code": "Read", codex: "codex" }[c.name]) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select><input class="f mono" data-args="${c.name}" value='${esc(JSON.stringify(c.name === "claude-code" ? { file_path: "/etc/hosts" } : c.name === "codex" ? { prompt: "Reply with the single word OK. Do not run commands." } : {}))}'><button class="btn s" data-try="${c.name}">Run it</button></div><pre class="code hidden" data-out="${c.name}"></pre></details>` : ""}
+      <div class="small" data-res="${c.name}" role="status"></div></div>`;
+  },
   async refresh() {
-    const { servers } = await get("/api/mcp"), cfg = await get("/api/mcp/inky-config");
-    const pyCmd = JSON.stringify(cfg.claude);
-    this.el.innerHTML = `${mobileBar("Connectors")}<div class="page"><div><h1>Connectors</h1><p class="lede">All optional. Any MCP server works. Claude Code and Codex are built in, so your bots can hand them jobs, and they can use your bots.</p></div>
-      <section class="col"><b>Connected apps and agents</b>${servers.map((s) => `<div class="card"><div class="row">${logo({ "claude-code": "claude", codex: "codex" }[s.name] || "mcp", 44)}
-        <div class="grow"><b style="font-size:16px">${esc(s.label)}</b><div class="small muted">${esc(s.about || "")}</div><div class="mono small muted">${esc(s.command.join(" "))}</div></div>
-        ${!s.installed ? `<span class="small hot">not installed</span>` : s.connected ? `<span class="small" style="color:var(--green-t)">● connected · ${s.tools.length} tools</span><button class="btn s" data-off="${s.name}">Disconnect</button>` : `<button class="btn s p" data-on="${s.name}">Connect</button>`}
-        ${s.preset ? "" : `<button class="btn s hot" data-rm="${s.name}">Remove</button>`}</div>
-        ${s.connected ? `<div class="row wrap" style="gap:6px">${s.tools.map((t) => `<span class="chip mono">${esc(t)}</span>`).join("")}</div>
-          <div class="grid3"><select class="f" data-tool="${s.name}">${s.tools.map((t) => `<option ${t === ({ "claude-code": "Read", codex: "codex" }[s.name]) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select><input class="f mono" data-args="${s.name}" value='${esc(JSON.stringify(s.name === "claude-code" ? { file_path: "/etc/hosts" } : s.name === "codex" ? { prompt: "Reply with the single word OK. Do not run commands." } : {}))}'><button class="btn s" data-try="${s.name}">Try the tool</button></div>
-          <pre class="code hidden" data-out="${s.name}"></pre>` : ""}</div>`).join("")}
-      <div class="card"><b>Add any MCP server</b><div class="grid3"><input class="f" id="mn" placeholder="Name, e.g. github"><input class="f mono" id="mc" placeholder="Command, e.g. npx -y @modelcontextprotocol/server-github" style="grid-column:span 2"></div><div><button class="btn s" id="madd">Add</button></div></div></section>
+    const { connectors: all, inky } = await get("/api/connectors");
+    this.inky = inky;
+    const agents = all.filter((c) => c.kind === "mcp" && c.preset), services = all.filter((c) => c.kind === "builtin"), others = all.filter((c) => c.kind === "mcp" && !c.preset);
+    this.el.innerHTML = `${mobileBar("Connectors")}<div class="page"><div><h1>Connectors</h1><p class="lede">All optional. Each one shows whether it works, with a real test and a fix when it doesn’t. Handing work to any of them asks you first.</p></div>
+      <section class="col"><h2>Agents</h2>${agents.map((c) => this.card(c)).join("")}</section>
+      <section class="col"><h2>Services</h2>${services.map((c) => this.card(c)).join("")}</section>
+      <section class="col"><h2>Other MCP servers</h2>${others.map((c) => this.card(c)).join("")}
+        <div class="card"><b>Add an MCP server</b><div class="row wrap" style="gap:8px">${MCP_PRESETS.map(([n, l, lg]) => `<button class="chip" data-preset="${n}">${logo(lg, 18)}${esc(l)}</button>`).join("")}</div>
+        <div class="grid3"><input class="f" id="mn" placeholder="Name, e.g. github" aria-label="Name"><input class="f mono" id="mc" placeholder="Command, e.g. npx -y @modelcontextprotocol/server-github" style="grid-column:span 2" aria-label="Command"></div>
+        <input class="f mono" id="me" placeholder="Settings it needs, e.g. GITHUB_PERSONAL_ACCESS_TOKEN=… (one per line, optional)" aria-label="Environment">
+        <div><button class="btn s" id="madd">Add and connect</button></div><span class="small" id="mres" role="status"></span></div></section>
       <section class="card"><b>Let Claude Code and Codex use your bots</b><span class="small muted">Inky is an MCP server too. They can list your bots, message them, run their skills and read what they found. Approving Needs-you items stays in this app.</span>
-        <label class="l">Claude Code, for one run</label><pre class="code">claude -p "Ask my Flat Hunter bot what it found today" --mcp-config '${esc(pyCmd)}'</pre>
-        <label class="l">Claude Code, always</label><pre class="code">${esc(cfg.claude_cli)}</pre>
-        <label class="l">Codex (~/.codex/config.toml)</label><pre class="code">${esc(cfg.codex_toml)}</pre></section>
-      <section class="grid3"><div class="card"><b>Telegram</b><span class="small muted">Bots tell you and ask you on your phone. Token in API keys, chat id in Settings.</span><a class="btn s" href="#/keys?p=telegram">Set up</a></div>
-        <div class="card"><b>n8n</b><span class="small muted">Export any skill as an n8n workflow that calls Inky, to run next to your other workflows.</span><span class="small">Skills → Export to n8n</span></div>
-        <div class="card"><b>Apify</b><span class="small muted">Optional, for very large scraping jobs. Nothing needs it.</span></div></section></div>`;
-    $$("[data-on]").forEach((x) => (x.onclick = async () => { x.textContent = "Connecting…"; try { await post(`/api/mcp/${x.dataset.on}/connect`); } catch (e) { toast(e.message); } this.refresh(); }));
+        <div class="row wrap">${agents.map((c) => `<button class="btn" data-addinky="${c.name}" ${c.installed ? "" : "disabled"}>${logo(c.logo, 20)}Add Inky to ${esc(c.label)}</button>`).join("")}</div><span class="small" id="addres" role="status"></span>
+        <details><summary class="small">Or do it yourself</summary><label class="l">Claude Code</label><pre class="code">${esc(inky.claude_cli)}</pre><label class="l">Codex (~/.codex/config.toml)</label><pre class="code">${esc(inky.codex_toml)}</pre></details></section></div>`;
+    const res = (n, t, ok) => { const r = $(`[data-res="${n}"]`); if (r) { r.textContent = t; r.className = "small " + (ok === true ? "good" : ok === false ? "bad" : "muted"); } };
+    $$("[data-on]").forEach((x) => (x.onclick = async () => { x.disabled = true; x.textContent = "Connecting…"; try { await post(`/api/mcp/${x.dataset.on}/connect`); await this.refresh(); SOUND.play("chime"); } catch (e) { res(x.dataset.on, e.message, false); x.disabled = false; x.textContent = "Connect"; } }));
     $$("[data-off]").forEach((x) => (x.onclick = async () => { await post(`/api/mcp/${x.dataset.off}/disconnect`); this.refresh(); }));
-    $$("[data-rm]").forEach((x) => (x.onclick = async () => { await del(`/api/mcp/${x.dataset.rm}`); this.refresh(); }));
+    $$("[data-rm]").forEach((x) => (x.onclick = async () => { if (await confirmBox(`Remove ${x.dataset.rm}?`, "Remove", true)) { await del(`/api/mcp/${x.dataset.rm}`); this.refresh(); } }));
+    $$("[data-edit]").forEach((x) => (x.onclick = () => { this.open = this.open === x.dataset.edit ? null : x.dataset.edit; this.refresh().then(() => { const f = $(`[data-form="${x.dataset.edit}"] input`); if (f) f.focus(); }); }));
+    $$("[data-test]").forEach((x) => (x.onclick = async () => { const n = x.dataset.test; res(n, "Testing…"); const r = await post(`/api/connectors/${n}/test`); res(n, (r.ok ? "✓ " : "") + r.text, r.ok); if (r.ok) SOUND.play("chime"); }));
+    $$("[data-save]").forEach((x) => (x.onclick = async () => {
+      const n = x.dataset.save, values = {};
+      $$(`[data-form="${n}"] [data-field]`).forEach((i) => { if (i.value.trim()) values[i.dataset.field] = i.value.trim(); });
+      res(n, "Checking…");
+      const r = await post(`/api/connectors/${n}/setup`, { values });
+      if (!r.ok) return res(n, r.text, false);
+      this.open = null;
+      await this.refresh(); res(n, "✓ " + r.text, true); SOUND.play("chime");
+      if (n === "telegram") this.waitForStart(r.bot);
+    }));
     $$("[data-try]").forEach((x) => (x.onclick = async () => {
       const n = x.dataset.try, out = $(`[data-out="${n}"]`);
       out.classList.remove("hidden"); out.textContent = "Running…";
       try { const r = await post(`/api/mcp/${n}/call`, { tool: $(`[data-tool="${n}"]`).value, args: JSON.parse($(`[data-args="${n}"]`).value || "{}") }); out.textContent = (r.error ? "Error: " : "") + r.text.slice(0, 3000); }
       catch (e) { out.textContent = e.message; }
     }));
-    $("#madd").onclick = async () => { await post("/api/mcp", { name: $("#mn").value, command: $("#mc").value, label: $("#mn").value }); this.refresh(); };
+    $$("[data-preset]").forEach((x) => (x.onclick = () => { const p = MCP_PRESETS.find((m) => m[0] === x.dataset.preset); $("#mn").value = p[0]; $("#mc").value = p[3]; $("#me").value = p[4]; (p[4] ? $("#me") : $("#mc")).focus(); }));
+    $("#madd").onclick = async () => {
+      const name = $("#mn").value.trim(), command = $("#mc").value.trim();
+      if (!name || !command) return this.say("#mres", "Put in a name and the command that starts it.", false);
+      const env = Object.fromEntries($("#me").value.split(/\n|\s+(?=[A-Z_]+=)/).map((l) => l.trim()).filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+      try { await post("/api/mcp", { name, command, label: name, env }); } catch (e) { return this.say("#mres", e.message, false); }
+      this.say("#mres", "Connecting…");
+      const r = await post(`/api/connectors/${name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}/test`);
+      await this.refresh(); this.say("#mres", (r.ok ? "✓ " : "") + r.text, r.ok);
+    };
+    $$("[data-addinky]").forEach((x) => (x.onclick = async () => {
+      const n = x.dataset.addinky, cc = n === "claude-code";
+      const ok = await confirmBox(cc ? "Add Inky to Claude Code? This runs:" : "Add Inky to Codex? This adds to ~/.codex/config.toml:", "Add it", false, cc ? inky.claude_cli : inky.codex_toml);
+      if (!ok) return;
+      try { const r = await post(`/api/connectors/${n}/add-inky`); this.say("#addres", (r.ok ? "✓ " : "") + (r.text || "Done."), r.ok); } catch (e) { this.say("#addres", e.message, false); }
+    }));
   },
+  say(sel, text, good) { const m = $(sel); if (m) { m.textContent = text; m.className = "small " + (good === true ? "good" : good === false ? "bad" : "muted"); } },
+  async waitForStart(bot) {
+    const say = (t, ok) => { const r = $('[data-res="telegram"]'); if (r) { r.textContent = t; r.className = "small " + (ok === true ? "good" : ok === false ? "bad" : "muted"); } };
+    if (await waitForTelegram(bot, say)) { await this.refresh(); say("✓ Found you and sent a hello. Alerts go to Telegram now.", true); }
+  },
+
 };
 
 // ================================================================ make it yours
