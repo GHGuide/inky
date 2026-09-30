@@ -85,7 +85,7 @@ VIEWS.bots = {
       <div class="composer"><label class="vh" for="job">Describe the job</label><textarea id="job" rows="2" placeholder="Describe a job, or @mention a bot"></textarea>
         <div class="between"><span class="mono small muted">⌘K anywhere · @ to talk to a bot</span><button class="btn p" id="go">Start</button></div></div>
       <div class="row wrap" style="justify-content:center">${["Find rental flats abroad under €150k", "Watch 5 webshops for price drops", "Every morning, check new books on books.toscrape.com"].map((t) => `<button class="btn" data-ex="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
-      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
+      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards">Cards</button><button data-hv="office">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
     const go = () => {
       const t = $("#job").value.trim();
       const m = t.match(/^@(\S+)\s+(.*)$/);
@@ -101,6 +101,7 @@ VIEWS.bots = {
       try { const r = await post("/api/import", JSON.parse(await f.text())); location.hash = `#/bot/${r.bot.id}/computer`; }
       catch (err) { toast(`That isn’t an Inky bot file (${err.message})`); }
     };
+    $$("[data-hv]").forEach((x) => (x.onclick = () => { try { localStorage.setItem("inkyHome", x.dataset.hv); } catch (e) {} this.refresh(); }));
     this.refresh();
     this.recap();
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
@@ -119,6 +120,10 @@ VIEWS.bots = {
   },
   refresh() {
     if (!$("#cards")) return;
+    let mode = "cards"; try { mode = localStorage.getItem("inkyHome") || "cards"; } catch (e) {}
+    $$("[data-hv]").forEach((x) => x.classList.toggle("on", x.dataset.hv === mode));
+    $("#cards").className = mode === "office" ? "" : "botcards";
+    if (mode === "office") return this.office();
     $("#cards").innerHTML = S.bots.map((b) => {
       const m = botMeta(b);
       const live = ["working", "learning", "paused"].includes(b.status);
@@ -128,6 +133,16 @@ VIEWS.bots = {
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc((b.summary || b.job || "").slice(0, 60))}</span></span></span>
         ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc((STATUS[b.status] || [b.status.replace("_", " ")])[0])}</span><span>${b.skills.length} skills</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
+  },
+  office() {  // the same bots, at their desks; the room follows the time of day
+    const h = new Date().getHours(), night = S.bots.length && S.bots.every((b) => inQuiet(b.schedule, new Date()));
+    const sky = night || h < 6 || h >= 21 ? "night" : h < 8 ? "dawn" : h < 17 ? "day" : "evening";
+    $("#cards").innerHTML = `<div class="office ${night ? "dim" : ""}" data-sky="${sky}"><div class="window" aria-hidden="true"><i class="sun"></i><i class="moon"></i><b></b><b></b><b></b></div>
+      ${S.bots.map((b) => {
+        const live = ["working", "learning", "paused"].includes(b.status) && !b.remote;
+        const screen = live ? `<img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer">` : `<span>${esc(botMeta(b).meta.slice(0, 26))}</span>`;
+        return `<a class="desk${botMeta(b).hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><div class="top">${botCritter(b, 70)}<div class="mon">${screen}</div></div><div class="table"></div><div class="plate"><b>${esc(b.name)}</b></div></a>`;
+      }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`}</div>`;
   },
   leave() { clearInterval(this.timer); },
 };
