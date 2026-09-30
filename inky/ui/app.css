@@ -180,7 +180,7 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 .critter[data-mood=worried] .sweat{opacity:1;animation:c-drip 1.6s ease-in infinite}
 .critter[data-mood=worried] .brows{opacity:1}
 .critter[data-mood=asleep] .eyes{transform:scaleY(.08)}
-.critter[data-mood=asleep] .zzz{opacity:1;animation:c-float 3s ease-in-out infinite}
+.critter .zzz{visibility:hidden}.critter[data-mood=asleep] .zzz{opacity:1;visibility:visible;animation:c-float 3s ease-in-out infinite}
 .critter[data-mood=asleep] .body{animation-duration:6s}
 .critter[data-mood=happy]{animation:c-hop .6s ease-out 3}
 .critter[data-mood=happy] .sparkle{opacity:1;animation:c-twinkle 1s ease-in-out infinite}

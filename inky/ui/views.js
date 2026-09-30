@@ -219,6 +219,7 @@ VIEWS.bot = {
       const day = d !== lastDay ? `<div class="m sys">${d === new Date().toDateString() ? "Today" : d} ${hhmm(m.ts)}</div>` : "";
       lastDay = d;
       if (m.role === "you") return `${day}<div class="m you"><div class="body">${esc(m.text)}</div></div>`;
+      if (m.role === "note") return `${day}<div class="m sys">${esc(m.text)}</div>`;
       const need = m.need && needIds.has(m.need) ? this.data.needs.find((n) => n.id === m.need) : null;
       const card = need ? `<div class="card hot" style="padding:12px 14px"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${esc(need.title)}</b>${need.body ? `<span class="small muted">${esc(need.body)}</span>` : ""}
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
@@ -627,6 +628,7 @@ VIEWS.look = {
     this.bot = S.bots.find((b) => b.id === +id) || S.bots.find((b) => b.id === this.botId) || S.bots[0];
     this.botId = this.bot.id;
     this.draft = { ...this.bot.look, name: this.bot.name };
+    this.persona = { ...(this.bot.persona || {}) };
     this.render();
   },
   render() {
@@ -658,12 +660,24 @@ VIEWS.look = {
           <div class="col"><b class="small">Step labels</b>${chips("labels", [[true, "Show each step"], [false, "Hide steps"]])}</div>
           <div class="col"><b class="small">Default speed</b>${chips("speed", [["slow", "Slow"], ["normal", "Normal"], ["turbo", "Turbo"]])}</div>
           <span class="small muted">A frame always shows while a bot uses a screen, and you can take over at any moment.</span></div></div>
+        <div class="card" style="gap:14px"><div class="head"><b>Personality</b><span class="small muted">how it talks, never what it’s allowed to do</span></div>
+          <div class="grid2" style="gap:18px"><div class="col">
+            <label class="small" for="pc"><b>Chatty ↔ quiet</b></label><input type="range" id="pc" min="0" max="1" step="0.1" value="${1 - (this.persona.chatty ?? 0.5)}" aria-label="Chatty to quiet">
+            <label class="small" for="pp"><b>Playful ↔ serious</b></label><input type="range" id="pp" min="0" max="1" step="0.1" value="${1 - (this.persona.playful ?? 0.5)}" aria-label="Playful to serious">
+            <div class="col"><b class="small">Emoji</b>${`<div class="chips"><button data-pe="1" class="${this.persona.emoji ? "on" : ""}">Sometimes</button><button data-pe="0" class="${this.persona.emoji ? "" : "on"}">Never</button></div>`}</div></div>
+          <div class="col"><label class="small" for="pcat"><b>Catchphrase</b></label><input class="f" id="pcat" maxlength="80" value="${esc(this.persona.catchphrase || "")}">
+            <label class="small" for="pq"><b>Quirk</b></label><input class="f" id="pq" maxlength="120" value="${esc(this.persona.quirk || "")}">
+            <label class="small" for="pb"><b>In its own words</b></label><input class="f" id="pb" maxlength="160" placeholder="I hunt flats in Bari so you don’t have to." value="${esc(this.persona.bio || "")}"></div></div></div>
         <div class="row"><button class="btn p" id="lsave">Save</button><button class="btn" id="lreset">Reset</button><span class="mono small muted">click to try · nothing saves until you press Save</span></div></section></div></div>`;
     $$("[data-k]", this.el).forEach((x) => (x.onclick = () => { this.draft[x.dataset.k] = x.dataset.v === "true" ? true : x.dataset.v === "false" ? false : x.dataset.v; this.render(); }));
     $$("[data-bot]", this.el).forEach((x) => (x.onclick = () => { location.hash = `#/look/${x.dataset.bot}`; }));
     $("#lname").oninput = (e) => (this.draft.name = e.target.value);
-    $("#lreset").onclick = () => { this.draft = { ...b.look, name: b.name }; this.render(); };
-    $("#lsave").onclick = async () => { const { name, ...look } = this.draft; await patch(`/api/bots/${b.id}`, { name, look }); await loadState(); this.bot = S.bots.find((x) => x.id === b.id); toast("Saved", this.bot); };
+    $("#pc").oninput = (e) => (this.persona.chatty = +(1 - e.target.value).toFixed(1));
+    $("#pp").oninput = (e) => (this.persona.playful = +(1 - e.target.value).toFixed(1));
+    $$("[data-pe]", this.el).forEach((x) => (x.onclick = () => { this.persona.emoji = x.dataset.pe === "1"; this.render(); }));
+    for (const [id, k] of [["pcat", "catchphrase"], ["pq", "quirk"], ["pb", "bio"]]) $("#" + id).oninput = (e) => (this.persona[k] = e.target.value);
+    $("#lreset").onclick = () => { this.draft = { ...b.look, name: b.name }; this.persona = { ...(b.persona || {}) }; this.render(); };
+    $("#lsave").onclick = async () => { const { name, ...look } = this.draft; await patch(`/api/bots/${b.id}`, { name, look, persona: this.persona }); await loadState(); this.bot = S.bots.find((x) => x.id === b.id); toast("Saved", this.bot); };
   },
 };
 
@@ -681,7 +695,7 @@ VIEWS.settings = {
           <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
         <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("sounds", s.sounds !== false, "Sounds (each bot has its own)")}${tog("telegram", s.telegram.enabled, "On Telegram")}<div class="between"><label for="chat">Telegram chat id</label><input class="f" id="chat" style="width:180px;height:36px" value="${esc(s.telegram.chat_id || "")}"></div>
           <div class="between"><span>Bots on your screen</span><button class="toggle ${s.screen_allowed ? "on" : ""}" data-t="screen_allowed" role="switch" aria-checked="${!!s.screen_allowed}" aria-label="Bots on your screen"></button></div></div>
-        <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div><div class="between"><label for="en">This computer’s name</label><input class="f" id="en" style="width:200px;height:36px" value="${esc(s.engine_name)}"></div>
+        <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div><div class="between"><label for="en">This computer’s name</label><input class="f" id="en" style="width:200px;height:36px" value="${esc(s.engine_name)}"></div><div class="between"><label for="un">What should bots call you?</label><input class="f" id="un" style="width:200px;height:36px" placeholder="your name" value="${esc(s.user_name || "")}"></div>
           <div class="row"><a class="btn s" href="https://github.com/GHGuide/inky" target="_blank" rel="noopener">Read the code ↗</a><a class="btn s" href="#/setup/1">Run setup again</a></div></div></div></div>`;
     $$("[data-t]", this.el).forEach((x) => (x.onclick = async () => {
       const on = !x.classList.contains("on"); x.classList.toggle("on", on); x.setAttribute("aria-checked", on);
@@ -689,5 +703,6 @@ VIEWS.settings = {
     }));
     $("#chat").onchange = () => post("/api/settings", { telegram: { chat_id: $("#chat").value.trim() } });
     $("#en").onchange = () => post("/api/settings", { engine_name: $("#en").value.trim() }).then(loadState);
+    $("#un").onchange = () => post("/api/settings", { user_name: $("#un").value.trim().slice(0, 40) }).then(() => toast(`Bots will call you ${$("#un").value.trim() || "nothing special"}`));
   },
 };

@@ -18,6 +18,7 @@ from inky.llm import LLM, NoModel
 from inky.mcp import MCPManager
 from inky.safety import classify
 from inky.store import Store
+from inky import persona as persona_mod
 
 LOOKS = [("octopus", "#E9A23B", "glasses"), ("cat", "#7C6CF2", "none"), ("blob", "#2BA59B", "headphones"),
          ("octopus", "#3B5BDB", "beanie"), ("cat", "#F07BA8", "bow"), ("blob", "#E86F51", "none")]
@@ -31,7 +32,8 @@ DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON obj
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
  "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <how often to check: 1440 daily or "every morning", 60 hourly, 0 only when asked>, "summary_at": "<HH:MM or null>",
  "filters": [{"field": "<price|size|title|…>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
- "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"]}"""
+ "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
+ "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}"""
 
 CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). Your job: {job}.
 Talk {tone}. Keep replies short (1–3 sentences). You can take actions. Reply with ONE JSON object:
@@ -45,6 +47,7 @@ Actions:
 {{"type":"pause"}} {{"type":"resume"}} {{"type":"stop"}} {{"type":"speed","value":"slow|normal|turbo"}}
 {{"type":"delegate","server":"<connector>","tool":"<tool>","args":{{...}},"label":"<what you hand over>"}}   (hand a job to Claude Code, Codex or another connector now)
 {{"type":"add_automation","when":"new_results|every_run","server":..,"tool":..,"args":{{...}},"label":".."}}   (use {{{{new_json}}}}, {{{{count}}}}, {{{{bot}}}} in args)
+Only take actions the user's LATEST message asks for; talking about earlier ones is not a reason to repeat them.
 Only use tools that are listed. Result fields you have seen: {fields}.
 YOUR RULES: {rules}
 WHAT YOU REMEMBER: {memory}
@@ -163,6 +166,7 @@ class Engine:
             nxt = (b.get("last_run") or time.time()) + sched["every_minutes"] * 60
         return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory",
                                          "schedule", "automations", "mode", "computer", "last_run", "created")},
+                "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
@@ -198,7 +202,8 @@ class Engine:
                "look": look, "rules": rules, "filters": d.get("filters") or [], "memory": [], "automations": [],
                "schedule": {"every_minutes": int(d.get("every_minutes") or 0), "summary_at": d.get("summary_at"),
                             "quiet_from": "23:00", "quiet_to": "07:00"},
-               "mode": "own", "computer": "local", "created": time.time()}
+               "mode": "own", "computer": "local", "created": time.time(),
+               "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
         bid = self.store.insert("bots", bot, status="idle")
         self.store.event(bid, "created", f"Created {bot['name']}")
         self.bus.publish("bots")
@@ -206,11 +211,19 @@ class Engine:
 
     def update_bot(self, bid, patch):
         b = self.store.get("bots", bid)
-        allowed = {"name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory", "schedule", "automations", "mode", "computer"}
+        allowed = {"name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory", "schedule", "automations", "mode", "computer", "persona"}
         patch = {k: v for k, v in patch.items() if k in allowed}
         if "look" in patch:
             patch["look"] = {**b.get("look", {}), **patch["look"]}
+        if "persona" in patch:
+            kind = (patch.get("look") or b.get("look") or {}).get("kind", "octopus")
+            patch["persona"] = persona_mod.normalize({**(b.get("persona") or {}), **patch["persona"]}, kind)
         self.store.update("bots", bid, **patch)
+        every = (patch.get("schedule") or {}).get("every_minutes")
+        if "schedule" in patch and every != (b.get("schedule") or {}).get("every_minutes"):
+            when = {0: "only when you ask", 15: "every 15 minutes", 60: "every hour", 1440: "once a day"}.get(every or 0, f"every {every} minutes")
+            self.store.message(bid, "note", f"You changed the schedule: {when}.")  # so the bot knows it was on purpose
+            self.bus.publish("messages", bot=bid)
         if "mode" in patch and patch["mode"] != b.get("mode"):
             self.close_computer(bid)
         if "look" in patch and bid in self.computers:
@@ -390,8 +403,16 @@ class Engine:
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
                                  skills="; ".join(f"{s['name']} ({len(s['steps'])} steps)" for s in sk) or "none yet",
                                  status=status, tools="\n".join(self.mcp.catalog()) or "none")
+        def worth_remembering(e):  # run summaries, not every step
+            if e.get("kind") == "replay":
+                return "pass your rules" in e.get("text", "") or e.get("text", "").startswith("Done in")
+            return e.get("kind") in ("learned", "fixed", "problem", "level")
+        notable = [e for e in reversed(self.store.find("events", bot_id=bid, limit=200))
+                   if e["ts"] > time.time() - 3 * 86400 and worth_remembering(e)]
+        sys += "\n" + persona_mod.prompt_lines(b, self.store.setting("app", {}).get("user_name", ""), datetime.now(), notable)
         msgs = [{"role": "system", "content": sys}] + [
-            {"role": "user" if m["role"] == "you" else "assistant", "content": m["text"]} for m in hist[:-1]] + [
+            {"role": "assistant", "content": m["text"]} if m["role"] == "bot" else
+            {"role": "user", "content": f"[settings note] {m['text']}" if m["role"] == "note" else m["text"]} for m in hist[:-1]] + [
             {"role": "user", "content": text}]
         try:
             t, _ = self.llm.chat("chat", msgs, bot_id=bid, max_tokens=900)
