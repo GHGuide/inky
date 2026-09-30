@@ -64,7 +64,7 @@ VIEWS.setup = {
         <div class="between"><span class="mono small muted">⌘K opens the command bar anywhere</span><button class="btn p" id="start">Start</button></div></div>
       ${nav(5, "#/bots", "Go to your bots")}`;
     el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b style="font-size:19px">inky</b></span><ol class="wsteps">${pills}</ol><a href="#/bots" id="skipall" class="small muted">Skip setup</a></header><div class="wcard">${body}</div></div>`;
-    const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; };
+    const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; try { if (!localStorage.getItem("inkyTour")) sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} };
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
     if ($("#scr")) $("#scr").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); S.settings = await post("/api/settings", { screen_allowed: on }); };
     if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); await post("/api/settings", { telegram: { enabled: on, chat_id: $("#chat").value.trim() } }); };
@@ -104,6 +104,7 @@ VIEWS.bots = {
     $$("[data-hv]").forEach((x) => (x.onclick = () => { try { localStorage.setItem("inkyHome", x.dataset.hv); } catch (e) {} this.refresh(); }));
     this.refresh();
     this.recap();
+    try { if (sessionStorage.getItem("inkyTourNext") && !localStorage.getItem("inkyTour")) { sessionStorage.removeItem("inkyTourNext"); setTimeout(() => tour(0), 600); } } catch (e) {}
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
   },
   async recap() {  // "While you were away", when the app was closed or hidden for 2+ hours
@@ -188,7 +189,7 @@ VIEWS.new = {
       const b = (await post("/api/bots", body)).bot;
       if (body.start_url) await post(`/api/bots/${b.id}/learn`, {}).catch((e) => toast(e.message));
       await loadState();
-      location.hash = `#/bot/${b.id}/computer`;
+      location.hash = `#/bot/${b.id}/computer?hatch=1`;
     };
   },
 };
@@ -196,7 +197,7 @@ VIEWS.new = {
 // ================================================================ a bot
 const TABS = [["computer", "Computer"], ["results", "Results"], ["diary", "Diary"], ["skills", "Skills"], ["about", "About you"], ["settings", "Settings"], ["activity", "Activity"], ["call", "Call"]];
 VIEWS.bot = {
-  async show(el, [id, tab = "computer"]) {
+  async show(el, [id, tab = "computer"], qs) {
     this.id = +id; this.tab = tab; this.el = el;
     this.data = await get(`/api/bots/${this.id}`);
     const b = this.data.bot;
@@ -216,6 +217,7 @@ VIEWS.bot = {
     $("#send").onclick = send;
     $("#say").onkeydown = (e) => { if (e.key === "Enter") send(); };
     this.drawHead(); this.drawMsgs(); this.drawTab(true);
+    if (qs && qs.get("hatch")) { history.replaceState(null, "", `#/bot/${b.id}/${tab}`); hatch(b, (this.data.messages.find((m) => m.intro) || {}).text); }
   },
   async refresh() {
     if (!this.id) return;
@@ -408,7 +410,7 @@ VIEWS.bot = {
 
     $$("#mode button").forEach((x) => (x.onclick = () => save({ mode: x.dataset.m })));
     $$("[data-au]").forEach((x) => (x.onclick = () => save({ automations: b.automations.filter((_, i) => i !== +x.dataset.au) })));
-    $("#delbot").onclick = async () => { if (await confirmBox(`Delete ${b.name}? Its skills, memory and results go too. This can’t be undone.`, "Delete bot", true)) { await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots"; } };
+    $("#delbot").onclick = () => goodbye(b);
     get("/api/mcp").then(({ servers }) => {
       const on = servers.filter((x) => x.enabled);
       $("#as").innerHTML = on.map((x) => `<option value="${x.name}">${esc(x.label)}</option>`).join("") || `<option value="">Connect one first</option>`;
@@ -504,6 +506,57 @@ VIEWS.bot = {
     this.callEnd = () => { clearInterval(tick); muted = true; if (rec) try { rec.stop(); } catch (e) {} if (window.speechSynthesis) speechSynthesis.cancel(); };
   },
 };
+
+// ================================================================ rituals: hatch, goodbye, first-run tour
+function hatch(b, intro) {
+  const o = document.createElement("div");
+  o.className = "ritual";
+  o.innerHTML = `<div class="splash">${[0, 1, 2, 3, 4, 5].map((i) => `<i style="--a:${i * 60}deg;--d:${i * 40}ms"></i>`).join("")}</div>
+    <div class="hatchling">${botCritter({ ...b, status: "idle", needs: 0 }, 150).replace('data-mood="calm"', 'data-mood="happy"')}</div>
+    <div class="card bubble">${esc(intro || `Hi! I'm ${b.name}.`)}</div><span class="small muted">click anywhere to start</span>`;
+  document.body.appendChild(o);
+  SOUND.play("rise", b);
+  setTimeout(() => confetti(), 700);
+  const close = () => { o.classList.add("out"); setTimeout(() => o.remove(), 300); };
+  o.onclick = close;
+  setTimeout(close, 4200);
+}
+
+function goodbye(b) {
+  const packed = { octopus: "tentacles", cat: "whiskers", blob: "goo" }[(b.look || {}).kind] || "things";
+  modal(`<div class="col" style="align-items:center;text-align:center;gap:10px"><div id="byecrit">${botCritter({ ...b, status: "needs_you", needs: 1, need_kind: "decision" }, 110)}</div>
+    <h2>${esc(b.name)} packed its ${packed}.</h2><span class="small muted">Delete for good? Its skills, memory and results go too. This can’t be undone.</span>
+    <div class="row"><button class="btn" id="byeno">Keep ${esc(b.name)}</button><button class="btn hot" id="byeyes">Delete</button></div></div>`, () => {
+    $("#byeno").onclick = closeModal;
+    $("#byeyes").onclick = async () => {
+      $("#byecrit").classList.add("bye");
+      await new Promise((r) => setTimeout(r, calmMotion() ? 0 : 650));
+      closeModal(); await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots";
+      toast(`Goodbye from ${b.name}`);
+    };
+  });
+}
+
+const TOUR = [
+  ["#nav .navbot", "This is your bot. Its critter shows how it’s doing: busy, asleep at night, or waving when it needs you."],
+  ["#cards", "Each bot has its own computer. When one is working you can watch it live, take over and hand back."],
+  ["#nav .needlink", "When a bot needs a yes, it waits here. Nothing that can’t be undone happens without you."],
+  [null, "Press ⌘K (or ⌥Space in the Inky app) to talk to any bot from anywhere. That’s it, have fun!"],
+];
+function tour(i = 0) {
+  $$(".coach").forEach((x) => x.remove());
+  if (i >= TOUR.length) { try { localStorage.setItem("inkyTour", "1"); } catch (e) {} return; }
+  const [sel, text] = TOUR[i], t = sel && $(sel), r = t && t.getBoundingClientRect();
+  const c = document.createElement("div");
+  c.className = "coach";
+  c.innerHTML = `${r ? `<div class="ring" style="left:${r.left - 6}px;top:${r.top - 6}px;width:${r.width + 12}px;height:${r.height + 12}px"></div>` : ""}
+    <div class="card tip" style="${r ? `left:${Math.min(innerWidth - 340, r.right + 16)}px;top:${Math.max(16, Math.min(innerHeight - 180, r.top))}px` : "left:50%;top:40%;transform:translate(-50%,-50%)"}">
+      <span class="row">${critter("octopus", "#E86F51", "none", 36, "happy")}<span class="mono small muted">${i + 1} of ${TOUR.length}</span></span><span>${esc(text)}</span>
+      <div class="row" style="justify-content:flex-end"><button class="btn s" id="tskip">Skip</button><button class="btn s p" id="tnext">${i === TOUR.length - 1 ? "Done" : "Next"}</button></div></div>`;
+  document.body.appendChild(c);
+  $("#tnext").onclick = () => tour(i + 1);
+  $("#tskip").onclick = () => tour(TOUR.length);
+}
 
 async function answerNeed(id, decision) {
   try { await post(`/api/needs/${id}`, { decision }); toast(`You chose “${decision}”`); } catch (e) { toast(e.message); }

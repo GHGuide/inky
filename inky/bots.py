@@ -212,6 +212,8 @@ class Engine:
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
         bid = self.store.insert("bots", bot, status="idle")
         self.store.event(bid, "created", f"Created {bot['name']}")
+        p = bot["persona"]  # it hatches and says hello in its own words
+        self.store.message(bid, "bot", " ".join(x for x in (f"Hi! I'm {bot['name']}.", p.get("bio") or bot["summary"], p.get("catchphrase")) if x), intro=True)
         self.bus.publish("bots")
         return self.bot_view(self.store.get("bots", bid))
 
@@ -878,7 +880,20 @@ class Engine:
                     pass
 
     def evening(self, bid, now):
+        """Quiet hours begin: a one-line good night (only if it worked today), then the diary."""
+        text = self.good_night(bid, now)
+        if text:
+            self.store.message(bid, "bot", text, unprompted=True, team=True)
+            self.bus.publish("messages", bot=bid)
         self.write_diary(bid, now)
+
+    def good_night(self, bid, now):
+        start = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
+        runs = [r for r in growth.ok_runs(self.store.find("runs", bot_id=bid, limit=500)) if r["ts"] >= start]
+        if not runs:
+            return None
+        new = sum(r.get("new") or 0 for r in runs)
+        return f"Good night! Today I did {len(runs)} run{'s' if len(runs) > 1 else ''} and found {new} new. Back at it in the morning."
 
     # ---------------------------------------------------------- team life: bots talking to each other
     def find_bot(self, name, from_bid=None):

@@ -334,3 +334,18 @@ class TeamTest(unittest.TestCase):
         self.assertTrue(wait(lambda: any(m["role"] == "peer" for m in E.store.find("messages", bot_id=self.b)), 10))
         feed = E.team_feed()
         self.assertTrue(any(f["kind"] == "peer" and f["sender"] == "Bari Flats" for f in feed))
+
+
+class RitualTest(unittest.TestCase):
+    def test_intro_and_good_night(self):
+        E = make_engine()
+        bid = E.create_bot({"name": "Tiny", "job": "watch a page", "look": {"kind": "blob"},
+                            "persona": {"bio": "I watch pages so you don't have to."}})["id"]
+        first = E.store.find("messages", bot_id=bid, desc=False)[0]
+        self.assertIn("Tiny", first["text"])
+        self.assertIn("watch pages", first["text"])
+        self.assertTrue(first.get("intro"))
+        self.assertIsNone(E.good_night(bid, time.time()))
+        E.store.insert("runs", {"kind": "replay", "items": 3, "new": 1}, bot_id=bid, status="ok")
+        self.assertIn("1 new", E.good_night(bid, time.time()))
+        E.close()
