@@ -13,10 +13,15 @@ import time
 
 PROTOCOL = "2025-06-18"
 
+def launcher(module, sub):
+    """How to start one of Inky's own tools: `python -m module`, or `<app binary> sub` inside the desktop app."""
+    return [sys.executable, sub] if getattr(sys, "frozen", False) else [sys.executable, "-m", module]
+
+
 PRESETS = {
     "claude-code": {"label": "Claude Code", "command": ["claude", "mcp", "serve"],
                     "about": "Hand a job to Claude Code: its Agent, Bash, Read, Write, WebFetch and more."},
-    "codex": {"label": "Codex", "command": [sys.executable, "-m", "inky.codex_mcp"],
+    "codex": {"label": "Codex", "command": launcher("inky.codex_mcp", "codex-mcp"),
               "about": "Hand a job to Codex (runs `codex exec`, read-only unless you allow writes)."},
 }
 

@@ -438,12 +438,13 @@ def mcp_remove(E, h, q, body, name):
 
 @route("GET", "/api/mcp/inky-config")
 def inky_config(E, h, q, body):
-    py = os.sys.executable
+    from inky.mcp import launcher
+    py, *args = launcher("inky.mcp_server", "mcp-server")
     env = {"INKY_HOME": str(E.home), "INKY_URL": f"http://127.0.0.1:{h.server.server_port}",
            "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
-    return {"claude": {"mcpServers": {"inky": {"command": py, "args": ["-m", "inky.mcp_server"], "env": env}}},
-            "claude_cli": f"claude mcp add inky -e INKY_HOME={env['INKY_HOME']} -e INKY_URL={env['INKY_URL']} -e PYTHONPATH={env['PYTHONPATH']} -- {py} -m inky.mcp_server",
-            "codex_toml": f'[mcp_servers.inky]\ncommand = "{py}"\nargs = ["-m", "inky.mcp_server"]\nenv = {{ INKY_HOME = "{env["INKY_HOME"]}", INKY_URL = "{env["INKY_URL"]}", PYTHONPATH = "{env["PYTHONPATH"]}" }}'}
+    return {"claude": {"mcpServers": {"inky": {"command": py, "args": args, "env": env}}},
+            "claude_cli": f"claude mcp add inky -e INKY_HOME={env['INKY_HOME']} -e INKY_URL={env['INKY_URL']} -e PYTHONPATH={env['PYTHONPATH']} -- {py} {' '.join(args)}",
+            "codex_toml": f'[mcp_servers.inky]\ncommand = "{py}"\nargs = {json.dumps(args)}\nenv = {{ INKY_HOME = "{env["INKY_HOME"]}", INKY_URL = "{env["INKY_URL"]}", PYTHONPATH = "{env["PYTHONPATH"]}" }}'}
 
 
 # ------------------------------------------------------------------ computers, settings, health

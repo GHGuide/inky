@@ -84,5 +84,9 @@ TOOLS = {
     "create_bot": ("Create a new bot from a job description.", {"type": "object", "required": ["job"], "properties": {"job": {"type": "string"}}}, create_bot),
 }
 
-if __name__ == "__main__":
+def main():
     serve_stdio("inky", "0.1", TOOLS)
+
+
+if __name__ == "__main__":
+    main()

@@ -10,3 +10,9 @@ data-lodz/
 teach/out.json
 data-film/
 .superpowers/
+
+# desktop app build outputs
+build/
+desktop/src-tauri/binaries/
+desktop/src-tauri/target/
+desktop/node_modules/
