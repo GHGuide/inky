@@ -33,6 +33,7 @@ const ICON = {
   server: "M4 3h16v7H4z M4 14h16v7H4z M8 6.5h.01 M8 17.5h.01", lock: "M6 11h12v10H6z M8 11V7a4 4 0 0 1 8 0v4", menu: "M4 6h16 M4 12h16 M4 18h16",
   store: "M3 9l1.5-5h15L21 9 M3 9h18v11H3z M9 20v-6h6v6", check: "M5 12l5 5 9-10", x: "M6 6l12 12 M18 6L6 18", keys: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
   users: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1 M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7 M21 19v-1a4 4 0 0 0-3-3.8 M15.5 4.2a3.5 3.5 0 0 1 0 6.6",
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M20 20l-4-4",
   speaker: "M11 5L6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14", micoff: "M9 9v2a3 3 0 0 0 5.1 2.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.9 5 M12 18v3 M3 3l18 18",
 };
 // Real brand marks (inky/ui/logos, sources in SOURCES.md). One-colour marks are tinted with the brand colour
@@ -76,12 +77,16 @@ const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : 
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
 
 function toast(text, b) {
-  const el = document.createElement("div");
+  const box = $("#toasts"), el = document.createElement("div");
   el.className = "toast";
-  el.innerHTML = `${b ? botCritter(b, 30) : critter("octopus", "#E86F51", "none", 30)}<div><b>${esc(b ? b.name : "Inky")}</b><br>${esc(text)}</div>`;
-  $("#toasts").appendChild(el);
-  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 260); }, 6000);
+  el.innerHTML = `${b ? botCritter(b, 30) : critter("octopus", "#E86F51", "none", 30)}<div><b>${esc(b ? b.name : "Inky")}</b><br>${esc(text)}</div><button class="tx" aria-label="Dismiss">${icon("x", 14)}</button>`;
+  const bye = () => { if (el.classList.contains("out")) return; el.classList.add("out"); setTimeout(() => el.remove(), 260); };
+  el.onclick = bye;
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstChild.remove();  // a burst of events never buries the page
+  setTimeout(bye, 6000);
 }
+const needsText = () => (S.needs ? `${S.needs} need${S.needs === 1 ? "s" : ""} you` : "Nothing needs you");
 
 const calmMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function confetti(x = innerWidth / 2, y = innerHeight / 3) {  // a small burst for milestones
@@ -154,7 +159,8 @@ function listen() {
   const es = new EventSource(`/api/events?t=${encodeURIComponent(TOKEN)}`);
   es.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.kind === "notify" && S.settings.notify_app !== false) toast(m.text, S.bots.find((b) => b.id === m.bot));
+    // the open bot page already shows its own news
+    if (m.kind === "notify" && S.settings.notify_app !== false && !location.hash.startsWith(`#/bot/${m.bot}/`)) toast(m.text, S.bots.find((b) => b.id === m.bot));
     feel(m);
     if (S.view && S.view.onEvent) S.view.onEvent(m);
     refreshSoon(m.kind === "run" ? 400 : 150);
@@ -196,23 +202,23 @@ async function importFile(text) {
 // buddy mode (?buddy=1): a critter that peeks in from the screen edge when a bot needs you
 function drawBuddy() {
   const b = S.bots.find((x) => x.status === "needs_you" || x.needs > 0);
-  $("#view").innerHTML = b ? `<button class="buddy" title="${esc(b.name)} needs you">${botCritter(b, 110)}<span>${esc(b.name)}</span></button>` : "";
+  $("#view").innerHTML = b ? `<button class="buddy" title="${esc(b.name)} needs you" aria-label="${esc(b.name)} needs you">${botCritter(b, 110)}<span>${esc(b.name)}</span></button>` : "";
   const btn = $(".buddy"); if (btn) btn.onclick = () => invoke("open_needs");
 }
 
 // ---------------------------------------------------------------- sidebar
 function renderNav() {
   const r = location.hash;
-  const on = (h) => (r.startsWith(h) ? " on" : "");
-  $("#nav").innerHTML = `
+  const on = (h) => (r.startsWith(h) ? " on" : ""), nav = $("#nav");
+  const html = `<button class="iconbtn navclose" aria-label="Close menu">${icon("x")}</button>
     <a class="brand" href="#/bots">${critter("octopus", "#E86F51", "none", 26)}<b>inky</b><span class="os">open source</span></a>
     <a class="newbot" href="#/new">${icon("plus", 16, 2.2)}New bot</a>
     <div class="navlabel">Bots</div>
-    ${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/computer" data-bot="${b.id}">
+    <div class="navbots">${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/computer" data-bot="${b.id}">
       <span class="av">${botCritter(b, 26)}<i class="${["working", "learning"].includes(b.status) ? "live" : ""}" style="background:${m.color}"></i></span>
-      <span class="t"><span>${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}
+      <span class="t"><span>${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}</div>
     <div class="navbottom">
-      <a class="navlink needlink${on("#/needs")}" href="#/needs"><i></i>${S.needs} need you</a>
+      <a class="navlink needlink${S.needs ? "" : " calm"}${on("#/needs")}" href="#/needs"><i></i>${needsText()}</a>
       <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
       <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>
       <a class="navlink${on("#/library")}" href="#/library">${icon("store")}Library</a>
@@ -223,14 +229,33 @@ function renderNav() {
       <a class="navlink${on("#/settings")}" href="#/settings">${icon("gear")}Settings</a>
       <a class="navfoot" href="#/connectors">${icon("plug", 14)}<span>Claude Code · Codex · MCP</span></a>
     </div>`;
-  $("#nav").classList.remove("open");
+  if (html === nav._html) return;  // live events re-render a lot: an unchanged sidebar keeps its focus and scroll
+  const f = nav.contains(document.activeElement) && document.activeElement.getAttribute("href"), top = $(".navbots") ? $(".navbots").scrollTop : 0;
+  nav.innerHTML = nav._html = html;
+  $(".navbots").scrollTop = top;
+  $$("a.on", nav).forEach((a) => a.setAttribute("aria-current", "page"));
+  if (f && $(`a[href="${f}"]`, nav)) $(`a[href="${f}"]`, nav).focus();
+}
+function openNav() {  // phones: the sidebar slides over the page
+  $("#nav").classList.add("open"); $("#app").classList.add("navopen");
+  $$("[aria-controls=nav]").forEach((b) => b.setAttribute("aria-expanded", "true"));
+  $(".navclose").focus();
+}
+function closeNav() {
+  if (!$("#nav").classList.contains("open")) return;
+  const back = $("#nav").contains(document.activeElement);
+  $("#nav").classList.remove("open"); $("#app").classList.remove("navopen");
+  $$("[aria-controls=nav]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+  if (back && $(".mobilebar [aria-controls=nav]")) $(".mobilebar [aria-controls=nav]").focus();
 }
 
 // ---------------------------------------------------------------- router
-const VIEWS = {};
+const VIEWS = Object.create(null);  // so #/constructor isn't a page
+const homeLink = `<a class="btn p" href="#/bots" style="align-self:flex-start">Go to your bots</a>`;
+const NOTFOUND = { show(el) { el.innerHTML = `${mobileBar("Not found")}<div class="page narrow"><h1>Page not found</h1><p class="lede">There’s no page at ${esc(location.hash)}.</p>${homeLink}</div>`; } };
 function mobileBar(title) {
-  return `<div class="mobilebar"><button class="iconbtn" onclick="document.getElementById('nav').classList.add('open')" aria-label="Menu">${icon("menu")}</button><b>${esc(title || "Inky")}</b>
-  <span class="grow"></span><a class="btn s" href="#/needs">${S.needs} need you</a></div>`;
+  return `<div class="mobilebar"><button class="iconbtn" onclick="openNav()" aria-label="Menu" aria-controls="nav" aria-expanded="false">${icon("menu")}</button><b>${esc(title || "Inky")}</b>
+  <span class="grow"></span><button class="iconbtn" onclick="openCmd()" aria-label="Ask a bot or describe a job">${icon("search")}</button><a class="btn s${S.needs ? " hot" : ""}" href="#/needs">${needsText()}</a></div>`;
 }
 async function route() {
   const h = location.hash || "#/bots";
@@ -238,11 +263,11 @@ async function route() {
   const [, name, ...rest] = h.split(/[/?]/);
   const qs = new URLSearchParams(h.split("?")[1] || "");
   if (S.view && S.view.leave) S.view.leave();
-  const v = VIEWS[name] || VIEWS.bots, prev = S.view;
+  const v = name ? VIEWS[name] || NOTFOUND : VIEWS.bots, prev = S.view;
   S.view = v;
   $("#app").classList.toggle("bare", !!v.bare);
   $("#nav").style.display = v.bare ? "none" : "";
-  renderNav();
+  closeNav(); renderNav();
   const el = $("#view").cloneNode(false);  // fresh node per route: a slow render of the last view lands on a detached one
   let shown;
   const swap = () => {
@@ -252,7 +277,7 @@ async function route() {
         await v.show(el, rest.filter(Boolean), qs);
         MOTION.enter(el);
       } catch (e) {
-        el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
+        el.innerHTML = `${mobileBar("Inky")}<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p>${homeLink}</div>`;
       }
     })();
     return Promise.race([shown, new Promise((r) => setTimeout(r, 300))]);  // a slow page never freezes the screen mid-transition
@@ -269,6 +294,8 @@ window.addEventListener("hashchange", () => {
   if (location.hash !== "#/bar") { native({ type: "open", hash: location.hash }); history.replaceState(null, "", "?bar=1#/bar"); }
 });
 document.addEventListener("click", (e) => {
+  if (e.target.closest(".skip")) { e.preventDefault(); $("#view").focus(); }  // not a real #view link: the hash is the router's
+  if (e.target.id === "app" || e.target.closest("#nav a, .navclose")) closeNav();  // #app itself is only hit on the phone menu's backdrop
   const b = e.target.closest("[data-dl]"); if (b) { e.preventDefault(); download(b.dataset.dl, b.dataset.name); }
   const a = e.target.closest("a[target=_blank]");  // in the app, outside links open in your own browser
   if (a && APP && /^https?:/.test(a.href)) { e.preventDefault(); invoke("open_url", { url: a.href }); }
@@ -285,23 +312,30 @@ function mention(q) {  // "@Flat Hunter check now" (full name, longest first) or
   if (full) return { bot: full, text: rest.slice(full.name.length).trim(), named: full.name };
   const [w, ...more] = rest.split(/\s+/);
   const byWord = w ? S.bots.filter((b) => b.name.toLowerCase().split(/\s+/)[0].startsWith(w.toLowerCase())) : [];
-  return { bot: byWord.length === 1 ? byWord[0] : null, text: more.join(" ").trim(), named: w || "", ambiguous: byWord.length > 1 };
+  return { bot: byWord.length === 1 ? byWord[0] : null, text: more.join(" ").trim(), named: w || "", ambiguous: byWord.length > 1, matches: byWord };
 }
+const TOUCH = matchMedia("(hover: none) and (pointer: coarse)").matches;  // phones: no keyboard, so no key hints
 function cmdItems(q) {
-  const m = mention(q);
-  let text = m.bot ? m.text : q, target = m.bot;
-  const items = [];
-  const bots = target ? [target] : S.bots;
-  bots.forEach((b) => items.push({ sec: "SEND TO", label: esc(b.name), lead: botCritter(b, 26), k: botMeta(b).meta,
-    run: async () => { if (text.trim()) { await post(`/api/bots/${b.id}/chat`, { text, source: "command bar" }); toast("Sent", b); } location.hash = `#/bot/${b.id}/computer`; } }));
-  const act = (label, k, d, run) => items.push({ sec: "OR", label, k, lead: `<span style="width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center">${icon(d, 15)}</span>`, run });
-  act(text ? `Make a new bot: “${esc(text.slice(0, 60))}”` : "Make a new bot", "⌘ ↵", "plus", () => (location.hash = `#/new?job=${encodeURIComponent(text)}`));
+  q = q.trim();
+  const m = mention(q), at = q.startsWith("@"), text = at ? (m.named ? m.text : "") : q, items = [], kb = (k) => (TOUCH ? "" : k);
+  const lead = (d) => `<span style="width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center">${icon(d, 15)}</span>`;
+  // open the page first and send without waiting for the reply, so a later click still wins
+  const send = (sec) => (b) => items.push({ sec, label: esc(b.name), lead: botCritter(b, 26), k: botMeta(b).meta,
+    run: () => { location.hash = `#/bot/${b.id}/computer`; if (text) post(`/api/bots/${b.id}/chat`, { text, source: "command bar" }).catch((e) => toast(e.message, b)); } });
+  if (at) {  // an @name picks the bot; nothing is ever sent to a bot you didn't name
+    if (m.bot) send("SEND TO")(m.bot);
+    else if (m.ambiguous || !m.named) (m.ambiguous ? m.matches : S.bots).forEach(send("SEND TO"));
+    else items.push({ sec: "SEND TO", label: `No bot called “${esc(m.named)}”`, lead: lead("x"), k: "", noop: true });
+  }
+  const act = (label, k, d, run, make) => items.push({ sec: at ? "OR" : "ACTIONS", label, k, lead: lead(d), run, make });
+  act(text ? `Make a new bot: “${esc(text.slice(0, 60))}”` : "Make a new bot", kb(MAC ? "⌘ ↵" : "Ctrl ↵"), "plus", () => (location.hash = `#/new?job=${encodeURIComponent(text)}`), true);
   act("Open Needs you", `${S.needs}`, "check", () => (location.hash = "#/needs"));
-  act("Pause all bots", BAR ? "⌃ ⌥ P" : "⌥ P", "activity", () => pauseAll());
-  act('<span style="color:#F2957C">Stop everything on my screen</span>', BAR ? "⌃ ⌥ Esc" : "Esc", "x", () => stopScreens());
+  act("Pause all bots", kb(BAR ? "⌃ ⌥ P" : "⌥ P"), "activity", () => pauseAll());
+  act('<span style="color:#F2957C">Stop everything on my screen</span>', APP ? "⌃ ⌥ Esc" : "", "x", () => stopScreens());
   act("Models and keys", "", "models", () => (location.hash = "#/models"));
   act("Connectors · Claude Code, Codex", "", "plug", () => (location.hash = "#/connectors"));
   act("Library · agents other people made", "", "store", () => (location.hash = "#/library"));
+  if (!at) S.bots.forEach(send(text ? "OR SEND TO" : "BOTS"));  // below the actions: a bot gets your text only when you pick it
   return items;
 }
 async function pauseAll() { for (const b of S.bots) if (["working", "learning"].includes(b.status)) await post(`/api/bots/${b.id}/control`, { cmd: "pause" }); toast("Paused all bots"); refreshSoon(); }
@@ -313,25 +347,34 @@ function renderCmd() {
   let sec = "";
   $("#cmdlist").innerHTML = CMD.items.map((it, i) => {
     const head = it.sec !== sec ? `<div class="sec">${(sec = it.sec)}</div>` : "";
-    return `${head}<div class="it${i === CMD.sel ? " on" : ""}" data-i="${i}" role="option" aria-selected="${i === CMD.sel}">${it.lead}<span>${it.label}</span><span class="k">${esc(it.k || "")}</span></div>`;
+    return `${head}<div class="it${i === CMD.sel ? " on" : ""}" id="cmdi${i}" data-i="${i}" role="option" aria-selected="${i === CMD.sel}">${it.lead}<span>${it.label}</span><span class="k">${esc(it.k || "")}</span></div>`;
   }).join("");
-  $$("#cmdlist .it").forEach((el) => el.addEventListener("click", () => { CMD.sel = +el.dataset.i; runCmd(); }));
+  $$("#cmdlist .it").forEach((el) => {
+    el.addEventListener("click", () => { CMD.sel = +el.dataset.i; runCmd(); });
+    el.addEventListener("mousemove", () => { if (CMD.sel !== +el.dataset.i) pickCmd(+el.dataset.i); });
+  });
+  pickCmd(CMD.sel);
   const on = $("#cmdlist .it.on"); if (on) on.scrollIntoView({ block: "nearest" });
+}
+function pickCmd(i) {  // the mouse moves the selection without redrawing (and scrolling) the list under it
+  CMD.sel = i;
+  $$("#cmdlist .it").forEach((x) => { x.classList.toggle("on", +x.dataset.i === i); x.setAttribute("aria-selected", +x.dataset.i === i); });
+  if ($("#cmdq")) $("#cmdq").setAttribute("aria-activedescendant", `cmdi${i}`);
 }
 function openCmd(prefill = "") {
   CMD.open = true;
   const c = $("#cmd");
   c.classList.remove("hidden");
-  c.innerHTML = `<div class="cmdbox"><div class="in"><b>›</b><label class="vh" for="cmdq">Ask a bot or describe a job</label><input id="cmdq" placeholder="Ask a bot (@name) or describe a new job…" autocomplete="off" value="${esc(prefill)}" role="combobox" aria-controls="cmdlist" aria-expanded="true"><span class="mono small" style="color:#8E8A83">${MAC ? (BAR ? "⌥ Space" : "⌘ K") : BAR ? "Alt Space" : "Ctrl K"}</span></div>
+  c.innerHTML = `<div class="cmdbox"><div class="in"><b>›</b><label class="vh" for="cmdq">Ask a bot or describe a job</label><input id="cmdq" placeholder="Ask a bot (@name) or describe a new job…" autocomplete="off" value="${esc(prefill)}" role="combobox" aria-controls="cmdlist" aria-expanded="true">${TOUCH ? `<button class="iconbtn cmdx" aria-label="Close">${icon("x", 15)}</button>` : `<span class="mono small" style="color:var(--faint)">${MAC ? (BAR ? "⌥ Space" : "⌘ K") : BAR ? "Alt Space" : "Ctrl K"}</span>`}</div>
     <div id="cmdlist" role="listbox" aria-label="Suggestions"></div>
-    <div class="foot"><span>↵ send · ${MAC ? "⌘" : "Ctrl"} ↵ new bot · ↑↓ choose</span><span>esc close</span></div></div>`;
-  c.onclick = (e) => { if (e.target === c) closeCmd(); };
+    ${TOUCH ? "" : `<div class="foot"><span>↵ choose · ${MAC ? "⌘" : "Ctrl"} ↵ new bot · ↑↓ move</span><span>esc close</span></div>`}</div>`;
+  c.onclick = (e) => { if (e.target === c || e.target.closest(".cmdx")) closeCmd(); };
   const inp = $("#cmdq");
   inp.addEventListener("input", () => { CMD.sel = 0; renderCmd(); });
   inp.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") { CMD.sel = (CMD.sel + 1) % CMD.items.length; renderCmd(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { CMD.sel = (CMD.sel - 1 + CMD.items.length) % CMD.items.length; renderCmd(); e.preventDefault(); }
-    else if (e.key === "Enter") { if (e.metaKey || e.ctrlKey) CMD.sel = CMD.items.findIndex((x) => x.sec === "OR"); runCmd(); e.preventDefault(); }
+    else if (e.key === "Enter") { if (e.metaKey || e.ctrlKey) CMD.sel = CMD.items.findIndex((x) => x.make); runCmd(); e.preventDefault(); }
     else if (e.key === "Escape") closeCmd();
     else if (e.key === "Tab") { CMD.sel = (CMD.sel + (e.shiftKey ? CMD.items.length - 1 : 1)) % CMD.items.length; renderCmd(); e.preventDefault(); }
   });
@@ -346,14 +389,17 @@ const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).cat
 const native = (m) => (APP ? invoke("bar", { msg: m }) : null);
 const openOut = (url) => (APP ? invoke("open_url", { url }) : window.open(url, "_blank", "noopener"));  // your own browser
 function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
-async function runCmd() { const it = CMD.items[CMD.sel]; closeCmd(); if (it) try { await it.run(); } catch (e) { toast(e.message); } }
+async function runCmd() { const it = CMD.items[CMD.sel]; if (!it || it.noop) return; closeCmd(); try { await it.run(); } catch (e) { toast(e.message); } }
 document.addEventListener("keydown", (e) => {
-  const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName), navOpen = $("#nav").classList.contains("open");
   if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.code === "Space" && e.altKey)) { e.preventDefault(); CMD.open ? closeCmd() : openCmd(); }
   else if (e.code === "KeyP" && e.altKey && !inField) { e.preventDefault(); pauseAll(); }
   else if (e.key === "Escape" && CMD.open) closeCmd();
+  else if (e.key === "Tab" && CMD.open) { if (document.activeElement !== $("#cmdq")) trapTab($("#cmd"), e); }  // in the input, Tab moves the selection
   else if (e.key === "Escape" && !$("#modal").classList.contains("hidden")) closeModal();
   else if (e.key === "Tab" && !$("#modal").classList.contains("hidden")) trapTab($("#modal"), e);
+  else if (e.key === "Escape" && navOpen) closeNav();
+  else if (e.key === "Tab" && navOpen) trapTab($("#nav"), e);
 });
 
 let modalReturn = null;
@@ -387,14 +433,15 @@ function confirmBox(text, ok = "OK", danger = false, detail = "") {  // detail: 
 }
 window.handleLink = async (link) => {  // inky:// links the desktop app hands over (from install.sh, a browser, a friend)
   let u; try { u = new URL(link); } catch (e) { return toast("Inky can’t open that link."); }
-  if (u.host === "pair") {
-    let host = "?"; try { host = new URL(u.searchParams.get("url")).host; } catch (e) {}
+  if (u.host === "pair") {  // same checks as the engine (connect.parse_pair_link), before asking you anything
+    let host = ""; try { const t = new URL(u.searchParams.get("url")); if (/^https?:$/.test(t.protocol)) host = t.host; } catch (e) {}
+    if (!host || !/^[a-z0-9]{4,12}$/i.test((u.searchParams.get("code") || "").trim())) return toast("That pair link is incomplete.");
     if (!(await confirmBox(`Pair with the Inky at ${host}?`, "Pair"))) return;
     try { await post("/api/computers", { url: link }); SOUND.play("chime"); toast(`Paired with ${host}. Its bots show up in Computers.`); location.hash = "#/computers"; }
     catch (e) { toast(e.message); }
     return;
   }
-  if (u.host === "install") return getAgent(u.searchParams.get("url"));
+  if (u.host === "install") return u.searchParams.get("url") ? getAgent(u.searchParams.get("url")) : toast("That install link is incomplete.");
   toast("Inky can’t open that link.");
 };
 function closeModal() {
