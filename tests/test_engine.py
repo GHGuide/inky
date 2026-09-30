@@ -357,16 +357,23 @@ class EngineFileTest(unittest.TestCase):
     def test_port_zero_and_engine_file(self):
         import subprocess
         home = tempfile.mkdtemp()
-        p = subprocess.Popen([sys.executable, "-m", "inky", "--port", "0", "--home", home, "--no-open"],
-                             stdout=subprocess.PIPE, text=True)
+        # started and stopped the way the desktop app does it: it stops when its stdin closes
+        p = subprocess.Popen([sys.executable, "-m", "inky", "--port", "0", "--home", home, "--no-open", "--stop-with-stdin"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         try:
             url = p.stdout.readline().strip().rsplit(" ", 1)[-1]
             self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
             self.assertTrue(wait(lambda: os.path.exists(os.path.join(home, "engine.json")), 10))
-            info = json.load(open(os.path.join(home, "engine.json")))
-            self.assertEqual((info["url"], info["pid"]), (url, p.pid))
+            with open(os.path.join(home, "engine.json")) as f:
+                info = json.load(f)
+            self.assertEqual(info["url"], url)
+            if os.name == "posix":  # on Windows the venv's python.exe is a launcher, so the engine is its child
+                self.assertEqual(info["pid"], p.pid)
             self.assertTrue(json.load(urllib.request.urlopen(url + "/api/ping"))["ok"])
         finally:
-            p.terminate()
-            p.wait(15)
-        self.assertFalse(os.path.exists(os.path.join(home, "engine.json")))
+            p.stdin.close()
+            try:
+                p.wait(20)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        self.assertTrue(wait(lambda: not os.path.exists(os.path.join(home, "engine.json")), 10))
