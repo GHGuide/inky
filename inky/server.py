@@ -2,6 +2,7 @@
 so other websites open in your browser can't drive your bots."""
 import json
 import os
+import platform
 import re
 import threading
 import time
@@ -46,7 +47,7 @@ def bot_or_404(E, bid):
 # ------------------------------------------------------------------ bots
 @route("GET", "/api/ping")
 def ping(E, h, q, body):
-    return {"ok": True, "name": E.store.setting("engine_name", os.uname().nodename), "time": time.time()}
+    return {"ok": True, "name": E.store.setting("engine_name", platform.node()), "time": time.time()}
 
 
 PAIR_TRIES = []
@@ -61,7 +62,7 @@ def pair_route(E, h, q, body):
     PAIR_TRIES.append(now)
     if (body.get("code") or "").upper() != transfer.pair_code(E.token):
         raise HTTPError(403, "wrong code")
-    return {"token": E.token, "name": E.store.setting("engine_name", os.uname().nodename)}
+    return {"token": E.token, "name": E.store.setting("engine_name", platform.node())}
 
 
 @route("GET", "/api/state")
@@ -70,7 +71,7 @@ def state(E, h, q, body):
     today = usage.get(datetime.now().strftime("%Y-%m-%d"), {"calls": 0, "tokens": 0, "cost": 0})
     return {"bots": E.bots(), "needs": len(E.store.find("needs", status="open")), "setup_done": E.store.setting("setup_done", False),
             "settings": settings_view(E), "today": today, "pair_code": transfer.pair_code(E.token),
-            "engine": E.store.setting("engine_name", os.uname().nodename)}
+            "engine": E.store.setting("engine_name", platform.node())}
 
 
 @route("GET", "/api/bots")
@@ -209,8 +210,9 @@ def export_skill(E, h, q, body, sid):
             {"parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}, "name": "Every 15 minutes",
              "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [0, 0], "id": "t1"},
             {"parameters": {"method": "POST", "url": f"http://127.0.0.1:{port}/api/bots/{s['bot_id']}/run",
-                            "sendHeaders": True, "headerParameters": {"parameters": [{"name": "X-Inky-Token", "value": "={{$env.INKY_TOKEN}}"}]},
+                            "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
                             "sendBody": True, "specifyBody": "json", "jsonBody": json.dumps({"skill": s["id"], "wait": True})},
+             "credentials": {"httpHeaderAuth": {"name": "Inky token (Header X-Inky-Token)"}},  # you fill it in n8n; the file carries no token
              "name": f"Run {s['name']} (no AI)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [260, 0], "id": "r1"}],
                 "connections": {"Every 15 minutes": {"main": [[{"node": f"Run {s['name']} (no AI)", "type": "main", "index": 0}]]}},
                 "settings": {}}
@@ -411,7 +413,7 @@ def inky_config(E, h, q, body):
 @route("GET", "/api/computers")
 def computers(E, h, q, body):
     bots_ = E.bots()
-    local = {"id": "local", "name": E.store.setting("engine_name", os.uname().nodename), "kind": "local", "ok": True,
+    local = {"id": "local", "name": E.store.setting("engine_name", platform.node()), "kind": "local", "ok": True,
              "bots": [b for b in bots_ if (b.get("computer") or "local") == "local"], "docker": health.docker()}
     out = [local]
     for c in E.store.find("computers", desc=False):
@@ -438,7 +440,7 @@ def del_computer(E, h, q, body, cid):
 
 
 def settings_view(E):
-    d = {"setup_done": False, "engine_name": os.uname().nodename, "notify_app": True, "screen_allowed": False}
+    d = {"setup_done": False, "engine_name": platform.node(), "notify_app": True, "screen_allowed": False}
     d.update(E.store.setting("app", {}))
     d["data_folder"] = str(E.home)
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
@@ -584,9 +586,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, {"error": f"can’t reach {c['name']}: {e}"})
         return True
 
+    def _local(self):
+        """A browser on this computer. The Host check stops DNS-rebinding pages from reading the token."""
+        host = (self.headers.get("Host") or "").lower()
+        host = host[1:host.index("]")] if host.startswith("[") else host.split(":")[0]
+        return self.client_address[0] in ("127.0.0.1", "::1") and host in ("127.0.0.1", "localhost", "::1")
+
     def _static(self, path):
-        if path in ("/", "/index.html"):
-            html = (UI / "index.html").read_text().replace("__INKY_TOKEN__", self.engine.token)
+        if path in ("/", "/index.html"):  # other devices sign in with the pairing code instead
+            html = (UI / "index.html").read_text(encoding="utf-8").replace("__INKY_TOKEN__", self.engine.token if self._local() else "")
             return self._send(200, html.encode(), TYPES[".html"])
         f = (UI / path.lstrip("/")).resolve()
         if UI.resolve() not in f.parents or not f.is_file():

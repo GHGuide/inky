@@ -1,5 +1,7 @@
 // Inky app shell: API, live events, router, sidebar, command bar, toasts.
-const TOKEN = document.querySelector('meta[name="inky-token"]').content;
+// This computer's browser gets the token in the page; other devices sign in once with the pairing code.
+let TOKEN = document.querySelector('meta[name="inky-token"]').content;
+if (!TOKEN || TOKEN.startsWith("__")) { try { TOKEN = localStorage.getItem("inkyToken") || ""; } catch (e) { TOKEN = ""; } }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -11,6 +13,13 @@ async function api(method, path, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
   return data;
+}
+async function download(path, name) {  // header auth, so the token never sits in a link you could copy
+  const r = await fetch(path, { headers: { "X-Inky-Token": TOKEN } });
+  if (!r.ok) return toast(`Couldn’t download (${r.status})`);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([await r.text()], { type: "application/json" }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const get = (p) => api("GET", p), post = (p, b = {}) => api("POST", p, b), patch = (p, b) => api("PATCH", p, b), del = (p) => api("DELETE", p);
 const screenUrl = (id, kind = "jpg") => `/api/bots/${id}/screen.${kind}?t=${encodeURIComponent(TOKEN)}${kind === "jpg" ? "&_=" + Date.now() : ""}`;
@@ -122,6 +131,7 @@ async function route() {
   }
 }
 window.addEventListener("hashchange", route);
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-dl]"); if (b) { e.preventDefault(); download(b.dataset.dl, b.dataset.name); } });
 
 // ---------------------------------------------------------------- command bar (⌘K, Ctrl+K, Alt+Space)
 const CMD = { open: false, sel: 0, items: [] };
@@ -205,8 +215,28 @@ function confirmBox(text, ok = "OK", danger = false) {
 }
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 
+function signIn(why) {
+  $("#app").classList.add("bare"); $("#nav").style.display = "none";
+  $("#view").innerHTML = `<div class="page" style="max-width:420px;margin:12vh auto"><h1>Sign in to this Inky</h1>
+    <p class="lede">${esc(why || "Type the 6-letter pairing code shown on the computer running Inky (Computers page, or printed when it starts).")}</p>
+    <form id="pairf" class="col"><label class="l" for="pc">Pairing code</label><input class="f mono" id="pc" maxlength="6" autocomplete="one-time-code" autofocus>
+    <button class="btn p">Sign in</button></form></div>`;
+  $("#pairf").onsubmit = async (e) => {
+    e.preventDefault();
+    const r = await fetch("/api/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: $("#pc").value.trim() }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return signIn(d.error === "wrong code" ? "That code didn’t match. Try again." : d.error);
+    try { localStorage.setItem("inkyToken", d.token); } catch (err) {}
+    location.reload();
+  };
+}
+
 window.addEventListener("load", async () => {
-  await loadState();
+  if (!TOKEN) return signIn();
+  try { await loadState(); } catch (e) {
+    if (String(e.message).includes("401") || String(e.message).includes("token")) { try { localStorage.removeItem("inkyToken"); } catch (err) {} return signIn(); }
+    throw e;
+  }
   listen();
   route();
 });

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-OVERLAY = (Path(__file__).parent / "overlay.js").read_text()
+OVERLAY = (Path(__file__).parent / "overlay.js").read_text(encoding="utf-8")
 SPEED = {"slow": 0.9, "normal": 0.35, "turbo": 0.0}
 
 INDEX_JS = r"""() => {

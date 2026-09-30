@@ -217,6 +217,12 @@ class ServerMCPTransferTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(self.ua + "/api/bots")
         self.assertEqual(e.exception.code, 401)
+        # the page carries the token only for this computer's own browser, not a page on another host name
+        local = urllib.request.urlopen(self.ua + "/").read().decode()
+        self.assertIn(self.A.token, local)
+        rebound = urllib.request.urlopen(urllib.request.Request(self.ua + "/", headers={"Host": "evil.example:8800"})).read().decode()
+        self.assertNotIn(self.A.token, rebound)
+        self.assertEqual(self.api(self.ua, "", "POST", "/api/pair", {"code": transfer.pair_code(self.A.token)})["token"], self.A.token)
 
     def test_inky_mcp_server_and_move(self):
         A = self.A

@@ -220,6 +220,16 @@ def hardware():
             info["memory_gb"] = round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30)
         elif hasattr(os, "sysconf"):
             info["memory_gb"] = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)
+        elif platform.system() == "Windows":
+            import ctypes
+
+            class Mem(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                            ("avail", ctypes.c_ulonglong), ("pt", ctypes.c_ulonglong), ("pa", ctypes.c_ulonglong),
+                            ("vt", ctypes.c_ulonglong), ("va", ctypes.c_ulonglong), ("ve", ctypes.c_ulonglong)]
+            m = Mem(length=ctypes.sizeof(Mem))
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            info["memory_gb"] = round(m.total / 2**30)
         info["disk_free_gb"] = round(shutil.disk_usage(os.path.expanduser("~")).free / 2**30)
     except Exception:
         pass

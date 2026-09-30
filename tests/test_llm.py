@@ -55,7 +55,8 @@ class LLMTest(unittest.TestCase):
         k = Keys(home, backend="file")
         k.set("anthropic", "sk-test-000")
         self.assertEqual(k.get("anthropic"), "sk-test-000")
-        self.assertEqual(oct(os.stat(os.path.join(home, "keys.json")).st_mode & 0o777), "0o600")
+        if os.name == "posix":  # Windows has no Unix modes; the file lives in your own profile folder
+            self.assertEqual(oct(os.stat(os.path.join(home, "keys.json")).st_mode & 0o777), "0o600")
         k.delete("anthropic")
         self.assertIsNone(k.stored("anthropic"))
 

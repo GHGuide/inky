@@ -18,7 +18,8 @@ SCHEMA_REPLY = {"type": "object", "required": ["session_id", "prompt"], "propert
 def _exec(args, timeout=900):
     if not shutil.which("codex"):
         raise RuntimeError("the Codex CLI is not installed")
-    p = subprocess.run(["codex", "exec", *args], capture_output=True, text=True, timeout=timeout,
+    p = subprocess.run([shutil.which("codex"), "exec", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=timeout,
                        stdin=subprocess.DEVNULL)
     session, last, errors = None, None, []
     for line in p.stdout.splitlines():

@@ -16,7 +16,7 @@ def load_dotenv(path):
     p = Path(path)
     if not p.exists():
         return
-    for line in p.read_text().splitlines():
+    for line in p.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
@@ -31,13 +31,13 @@ class Keys:
 
     # ---- file backend
     def _read_file(self):
-        return json.loads(self.file.read_text()) if self.file.exists() else {}
+        return json.loads(self.file.read_text(encoding="utf-8")) if self.file.exists() else {}
 
     def _write_file(self, d):
         self.file.parent.mkdir(parents=True, exist_ok=True)
         self.file.touch(mode=0o600, exist_ok=True)
         os.chmod(self.file, 0o600)
-        self.file.write_text(json.dumps(d))
+        self.file.write_text(json.dumps(d), encoding="utf-8")
 
     # ---- keychain backend
     def _security(self, script):

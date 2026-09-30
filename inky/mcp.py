@@ -39,7 +39,8 @@ class MCPClient:
         if not (os.path.isabs(exe) or shutil.which(exe)):
             raise MCPError(f"“{exe}” is not installed on this computer")
         errf = open(self.log, "ab") if self.log else subprocess.DEVNULL
-        self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errf,
+        cmd = [shutil.which(exe) or exe, *self.command[1:]]  # Windows: npm installs `claude` as claude.cmd
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errf,
                                      env={**os.environ, **self.env}, cwd=self.cwd)
         threading.Thread(target=self._reader, daemon=True).start()
         r = self.request("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},

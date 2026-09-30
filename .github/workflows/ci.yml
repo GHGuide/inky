@@ -23,3 +23,23 @@ jobs:
         run: uv run python test_pipeline.py
       - name: app server
         run: uv run python app/test_serve.py
+
+  # Inky bots engine + UI server: unit tests (local fixture site, fake models, no keys) on all three OSes.
+  inky:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: browser
+        shell: bash
+        run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+      - name: unit tests
+        run: uv run python -m unittest discover -s tests -t . -v

@@ -26,7 +26,7 @@ def main():
         engine.store.set_setting("engine_name", a.name)
     engine.start_scheduler()
     srv = serve(engine, a.host, a.port)
-    url = f"http://{a.host}:{a.port}"
+    url = f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '::', '') else a.host}:{a.port}"  # this computer's browser gets the token
     from inky.transfer import pair_code
     print(f"Inky is running at {url}")
     print(f"Pairing code for other computers: {pair_code(engine.token)}", flush=True)
