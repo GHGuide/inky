@@ -34,6 +34,29 @@ const ICON = {
   users: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1 M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7 M21 19v-1a4 4 0 0 0-3-3.8 M15.5 4.2a3.5 3.5 0 0 1 0 6.6",
   speaker: "M11 5L6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14", micoff: "M9 9v2a3 3 0 0 0 5.1 2.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.9 5 M12 18v3 M3 3l18 18",
 };
+// Real brand marks (inky/ui/logos, sources in SOURCES.md). One-colour marks are tinted with the brand colour
+// through a CSS mask; multi-colour ones (colour: null) are shown as they are.
+const LOGOS = {
+  claude: ["Claude Code", "#D97757"], anthropic: ["Anthropic", "#191919"], openai: ["OpenAI", "#111110"],
+  codex: ["Codex", "#111110", "openai"], openrouter: ["OpenRouter", "#6467F2"], googlegemini: ["Google Gemini", "#8E75B2"],
+  groq: ["Groq", null], xai: ["xAI", "#111110"], mistral: ["Mistral AI", "#FA520F"], ollama: ["Ollama", "#111110"],
+  lmstudio: ["LM Studio", "#111110"], mcp: ["MCP", "#111110"], n8n: ["n8n", "#EA4B71"], apify: ["Apify", null],
+  telegram: ["Telegram", "#26A5E4"], github: ["GitHub", "#181717"], docker: ["Docker", "#2496ED"], linux: ["Linux", "#111110"],
+  tailscale: ["Tailscale", "#242424"], apple: ["Apple", "#111110"], windows: ["Windows", "#0078D4"],
+};
+const PROVIDER_LOGO = { openrouter: "openrouter", anthropic: "anthropic", openai: "openai", gemini: "googlegemini", groq: "groq",
+  xai: "xai", mistral: "mistral", ollama: "ollama", custom: "server", telegram: "telegram", apify: "apify", n8n: "n8n", lmstudio: "lmstudio" };
+function logo(slug, size = 34) {
+  if (slug === "server") return `<span class="logo" role="img" aria-label="Your own server" style="width:${size}px;height:${size}px">${icon("server", Math.round(size * 0.5))}</span>`;
+  const L = LOGOS[slug];
+  if (!L) return `<span class="logo lm" style="width:${size}px;height:${size}px">${esc(String(slug || "?")[0].toUpperCase())}</span>`;
+  const [name, color, file = slug] = L, m = Math.round(size * 0.6), url = `/logos/${file}.svg`;
+  const mark = color ? `<i style="width:${m}px;height:${m}px;background:${color};-webkit-mask:url(${url}) center/contain no-repeat;mask:url(${url}) center/contain no-repeat"></i>`
+    : `<img src="${url}" alt="" width="${m}" height="${m}">`;
+  return `<span class="logo" role="img" aria-label="${esc(name)}" style="width:${size}px;height:${size}px">${mark}</span>`;
+}
+const providerLogo = (name, size) => logo(PROVIDER_LOGO[name] || name, size);
+
 const icon = (n, s = 17, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
 const STATUS = { working: ["working", "#2F9E5B"], learning: ["learning", "#E86F51"], paused: ["paused", "#8E8A83"], needs_you: ["needs you", "#E86F51"],
   idle: ["idle", "#C9C5BD"], moved: ["on another computer", "#3B5BDB"] };

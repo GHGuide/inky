@@ -451,7 +451,7 @@ def inky_config(E, h, q, body):
 @route("GET", "/api/computers")
 def computers(E, h, q, body):
     bots_ = E.bots()
-    local = {"id": "local", "name": E.store.setting("engine_name", platform.node()), "kind": "local", "ok": True,
+    local = {"id": "local", "name": E.store.setting("engine_name", platform.node()), "kind": "local", "ok": True, "os": platform.system(),
              "bots": [b for b in bots_ if (b.get("computer") or "local") == "local"], "docker": health.docker()}
     out = [local]
     for c in E.store.find("computers", desc=False):
