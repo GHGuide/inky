@@ -1,6 +1,6 @@
 // Inky views. Each view: show(el, params, query), optional refresh(), onEvent(msg), leave().
 const LOOKS = { kinds: ["octopus", "cat", "blob"], colors: [["#E86F51", "Coral"], ["#E9A23B", "Honey"], ["#2BA59B", "Sea"], ["#3B5BDB", "Ocean"], ["#7C6CF2", "Grape"], ["#F07BA8", "Bubblegum"]],
-  accs: ["none", "glasses", "beanie", "headphones", "bow"] };
+  accs: ["none", "glasses", "beanie", "headphones", "bow"], earned: [[10, "scarf"], [50, "party"], [100, "star"], [500, "crown"]] };
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
 
@@ -179,7 +179,7 @@ VIEWS.new = {
 };
 
 // ================================================================ a bot
-const TABS = [["computer", "Computer"], ["results", "Results"], ["skills", "Skills"], ["settings", "Settings"], ["activity", "Activity"], ["call", "Call"]];
+const TABS = [["computer", "Computer"], ["results", "Results"], ["diary", "Diary"], ["skills", "Skills"], ["about", "About you"], ["settings", "Settings"], ["activity", "Activity"], ["call", "Call"]];
 VIEWS.bot = {
   async show(el, [id, tab = "computer"]) {
     this.id = +id; this.tab = tab; this.el = el;
@@ -227,7 +227,13 @@ VIEWS.bot = {
     this.msgKey = key;
     let lastDay = "";
     const needIds = new Set(this.data.needs.map((n) => n.id));
-    box.innerHTML = this.data.messages.map((m) => {
+    const msgs = [];  // "Checked 11 results…" six times in a row reads as one line with ×6
+    for (const m of this.data.messages) {
+      const last = msgs.at(-1);
+      if (last && m.role === "bot" && last.role === "bot" && m.text === last.text && !m.need && !(m.chips || []).length) last.times = (last.times || 1) + 1;
+      else msgs.push({ ...m });
+    }
+    box.innerHTML = msgs.map((m) => {
       const d = new Date(m.ts * 1000).toDateString();
       const day = d !== lastDay ? `<div class="m sys">${d === new Date().toDateString() ? "Today" : d} ${hhmm(m.ts)}</div>` : "";
       lastDay = d;
@@ -238,7 +244,7 @@ VIEWS.bot = {
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
       const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(x)}</span>`).join("");
       const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
-      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}</span>${done}${chips}${card}</div></div>`;
+      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>${done}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.need, x.dataset.o)));
@@ -305,7 +311,7 @@ VIEWS.bot = {
       <div class="col small" style="gap:6px"><div class="between"><span class="muted">Skill</span><span>${esc(skill ? skill.name : "none yet")}</span></div>
       <div class="between"><span class="muted">Step</span><span class="mono">${b.step_n || "–"}${skill ? " of " + skill.steps.length : ""}</span></div>
       <div class="between"><span class="muted">Last run</span><span>${lastRun ? esc(lastRun.status) + " · " + ago(lastRun.ts) : "–"}</span></div></div>
-      <div style="height:1px;background:var(--line)"></div><div class="head"><b>It remembers</b><a class="small" href="#/bot/${b.id}/settings">Edit</a></div><div class="row wrap" style="gap:6px">${mem}</div>
+      <div style="height:1px;background:var(--line)"></div><div class="head"><b>It remembers</b><a class="small" href="#/bot/${b.id}/about">Edit</a></div><div class="row wrap" style="gap:6px">${mem}</div>
       <div style="height:1px;background:var(--line)"></div><div class="col" style="gap:6px">${this.data.events.filter((e) => ["fixed", "repair", "problem", "learned"].includes(e.kind)).slice(0, 3).map((e) => `<span class="logl">${hhmm(e.ts)} · ${esc(e.text)}</span>`).join("") || `<span class="small muted">No fixes yet</span>`}</div>
       <a class="small" href="#/bot/${b.id}/skills" style="margin-top:auto;font-weight:600">See all ${this.data.skills.length} skills</a>`;
     if (skill) {
@@ -367,8 +373,7 @@ VIEWS.bot = {
         <span class="small muted">Skills replay with no AI, so checking often costs nothing extra.</span></div>
       <div class="card"><b>What it may do</b>${(b.rules || []).map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><b>${{ own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" }[r.kind] || r.kind}</b><span>${esc(r.text)}</span>${r.kind === "filter" || i > 2 ? `<button class="chip" data-rr="${i}" style="border:0;cursor:pointer">remove</button>` : "<span></span>"}</div>`).join("")}
         <input class="f" id="rule" placeholder="Add a rule in your words, e.g. skip ground floor flats"></div>
-      <div class="card"><div class="head"><b>It remembers</b><span class="small muted">only on this computer</span></div>${(b.memory || []).map((m, i) => `<div class="rule"><span></span><span>${esc(m.text)}</span><button class="chip" data-fg="${i}" style="border:0;cursor:pointer">Forget</button></div>`).join("") || `<span class="small muted">Nothing yet. Tell it things in the chat.</span>`}
-        <input class="f" id="mem" placeholder="Tell it something to remember"></div>
+      <div class="card"><div class="head"><b>It remembers</b><span class="small muted">${(b.memory || []).length} things about you</span></div><a class="btn s" href="#/bot/${b.id}/about" style="align-self:flex-start">About you</a></div>
       <div class="card"><b>Where it works</b><span class="seg" id="mode"><button data-m="own" class="${b.mode !== "screen" ? "on" : ""}">Its own computer</button><button data-m="screen" class="${b.mode === "screen" ? "on" : ""}" ${S.settings.screen_allowed ? "" : "disabled title='Allow bots on your screen in Settings first'"}>A window on your screen</button></span>
         <span class="small muted">${b.mode === "screen" ? "It opens a visible window on your desktop with the coral frame. Move your mouse to pause it, Esc to stop, ⌥C to chat." : "A private browser, streamed here. Your screen stays yours."}</span>
         <a class="btn s" href="#/computers">Move to another computer</a></div>
@@ -383,8 +388,7 @@ VIEWS.bot = {
     $("#qf").onchange = $("#qt").onchange = () => save({ schedule: { ...s, quiet_from: $("#qf").value, quiet_to: $("#qt").value } });
     $("#rule").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) { post(`/api/bots/${b.id}/chat`, { text: `New rule: ${e.target.value}` }).then(refreshSoon); e.target.value = ""; } };
     $$("[data-rr]").forEach((x) => (x.onclick = () => { const r = b.rules[+x.dataset.rr]; save({ rules: b.rules.filter((_, i) => i !== +x.dataset.rr), filters: (b.filters || []).filter((f) => (f.text || "") !== r.text) }); }));
-    $("#mem").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) { save({ memory: [...(b.memory || []), { text: e.target.value.trim(), ts: Date.now() / 1000 }] }); e.target.value = ""; } };
-    $$("[data-fg]").forEach((x) => (x.onclick = () => save({ memory: b.memory.filter((_, i) => i !== +x.dataset.fg) })));
+
     $$("#mode button").forEach((x) => (x.onclick = () => save({ mode: x.dataset.m })));
     $$("[data-au]").forEach((x) => (x.onclick = () => save({ automations: b.automations.filter((_, i) => i !== +x.dataset.au) })));
     $("#delbot").onclick = async () => { if (await confirmBox(`Delete ${b.name}? Its skills, memory and results go too. This can’t be undone.`, "Delete bot", true)) { await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots"; } };
@@ -408,6 +412,29 @@ VIEWS.bot = {
   },
 
   // ---- Call: speak with the bot (browser speech), it keeps working
+  tab_diary(tb) {
+    const g = this.data.growth, b = this.data.bot, next = g.next;
+    const pct = next ? Math.min(100, Math.round((g.runs / next.at) * 100)) : 100;
+    const tile = (v, k) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`;
+    tb.innerHTML = `<div class="grid4">${tile(g.days, g.days === 1 ? "day on the job" : "days on the job")}${tile(g.streak, "day streak")}${tile(g.hours_saved + " h", "of your time saved")}${tile(g.ai_saved, "AI calls saved")}</div>
+      <div class="card"><div class="between"><b>Level ${g.level}</b><span class="small muted">${g.runs} good runs</span></div>
+        <div style="height:10px;border-radius:5px;background:var(--panel);overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--coral);border-radius:5px"></div></div>
+        <span class="small muted">${next ? `${next.at - g.runs} more runs to unlock the ${esc(next.acc)} ${critter(b.look.kind, b.look.color, next.acc, 22)}` : "Everything unlocked. A true veteran."}</span>
+        ${g.unlocked.length ? `<span class="row wrap small">Unlocked: ${g.unlocked.map((a) => `<span class="chip">${critter(b.look.kind, b.look.color, a, 20)} ${esc(a)}</span>`).join("")} <a href="#/look/${b.id}">wear one</a></span>` : ""}</div>
+      <div class="col"><b>Diary</b>${(this.data.diary || []).map((d) => `<div class="card"><span class="mono small muted">${esc(d.date)}</span><span>${esc(d.text)}</span></div>`).join("") || `<span class="small muted">${esc(b.name)} writes a short entry each evening, on days something happened.</span>`}</div>`;
+  },
+
+  tab_about(tb) {
+    const b = this.data.bot, mem = b.memory || [];
+    const save = (memory) => patch(`/api/bots/${b.id}`, { memory }).then(() => this.refresh());
+    tb.innerHTML = `<div class="card"><div class="head"><b>Things ${esc(b.name)} knows about you</b><span class="small muted">only on this computer</span></div>
+      ${mem.map((m, i) => `<div class="row"><input class="f grow" data-mi="${i}" value="${esc(m.text)}" aria-label="Memory ${i + 1}"><button class="btn s" data-fg="${i}">Forget</button></div>`).join("") || `<span class="small muted">Nothing yet. Tell it things in the chat, like “I prefer Libertà”.</span>`}
+      <input class="f" id="mem" placeholder="Tell it something to remember"></div>`;
+    $$("[data-mi]", tb).forEach((x) => (x.onchange = () => save(mem.map((m, i) => (i === +x.dataset.mi ? { ...m, text: x.value.trim() } : m)).filter((m) => m.text))));
+    $$("[data-fg]", tb).forEach((x) => (x.onclick = () => save(mem.filter((_, i) => i !== +x.dataset.fg))));
+    $("#mem").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) { save([...mem, { text: e.target.value.trim(), ts: Date.now() / 1000 }]); e.target.value = ""; } };
+  },
+
   tab_call(tb, first) {
     const b = this.data.bot;
     if (!first && $("#callbox")) return;
@@ -670,7 +697,8 @@ VIEWS.look = {
         <div class="grid2" style="gap:28px"><div class="col" style="gap:18px">
           <div class="col"><b class="small">Animal</b><div class="row">${LOOKS.kinds.map((k) => `<button class="animal ${d.kind === k ? "on" : ""}" data-k="kind" data-v="${k}">${critter(k, d.color, "none", 44)}${cap(k)}</button>`).join("")}</div></div>
           <div class="col"><b class="small">Color</b><div class="row">${LOOKS.colors.map(([c, n]) => `<button class="swatch ${d.color === c ? "on" : ""}" style="background:${c}" data-k="color" data-v="${c}" aria-label="${n}"></button>`).join("")}</div></div>
-          <div class="col"><b class="small">Accessory</b>${chips("acc", LOOKS.accs.map((a) => [a, a === "none" ? "Nothing" : cap(a)]))}</div>
+          <div class="col"><b class="small">Accessory</b>${chips("acc", LOOKS.accs.map((a) => [a, a === "none" ? "Nothing" : cap(a)]))}
+            <div class="chips">${LOOKS.earned.map(([at, a]) => (b.unlocked || []).includes(a) ? `<button data-k="acc" data-v="${a}" class="${d.acc === a ? "on" : ""}">${cap(a === "party" ? "party hat" : a)}</button>` : `<button disabled title="Unlocks at ${at} runs">🔒 ${cap(a === "party" ? "party hat" : a)} · ${at} runs</button>`).join("")}</div></div>
           <div class="col"><label class="small" for="lname"><b>Name</b></label><input class="f" id="lname" value="${esc(d.name)}"></div>
           <div class="col"><b class="small">Voice on calls</b>${chips("voice", [["soft", "Soft"], ["bright", "Bright"], ["off", "Off, text only"]])}</div></div>
         <div class="col" style="gap:18px"><div class="col"><b class="small">How it talks</b>${chips("tone", [["cheerful", "Cheerful"], ["calm", "Calm"], ["direct", "Straight to the point"]])}</div>

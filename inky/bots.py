@@ -19,7 +19,7 @@ from inky.mcp import MCPManager
 from inky.safety import classify
 from inky.store import Store
 from inky import persona as persona_mod
-from inky import insights
+from inky import growth, insights
 from inky.insights import quiet
 
 LOOKS = [("octopus", "#E9A23B", "glasses"), ("cat", "#7C6CF2", "none"), ("blob", "#2BA59B", "headphones"),
@@ -172,6 +172,7 @@ class Engine:
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
+                "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
                 "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
                 "skill_id": run.skill_id if run else None, "shown": len(getattr(run, "show", None) or []) if run else 0,
@@ -637,7 +638,7 @@ class Engine:
             for r in self.store.find("results", bot_id=bid, limit=1000):
                 if r.get("new") and r.get("run") != run.run_id:
                     self.store.update("results", r["id"], new=False)
-            self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"])
+            self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"], steps=len(skill["steps"]))
             reads = any(st["action"] == "extract" for st in skill["steps"])
             self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
@@ -657,6 +658,7 @@ class Engine:
                 self.store.update("bots", bid, warned_unchecked=skipped)
                 self.store.message(bid, "bot", f"I couldn’t check {'; '.join(skipped)}: this site’s results don’t show that. "
                                                f"Its search already narrows it, or tell me another way to check.")
+            self.check_level(bid)  # after this run's own messages
             for auto in b.get("automations", []):
                 if auto.get("when") == "every_run" or (auto.get("when") == "new_results" and new):
                     self.delegate(bid, auto, context=new, run=run)
@@ -841,10 +843,17 @@ class Engine:
     def tick(self, now=None):
         now = now or time.time()
         hm = datetime.fromtimestamp(now).strftime("%H:%M")
+        today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
         for b in self.store.find("bots"):
             s = b.get("schedule") or {}
             if b.get("status") == "moved":
                 continue  # its server runs it now
+            # daily rituals first: they happen whether or not the bot is on a schedule
+            if s.get("summary_at") == hm and b.get("summary_day") != today:
+                self.post_paper(b["id"], now)
+            if s.get("quiet_from") == hm and b.get("night_day") != today:
+                self.store.update("bots", b["id"], night_day=today)
+                threading.Thread(target=self.evening, args=(b["id"], now), daemon=True).start()
             if not s.get("every_minutes") or self.busy(b["id"]) or not self.store.find("skills", bot_id=b["id"], limit=1):
                 continue
             if quiet(hm, s.get("quiet_from"), s.get("quiet_to")):
@@ -854,8 +863,51 @@ class Engine:
                     self.run(b["id"], reason="schedule")
                 except Exception:
                     pass
-            if s.get("summary_at") == hm and b.get("summary_day") != datetime.fromtimestamp(now).strftime("%Y-%m-%d"):
-                self.post_paper(b["id"], now)
+
+    def evening(self, bid, now):
+        self.write_diary(bid, now)
+
+    # ---------------------------------------------------------- growth
+    def check_level(self, bid):
+        n = len(growth.ok_runs(self.store.find("runs", bot_id=bid, limit=5000)))
+        acc = growth.level_up(n - 1, n)
+        if not acc:
+            return None
+        self.store.event(bid, "level", f"Reached {n} runs: unlocked the {acc}")
+        self.store.message(bid, "bot", f"🎉 {n} runs on the job! I unlocked the {acc}. You can put it on me in Make it yours.", team=True)
+        self.bus.publish("level", bot=bid, acc=acc, runs=n)
+        self.bus.publish("messages", bot=bid)
+        return acc
+
+    def growth_view(self, bid):
+        b = self.store.get("bots", bid)
+        return growth.stats(b, self.store.find("runs", bot_id=bid, limit=5000), self.store.find("skills", bot_id=bid), time.time())
+
+    def write_diary(self, bid, now=None):
+        """One entry a day, in the bot's own words: a template, polished once by the model when one is set."""
+        now = now or time.time()
+        day = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+        if self.store.find("diary", bot_id=bid, key=day, limit=1):
+            return None
+        start = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
+        b = self.store.get("bots", bid)
+        runs = [r for r in self.store.find("runs", bot_id=bid, limit=500) if r["ts"] >= start]
+        events = [e for e in self.store.find("events", bot_id=bid, limit=500) if e["ts"] >= start]
+        if not growth.ok_runs(runs) and not any(e.get("kind") in ("fixed", "problem", "level") for e in events):
+            return None  # nothing happened: no entry
+        text = growth.diary_entry(b, events, runs)
+        try:
+            p = persona_mod.prompt_lines(b, self.store.setting("app", {}).get("user_name", ""), datetime.fromtimestamp(now), [])
+            t, _ = self.llm.chat("chat", [{"role": "system", "content": f"You are {b['name']}, a bot. {p}"},
+                                          {"role": "user", "content": f"Rewrite this diary entry in your own voice. Keep every fact, add none, at most 4 sentences, plain text:\n{text}"}],
+                                 bot_id=bid, max_tokens=400)
+            t = re.sub(r"<think>.*?(</think>|$)", "", t or "", flags=re.S).strip()
+            if 20 < len(t) < 900 and not t.startswith("{"):
+                text = t
+        except Exception:
+            pass  # no model, or it failed: the template is fine
+        self.store.insert("diary", {"text": text, "date": day}, bot_id=bid, key=day)
+        return text
 
     # ---------------------------------------------------------- insights: what a bot notices
     def post_paper(self, bid, now=None):

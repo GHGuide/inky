@@ -90,6 +90,7 @@ function feel(m) {
   if (m.kind === "event" && m.ev === "fixed") r.fixed = Date.now();
   if (m.kind === "event" && m.ev === "replay" && /pass your rules|^Done in/.test(m.text || "")) SOUND.play("chime", bot);
   if (m.kind === "needs") knockFor = bot;  // loadState knocks if the count went up
+  if (m.kind === "level") { r.learned = Date.now(); SOUND.play("rise", bot); confetti(); toast(`Unlocked the ${m.acc}!`, bot); }
 }
 let moodKey = "";
 setInterval(() => {  // moods fade back to calm without any event

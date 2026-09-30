@@ -97,7 +97,8 @@ def bot(E, h, q, body, bid):
             "messages": list(reversed(E.store.find("messages", bot_id=bid, limit=120))),
             "runs": E.store.find("runs", bot_id=bid, limit=30),
             "events": [e for e in E.store.find("events", bot_id=bid, limit=120) if e.get("kind") != "ai"][:60],
-            "needs": E.store.find("needs", bot_id=bid, status="open")}
+            "needs": E.store.find("needs", bot_id=bid, status="open"),
+            "growth": E.growth_view(bid), "diary": E.store.find("diary", bot_id=bid, limit=30)}
 
 
 @route("PATCH", r"/api/bots/(\d+)")

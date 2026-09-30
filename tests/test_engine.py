@@ -281,3 +281,19 @@ class ServerMCPTransferTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GrowthEngineTest(unittest.TestCase):
+    def test_level_up_and_one_diary_a_day(self):
+        E = make_engine()
+        bid = E.create_bot({"name": "Tiny", "job": "watch a page", "look": {"kind": "blob"}})["id"]
+        for _ in range(9):
+            E.store.insert("runs", {"kind": "replay", "items": 3, "new": 0, "steps": 2}, bot_id=bid, status="ok")
+        self.assertIsNone(E.check_level(bid))
+        E.store.insert("runs", {"kind": "replay", "items": 3, "new": 1, "steps": 2}, bot_id=bid, status="ok")
+        self.assertEqual(E.check_level(bid), "scarf")
+        self.assertIn("scarf", E.store.find("messages", bot_id=bid)[0]["text"])
+        self.assertEqual(E.growth_view(bid)["unlocked"], ["scarf"])
+        self.assertIn("10 runs", E.write_diary(bid))
+        self.assertIsNone(E.write_diary(bid))
+        E.close()
