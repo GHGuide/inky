@@ -50,6 +50,7 @@ INDEX_JS = r"""() => {
     if (el.closest('inky-overlay')) continue;
     const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
     if (r.width < 2 || r.height < 2 || cs.visibility === 'hidden' || cs.display === 'none' || el.type === 'hidden') continue;
+    if (el.checkVisibility && !el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true})) continue;
     const text = (el.innerText || el.value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
     const name = (labelOf(el) || text || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || el.getAttribute('name') || '').trim().replace(/\s+/g, ' ').slice(0, 80);
     el.setAttribute('data-inky-idx', i);
@@ -73,7 +74,7 @@ EXTRACT_JS = r"""(spec) => {
     for (const [k, v] of Object.entries(spec.fields || {})) {
       const [css, attr] = v.split('@');
       const el = css ? it.querySelector(css) : it;
-      row[k] = el ? (attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
+      row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
       if (attr === 'href' && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }
     return row;

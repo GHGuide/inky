@@ -124,6 +124,7 @@ class LLM:
                     "messages": [m for m in messages if m["role"] != "system"]}
             res = httpx.post(p["base"] + "/messages", json=body, timeout=timeout,
                              headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+            self._record(provider, res)
             res.raise_for_status()
             j = res.json()
             text = "".join(c.get("text", "") for c in j.get("content", []))
@@ -134,6 +135,7 @@ class LLM:
             if provider == "openrouter":
                 body["usage"] = {"include": True}
             res = httpx.post(p["base"].rstrip("/") + "/chat/completions", json=body, headers=headers, timeout=timeout)
+            self._record(provider, res)
             res.raise_for_status()
             j = res.json()
             text = j["choices"][0]["message"].get("content") or ""
@@ -144,6 +146,14 @@ class LLM:
         if self.on_usage:
             self.on_usage(bot_id, usage)
         return text, usage
+
+    def _record(self, provider, res):
+        errs = self.store.setting("provider_errors", {})
+        if res.status_code >= 400:
+            errs[provider] = {"status": res.status_code, "at": time.time(), "text": res.text[:200]}
+        else:
+            errs.pop(provider, None)
+        self.store.set_setting("provider_errors", errs)
 
     def ask_json(self, role, system, user, bot_id=None, retries=1, **kw):
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]

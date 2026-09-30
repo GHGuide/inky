@@ -57,8 +57,9 @@ def search_form():
               '<label for="tipologia">Tipologia</label><select id="tipologia" name="tipologia">'
               '<option>Appartamenti</option><option>Ville</option><option>Uffici</option></select>'
               '<label for="prezzo_max">Prezzo max</label><input id="prezzo_max" name="prezzo_max" placeholder="Nessun limite">')
-    if STATE["layout"] == 1:
-        return f'<form action="/results">{fields}<br><button type="submit">Cerca</button></form>'
+    if STATE["layout"] in (1, 3):
+        label = "Cerca" if STATE["layout"] == 1 else "Trova"
+        return f'<form action="/results">{fields}<br><button type="submit">{label}</button></form>'
     return (f'<form action="/results"><label for="comune">Dove</label><input id="comune" name="comune" placeholder="Città">'
             '<details><summary>Filtri</summary>'
             '<label for="tipologia">Tipologia</label><select id="tipologia" name="tipologia"><option>Appartamenti</option><option>Ville</option></select>'
