@@ -1,1 +1,62 @@
 /* bot.css: the bot page (loaded after app.css) */
+/* header: a long status ends in "…" instead of being cut mid-word; Share, Call and Bring back move into ⋯ on phones */
+/* a long name, even one without spaces, ends in "…" everywhere on this page */
+.bothead h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:5em;flex-shrink:1}
+.bothead .where{min-width:0;flex-shrink:2;white-space:nowrap}.bothead .where span{overflow:hidden;text-overflow:ellipsis}.bothead .where svg{flex-shrink:0}
+.bothead .pill{min-width:44px;flex-shrink:1;overflow:hidden}.bothead .pill span{overflow:hidden;text-overflow:ellipsis}.bothead .pill i{flex-shrink:0}
+.bothead .more{display:none;position:relative}
+.bothead .more summary{list-style:none;cursor:pointer;font-size:18px;line-height:1}.bothead .more summary::-webkit-details-marker{display:none}
+.bothead .more .menu{position:absolute;right:0;top:44px;z-index:20;min-width:230px;padding:6px;gap:2px;box-shadow:0 12px 30px rgba(17,17,16,.15)}
+.bothead .more .menu a,.bothead .more .menu button{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 12px;border:0;border-radius:10px;background:none;text-align:left;text-decoration:none;font-size:14px;cursor:pointer;width:100%}
+.bothead .more .menu a:hover,.bothead .more .menu button:hover{background:var(--panel)}
+
+/* tabs: they fit at 1280; narrower they scroll sideways, and a fade says there's more */
+.botpage .tabs{gap:2px;padding:0 12px;scrollbar-width:thin}
+.botpage .tabs a{padding:0 12px}
+.botpage .tabs.fr{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 56px),transparent)}
+.botpage .tabs.fl{-webkit-mask-image:linear-gradient(90deg,transparent,#000 56px);mask-image:linear-gradient(90deg,transparent,#000 56px)}
+.botpage .tabs.fl.fr{-webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 56px),transparent)}
+.botpage .tabs a.only-s{display:none}
+.botpage .tabs a.dot::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--coral);margin-left:6px;flex-shrink:0}
+
+/* chat: an answered card */
+.needcard .btn.chosen,.needcard .btn.chosen:disabled{background:var(--ink);color:#fff;border-color:var(--ink);opacity:1}
+
+/* computer tab */
+#drv{flex-wrap:wrap;gap:6px 10px;min-width:0}#drv b{min-width:0;overflow-wrap:anywhere}
+.screen .bar{gap:10px}.screen .bar span{white-space:nowrap}.screen .bar span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+#drv .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 4px rgba(232,111,81,.2)}
+.screen .idle{aspect-ratio:1280/800;border-radius:0 0 8px 8px;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:16px;color:var(--muted)}
+.screen .idle b{color:var(--ink);font-size:15px}
+.sidecard{flex:0 1 250px;min-width:230px}
+.botpage .steps{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}
+
+/* skills: the steps card and the side column wrap instead of squeezing */
+.skrow{flex-wrap:wrap}.skrow>.card{flex:1 1 300px;min-width:0}.skside{flex:0 1 240px;min-width:220px}
+.skrow .typed{display:block;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.skrow .steptarget{max-width:40%;overflow-wrap:anywhere;text-align:right}
+
+/* settings, results, activity */
+.autoform{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.tscroll{overflow-x:auto;border-radius:14px}
+table.t td.nw{white-space:nowrap}
+
+/* call: the box and its rings shrink with the column */
+.callrow{align-items:stretch;gap:18px;flex:1;flex-wrap:wrap}
+.callrow .call{flex:2 1 300px;overflow:hidden;padding:22px}
+.callside{flex:1 1 240px;min-width:0}
+.call .rings{width:min(260px,100%);height:auto;aspect-ratio:1}
+.call .rings .critter{width:50%;height:auto}
+
+@media (max-width:1100px){.chatcol{width:clamp(260px,30vw,360px)}.kbdhint{display:none}.bothead .where,.bothead .badge{display:none}.botpage .tabbody{padding:14px 14px 16px}}
+@media (max-width:760px){
+  .bothead .more{display:block}.bothead h1{display:none}  /* the bar above already names it */
+  .botpage .chatcol{width:auto}.sidecard{flex:1 1 auto}
+  .botpage .tabs a.only-s{display:flex}
+  .botpage:not(.t-chat) .chatcol{display:none}  /* phones: the tab first, the chat is its own tab */
+  .botpage.t-chat .tabbody{display:none}
+  .botpage.t-chat .rightcol{min-height:0;flex:0 0 auto;order:-1}
+  .botpage.t-chat .chatcol{min-height:0;height:calc(100dvh - 172px)}
+  .skrow .steptarget{display:none}.skside{flex:1 1 auto}.skside .grid2{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+.ritual:focus{outline:none}  /* the hatch overlay takes focus so Enter and Esc close it */
