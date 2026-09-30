@@ -29,7 +29,7 @@ CORAL = "#E86F51"
 
 DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON object:
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
- "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <number or 0>, "summary_at": "<HH:MM or null>",
+ "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <how often to check: 1440 daily or "every morning", 60 hourly, 0 only when asked>, "summary_at": "<HH:MM or null>",
  "filters": [{"field": "<price|size|title|…>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"]}"""
 
@@ -41,7 +41,7 @@ Actions:
 {{"type":"remove_rule","text":"<rule to drop>"}}
 {{"type":"remember","text":"<fact about the user>"}}   {{"type":"forget","text":"<fact>"}}
 {{"type":"learn","goal":"<what to do on the site>","url":"<start URL>"}}   (learn a new site/search once)
-{{"type":"run"}}  (check now)   {{"type":"schedule","every_minutes":<n>,"summary_at":"<HH:MM or null>","quiet_from":"HH:MM","quiet_to":"HH:MM"}}
+{{"type":"run"}}  (check now)   {{"type":"schedule","every_minutes":<n>}}  (add "summary_at":"HH:MM", "quiet_from"/"quiet_to":"HH:MM" only if the user asks; "" turns one off)
 {{"type":"pause"}} {{"type":"resume"}} {{"type":"stop"}} {{"type":"speed","value":"slow|normal|turbo"}}
 {{"type":"delegate","server":"<connector>","tool":"<tool>","args":{{...}},"label":"<what you hand over>"}}   (hand a job to Claude Code, Codex or another connector now)
 {{"type":"add_automation","when":"new_results|every_run","server":..,"tool":..,"args":{{...}},"label":".."}}   (use {{{{new_json}}}}, {{{{count}}}}, {{{{bot}}}} in args)
@@ -151,7 +151,8 @@ class Engine:
         sk = self.store.find("skills", bot_id=b["id"])
         needs = self.store.find("needs", bot_id=b["id"], status="open")
         status = b.get("status") or "idle"
-        if run and run.thread and run.thread.is_alive():
+        live = bool(run and run.thread and run.thread.is_alive())
+        if live:
             status = "paused" if run.paused.is_set() else ("learning" if run.kind == "learn" else "working")
         elif needs:
             status = "needs_you"
@@ -161,7 +162,7 @@ class Engine:
             nxt = (b.get("last_run") or time.time()) + sched["every_minutes"] * 60
         return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory",
                                          "schedule", "automations", "mode", "computer", "last_run", "created")},
-                "status": status, "step": run.step if run else "", "step_n": run.n if run else 0,
+                "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
                 "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
@@ -218,6 +219,9 @@ class Engine:
 
     def delete_bot(self, bid):
         self.control(bid, "stop")
+        run = self.runs.pop(bid, None)
+        if run and run.thread:
+            run.thread.join(15)  # let it finish writing before its rows go
         self.close_computer(bid)
         for t in ("skills", "runs", "results", "messages", "events", "needs"):
             self.store.delete(t, bot_id=bid)
@@ -374,6 +378,11 @@ class Engine:
         sk = self.store.find("skills", bot_id=bid)
         hist = [m for m in reversed(self.store.find("messages", bot_id=bid, limit=12))]
         status = self.bot_view(b)["status"] + (f" · {run.step}" if run and run.step else "")
+        last = next((r for r in self.store.find("runs", bot_id=bid, limit=5) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
+        if last:
+            status += (f". Last run {datetime.fromtimestamp(last['ts']).strftime('%a %H:%M')}: {last.get('items', 0)} results, "
+                       f"{last.get('matched', 0)} pass the rules, {last.get('new', 0)} new, {last.get('ai_calls', 0)} AI calls. "
+                       f"Results saved so far: {len(self.store.find('results', bot_id=bid, limit=1000))}")
         sys = CHAT_SYSTEM.format(name=b["name"], job=b.get("job", ""), tone=b.get("look", {}).get("tone", "cheerful"),
                                  fields=", ".join(fields) or "none yet", rules="; ".join(r["text"] for r in b.get("rules", [])),
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
@@ -386,7 +395,14 @@ class Engine:
             t, _ = self.llm.chat("chat", msgs, bot_id=bid, max_tokens=900)
             if not t.strip():  # a reasoning model can spend its whole budget thinking: ask once more
                 t, _ = self.llm.chat("chat", msgs + [{"role": "user", "content": "Reply now with the JSON object only."}], bot_id=bid, max_tokens=900)
-            d = skills_parse(t)
+            d = try_json(t)
+            if d is None:  # invalid JSON: say so once and ask again
+                t2, _ = self.llm.chat("chat", msgs + [{"role": "assistant", "content": t},
+                                                      {"role": "user", "content": "That wasn’t valid JSON. Send the same answer as ONE valid JSON object."}],
+                                      bot_id=bid, max_tokens=900)
+                d = try_json(t2)
+            if d is None:
+                d = {"reply": t.strip()[:800] if not t.lstrip().startswith("{") else "Sorry, I got muddled. Could you say that again?", "actions": []}
         except NoModel as e:
             d = {"reply": str(e), "actions": []}
         except Exception as e:
@@ -429,7 +445,7 @@ class Engine:
             self.run(bid)
             return "running"
         if t == "schedule":
-            s = {**b.get("schedule", {}), **{k: a[k] for k in ("every_minutes", "summary_at", "quiet_from", "quiet_to") if k in a}}
+            s = {**b.get("schedule", {}), **{k: a[k] or None for k in ("every_minutes", "summary_at", "quiet_from", "quiet_to") if a.get(k) is not None}}
             self.store.update("bots", bid, schedule=s)
             return "schedule"
         if t in ("pause", "resume", "stop"):
@@ -470,6 +486,11 @@ class Engine:
         try:
             r = self.mcp.call(a["server"], a["tool"], args)
             out = (r["text"] or "").strip()
+            try:  # Codex (and others) answer in JSON: show the reply itself
+                j = json.loads(out)
+                out = j.get("reply") or j.get("result") or out if isinstance(j, dict) else out
+            except (ValueError, TypeError):
+                pass
             self.store.message(bid, "bot", f"{a.get('server')} replied: {out[:1500]}" if not r["error"] else f"{a.get('server')} had a problem: {out[:600]}",
                                delegate=label)
             self.store.event(bid, "delegate", f"{a.get('server')} finished: {label}", error=r["error"])
@@ -581,12 +602,14 @@ class Engine:
                 if r.get("new") and r.get("run") != run.run_id:
                     self.store.update("results", r["id"], new=False)
             self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"])
-            self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new", ai=run.ai_calls)
+            reads = any(st["action"] == "extract" for st in skill["steps"])
+            self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new" if reads
+                             else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
             if new and reason != "silent":
                 top = "; ".join(f"{x.get('title', '')} {x.get('price', '') or ''}".strip() for x in new[:3])
                 self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {len(out['items'])} results: {top}")
                 self.notify(bid, f"{len(new)} new: {top}")
-            elif not any(st["action"] == "extract" for st in skill["steps"]):
+            elif not reads:
                 self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
             elif reason != "schedule":
                 ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
@@ -757,8 +780,17 @@ class Engine:
     def start_scheduler(self):
         if self._sched:
             return
+        for srv in self.mcp.servers():  # reconnect the connectors you turned on
+            if srv["enabled"] and srv["installed"]:
+                threading.Thread(target=lambda n=srv["name"]: self._try_connect(n), daemon=True).start()
         self._sched = threading.Thread(target=self._tick_loop, daemon=True, name="scheduler")
         self._sched.start()
+
+    def _try_connect(self, name):
+        try:
+            self.mcp.connect(name)
+        except Exception:
+            pass
 
     def _tick_loop(self):
         while True:
@@ -773,6 +805,8 @@ class Engine:
         hm = datetime.fromtimestamp(now).strftime("%H:%M")
         for b in self.store.find("bots"):
             s = b.get("schedule") or {}
+            if b.get("status") == "moved":
+                continue  # its server runs it now
             if not s.get("every_minutes") or self.busy(b["id"]) or not self.store.find("skills", bot_id=b["id"], limit=1):
                 continue
             if quiet(hm, s.get("quiet_from"), s.get("quiet_to")):
@@ -821,9 +855,10 @@ def fill_template(obj, vars):
     return obj
 
 
-def skills_parse(text):
+def try_json(text):
     from inky.llm import parse_json
     try:
-        return parse_json(text)
+        d = parse_json(text)
+        return d if isinstance(d, dict) else None
     except Exception:
-        return {"reply": text.strip()[:800], "actions": []}
+        return None

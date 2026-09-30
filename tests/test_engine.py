@@ -126,6 +126,13 @@ class EngineTest(unittest.TestCase):
         E.resolve(E.store.find("needs", bot_id=b["id"], status="open")[0]["id"], "Deny")
         self.assertTrue(wait(lambda: not E.busy(b["id"]), 30))
         self.assertEqual(len(site_server.STATE["sent"]), before + 1)
+        # deleting a bot that is waiting on you leaves nothing behind and sends nothing
+        E.run(b["id"])
+        self.assertTrue(wait(lambda: E.store.find("needs", bot_id=b["id"], status="open"), 30))
+        E.delete_bot(b["id"])
+        time.sleep(1)
+        self.assertEqual([E.store.find(t, bot_id=b["id"]) for t in ("messages", "runs", "needs", "events")], [[], [], [], []])
+        self.assertEqual(len(site_server.STATE["sent"]), before + 1)
 
     def test_3_failed_fix_then_show_me_once(self):
         E, bid = self.E, self.bot_id
@@ -230,6 +237,12 @@ class ServerMCPTransferTest(unittest.TestCase):
         res = json.loads(c.call("bot_results", {"bot": "flat hunter", "limit": 3})["text"])
         self.assertEqual(len(res), 3)
         c.close()
+        # a shared bot file never carries sign-ins or chat; a move does
+        shared = self.api(self.ua, A.token, "GET", f"/api/bots/{b['id']}/export")
+        self.assertEqual((shared["cookies"], shared["messages"]), ([], []))
+        self.assertTrue(shared["skills"])
+        private = transfer.export_bot(A, b["id"], private=True)
+        self.assertTrue(private["cookies"] and private["messages"])
         # pair A with B and move the bot
         code = transfer.pair_code(self.B.token)
         cid = self.api(self.ua, A.token, "POST", "/api/computers", {"url": self.ub, "code": code, "name": "Home server"})["id"]
@@ -238,6 +251,11 @@ class ServerMCPTransferTest(unittest.TestCase):
         self.assertEqual(moved["name"], "Flat Hunter")
         self.assertEqual(len(self.B.store.find("skills", bot_id=rid)), 1)
         self.assertEqual(A.store.get("bots", b["id"])["status"], "moved")
+        runs = len(A.store.find("runs", bot_id=b["id"], limit=100))
+        A.store.update("bots", b["id"], schedule={"every_minutes": 1})
+        A.tick(time.time() + 3600)  # only its new server runs it on schedule
+        self.assertFalse(A.busy(b["id"]))
+        self.assertEqual(len(A.store.find("runs", bot_id=b["id"], limit=100)), runs)
         # calls to the moved bot on A are forwarded to B
         via_a = self.api(self.ua, A.token, "GET", f"/api/bots/{b['id']}")
         self.assertEqual(via_a["bot"]["remote"], "Home server")

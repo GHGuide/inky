@@ -97,8 +97,9 @@ VIEWS.bots = {
     $$("[data-ex]").forEach((b) => (b.onclick = () => { $("#job").value = b.dataset.ex; $("#job").focus(); }));
     $("#importf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
-      const r = await post("/api/import", JSON.parse(await f.text()));
-      location.hash = `#/bot/${r.bot.id}/computer`;
+      e.target.value = "";
+      try { const r = await post("/api/import", JSON.parse(await f.text())); location.hash = `#/bot/${r.bot.id}/computer`; }
+      catch (err) { toast(`That isn’t an Inky bot file (${err.message})`); }
     };
     this.refresh();
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
@@ -112,7 +113,7 @@ VIEWS.bots = {
         : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
           : `<div class="thumb idle">${esc(b.remote_id ? "on your server" : b.skills.length ? m.meta : "hasn’t learned yet")}</div>`;
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc((b.summary || b.job || "").slice(0, 60))}</span></span></span>
-        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc(b.status.replace("_", " "))}</span><span>${b.skills.length} skills</span></span></a>`;
+        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc((STATUS[b.status] || [b.status.replace("_", " ")])[0])}</span><span>${b.skills.length} skills</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
   },
   leave() { clearInterval(this.timer); },
@@ -314,7 +315,7 @@ VIEWS.bot = {
     const sel = sk.find((s) => s.id === this.skillSel) || sk[0];
     tb.innerHTML = `<div class="row wrap">${sk.map((s) => `<button class="btn s ${sel && s.id === sel.id ? "p" : ""}" data-sk="${s.id}">${esc(s.name)}</button>`).join("")}<label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".json"></div>
       ${sel ? `<div class="row" style="align-items:flex-start;gap:14px"><div class="card grow"><div class="head"><h2>${esc(sel.name)}</h2><span class="mono small muted">v${sel.version || 1} · ${esc(sel.site || "")}</span></div>
-        <div class="list">${sel.steps.map((s, i) => `<div class="row" style="padding:8px 0;font-size:14px"><span class="mono small muted" style="width:22px">${i + 1}</span><span class="grow">${esc(s.text)}${s.repaired ? ` <span class="badge">fixed ${s.repaired}×</span>` : ""}${s.shown ? ' <span class="badge">shown by you</span>' : ""}${s.approved_always ? ' <span class="badge">always allowed</span>' : ""}</span>
+        <div class="list">${sel.steps.map((s, i) => `<div class="row" style="padding:8px 0;font-size:14px"><span class="mono small muted" style="width:22px">${i + 1}</span><span class="grow">${esc(s.text)}${s.repaired ? ` <span class="badge">fixed ${s.repaired}×</span>` : ""}${s.shown ? ' <span class="badge">shown by you</span>' : ""}${s.approved_always ? ` <span class="badge">always allowed</span> <button class="chip" data-ask="${i}" style="border:0;cursor:pointer">ask again</button>` : ""}</span>
           <span class="mono small muted">${esc(s.action === "extract" ? Object.keys(s.spec.fields || {}).length + " fields" : s.target ? `${s.target.role} “${s.target.name}”` : s.value || "")}</span></div>`).join("")}</div></div>
         <aside class="col" style="width:240px;flex-shrink:0"><div class="card"><b>How it runs</b><div class="grid2" style="gap:8px">${[["runs", this.data.runs.filter((r) => r.skill === sel.name && r.status === "ok").length], ["AI calls per run", 0],
           ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
@@ -323,18 +324,24 @@ VIEWS.bot = {
           <a class="btn" href="/api/skills/${sel.id}/export?format=n8n&t=${encodeURIComponent(TOKEN)}" download="${esc(sel.name)}.n8n.json">Export to n8n</a><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`}
       <div class="card"><b>Learn a new site</b><div class="grid2"><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
     $$("[data-sk]").forEach((x) => (x.onclick = () => { this.skillSel = +x.dataset.sk; this.tab_skills(tb); }));
+    $$("[data-ask]").forEach((x) => (x.onclick = async () => { const steps = sel.steps.map((s, i) => (i === +x.dataset.ask ? { ...s, approved_always: false } : s)); await patch(`/api/skills/${sel.id}`, { steps }); this.refresh(); }));
     if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
-    if ($("#delsk")) $("#delsk").onclick = async () => { if (confirm(`Delete “${sel.name}”?`)) { await del(`/api/skills/${sel.id}`); this.refresh(); } };
+    if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/skills/${sel.id}`); this.refresh(); } };
     $("#learn").onclick = () => post(`/api/bots/${b.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
-    $("#skf").onchange = async (e) => { const f = e.target.files[0]; if (f) { await post(`/api/bots/${b.id}/skills/import`, JSON.parse(await f.text())); this.refresh(); } };
+    $("#skf").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      e.target.value = "";
+      try { await post(`/api/bots/${b.id}/skills/import`, JSON.parse(await f.text())); this.refresh(); }
+      catch (err) { toast(`That isn’t an Inky skill file (${err.message})`); }
+    };
   },
 
   tab_settings(tb) {
     const b = this.data.bot, s = b.schedule || {};
     tb.innerHTML = `<div class="gridfit">
       <div class="card"><b>Schedule</b><span class="seg" id="every">${[[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [1440, "Daily"]].map(([v, t]) => `<button data-v="${v}" class="${(s.every_minutes || 0) === v ? "on" : ""}">${t}</button>`).join("")}</span>
-        <div class="between small"><span>Summary at</span><input class="f" type="time" id="sum" value="${esc(s.summary_at || "")}" style="width:130px;height:36px"></div>
-        <div class="between small"><span>Quiet hours</span><span class="row"><input class="f" type="time" id="qf" value="${esc(s.quiet_from || "")}" style="width:120px;height:36px"><input class="f" type="time" id="qt" value="${esc(s.quiet_to || "")}" style="width:120px;height:36px"></span></div>
+        <div class="between small"><span>Summary at</span><input class="f" type="time" id="sum" aria-label="Summary at" value="${esc(s.summary_at || "")}" style="width:130px;height:36px"></div>
+        <div class="between small"><span>Quiet hours</span><span class="row"><input class="f" type="time" id="qf" aria-label="Quiet from" value="${esc(s.quiet_from || "")}" style="width:120px;height:36px"><input class="f" type="time" id="qt" aria-label="Quiet until" value="${esc(s.quiet_to || "")}" style="width:120px;height:36px"></span></div>
         <span class="small muted">Skills replay with no AI, so checking often costs nothing extra.</span></div>
       <div class="card"><b>What it may do</b>${(b.rules || []).map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><b>${{ own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" }[r.kind] || r.kind}</b><span>${esc(r.text)}</span>${r.kind === "filter" || i > 2 ? `<button class="chip" data-rr="${i}" style="border:0;cursor:pointer">remove</button>` : "<span></span>"}</div>`).join("")}
         <input class="f" id="rule" placeholder="Add a rule in your words, e.g. skip ground floor flats"></div>
@@ -358,7 +365,7 @@ VIEWS.bot = {
     $$("[data-fg]").forEach((x) => (x.onclick = () => save({ memory: b.memory.filter((_, i) => i !== +x.dataset.fg) })));
     $$("#mode button").forEach((x) => (x.onclick = () => save({ mode: x.dataset.m })));
     $$("[data-au]").forEach((x) => (x.onclick = () => save({ automations: b.automations.filter((_, i) => i !== +x.dataset.au) })));
-    $("#delbot").onclick = async () => { if (confirm(`Delete ${b.name}? This can’t be undone.`)) { await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots"; } };
+    $("#delbot").onclick = async () => { if (await confirmBox(`Delete ${b.name}? Its skills, memory and results go too. This can’t be undone.`, "Delete bot", true)) { await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots"; } };
     get("/api/mcp").then(({ servers }) => {
       const on = servers.filter((x) => x.enabled);
       $("#as").innerHTML = on.map((x) => `<option value="${x.name}">${esc(x.label)}</option>`).join("") || `<option value="">Connect one first</option>`;
@@ -390,7 +397,7 @@ VIEWS.bot = {
       <div id="trans" style="align-self:stretch;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:260px;overflow:auto;font-size:14px"></div>
       <div class="row" style="align-self:stretch"><label class="vh" for="ctype">Type instead</label><input class="f" id="ctype" placeholder="Type instead…" style="background:rgba(255,255,255,.08);border-color:transparent;color:#fff"></div>
       <div class="row" style="gap:26px;margin-top:auto"><button class="callbtn" id="mute" aria-label="Mute">${icon("micoff", 22)}</button><button class="callbtn on" id="spk" aria-label="Speaker">${icon("speaker", 22)}</button><a class="callbtn end" href="#/bot/${b.id}/computer" aria-label="End call">${icon("phone", 22)}</a></div></section>
-      <aside class="col" style="width:320px;flex-shrink:0"><div class="card"><b>It keeps working</b><div class="thumb" style="height:160px"><img id="callimg" src="${screenUrl(b.id)}" alt=""></div><span class="small muted">${esc(b.step || "idle")}</span></div>
+      <aside class="col" style="width:320px;flex-shrink:0"><div class="card"><b>${b.step ? "It keeps working" : "Its computer"}</b><div class="thumb" style="height:160px"><img id="callimg" src="${screenUrl(b.id)}" alt=""></div><span class="small muted">${esc(b.step || "idle")}</span></div>
       <div class="card small"><b>Voice</b><span>${b.look.voice === "off" ? "Replies are text only (Make it yours → Voice)." : `Replies are spoken (${esc(b.look.voice || "soft")}). Changes it hears still show up as actions you can see in the chat.`}</span></div></aside></div>`;
     const t0 = Date.now();
     const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($("#ctime")) $("#ctime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; if ($("#callimg")) $("#callimg").src = screenUrl(b.id); }, 1000);
@@ -419,7 +426,7 @@ VIEWS.bot = {
       try { rec.start(); } catch (e) {}
     }
     $("#mute").onclick = (e) => { muted = !muted; e.currentTarget.classList.toggle("on", muted); $("#cstate").textContent = muted ? "muted" : "listening…"; if (rec) muted ? rec.stop() : rec.start(); };
-    line("bot", `Hi, it’s ${b.name}. ${b.step ? "I’m " + b.step.toLowerCase() + "." : "What can I do?"}`);
+    line("bot", `Hi, it’s ${b.name}. ${b.step ? `I’m on step ${b.step_n}: ${b.step}.` : "What can I do?"}`);
     this.callEnd = () => { clearInterval(tick); muted = true; if (rec) try { rec.stop(); } catch (e) {} if (window.speechSynthesis) speechSynthesis.cancel(); };
   },
 };
@@ -513,8 +520,8 @@ VIEWS.models = {
     const logo = (p) => `<span class="iconbtn" style="border-radius:10px;width:34px;height:34px">${esc(p.label[0])}</span>`;
     this.el.innerHTML = `${mobileBar("Models")}<div class="page"><div class="between"><div><h1>Models</h1><p class="lede">Bots only use a model to learn a job or understand you. Repeating a job uses none.</p></div><span class="row"><a class="btn" href="#/models/local">Add a local model</a><a class="btn p" href="#/keys">Add an API key</a></span></div>
       <section class="card"><div class="list">${Object.entries(m.role_labels).map(([r, label]) => { const v = m.roles[r] || {}; return `<div class="row" style="padding:10px 0"><span class="col grow" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${{ learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule", repair: "when a button moves and its name isn’t enough", smart: "when you choose “Try a smarter model”" }[r]}</span></span>
-        <select class="f" style="width:180px" data-rp="${r}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
-        <input class="f mono" style="width:240px" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml"><button class="btn s" data-save="${r}">Save</button><button class="btn s" data-test="${r}">Test</button></div>`; }).join("")}</div>
+        <select class="f" style="width:180px" data-rp="${r}" aria-label="Provider for ${esc(label)}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
+        <input class="f mono" style="width:240px" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml" aria-label="Model for ${esc(label)}"><button class="btn s" data-save="${r}" aria-label="Save ${esc(label)}">Save</button><button class="btn s" data-test="${r}" aria-label="Test ${esc(label)}">Test</button></div>`; }).join("")}</div>
         <datalist id="ml">${loc.ollama.models.map((x) => `<option value="${esc(x.name)}">`).join("")}<option value="z-ai/glm-5.3"><option value="claude-sonnet-5-5"></datalist><span class="small muted" id="testout"></span></section>
       <div class="grid2"><section class="card"><div class="head"><b>On this computer</b><span class="small muted">free · private · works offline</span></div>
         <div class="between"><span>Ollama</span><span class="small ${loc.ollama.running ? "" : "muted"}">${loc.ollama.running ? `running · ${loc.ollama.models.length} models` : loc.ollama.installed ? "installed, not running (ollama serve)" : "not installed"}</span></div>
@@ -531,11 +538,11 @@ VIEWS.models = {
     this.el.innerHTML = `${mobileBar("Local model")}<div class="page"><div class="row small"><a href="#/models" class="muted">Models</a><span class="muted">/</span><b>Add a local model</b></div>
       <div><h1>Add a local model</h1><p class="lede">Runs on this computer. Free, private, and it works offline.</p></div>
       <div class="card panel row">${icon("monitor", 18)}<span><b>${esc(hw.cpu || "This computer")}</b> · ${hw.memory_gb || "?"} GB memory · ${hw.disk_free_gb || "?"} GB free</span><span class="grow"></span><span>${loc.ollama.running ? "Ollama is running ●" : loc.ollama.installed ? "Ollama installed, not running: run “ollama serve”" : "Install Ollama from ollama.com"}</span></div>
-      <div class="row" style="align-items:flex-start;gap:18px"><section class="col grow"><b>What fits, next to your running bots</b>${loc.catalog.map((c) => { const p = loc.pulls[c.name]; const pct = p && p.total ? Math.round(p.completed / p.total * 100) : null; return `<div class="card" style="padding:12px 16px"><div class="row"><span class="grow"><span class="row"><b class="mono">${c.name}</b><span class="small muted">${c.gb} GB</span>${c.badge ? `<span class="badge good">${c.badge}</span>` : ""}<span class="badge ${c.fit === "too big" ? "hot" : c.fit === "fits well" ? "good" : ""}">${c.fit}</span></span><span class="small muted">${esc(c.about)}</span></span>
-        ${c.installed ? `<span class="small" style="color:var(--green-t)">● installed</span>` : `<button class="btn s" data-pull="${c.name}" ${!loc.ollama.running || c.fit === "too big" ? "disabled" : ""}>Download</button>`}</div>${p && !c.installed ? `<div class="small mono muted">${esc(p.status || "")}${pct !== null ? ` · ${pct}%` : ""}</div>` : ""}</div>`; }).join("")}</section>
+      <div class="row" style="align-items:flex-start;gap:18px"><section class="col grow"><b>What fits, next to your running bots</b>${loc.catalog.map((c) => { const p = loc.pulls[c.name]; const pct = p && p.total ? Math.round(p.completed / p.total * 100) : null; return `<div class="card" style="padding:12px 16px"><div class="row"><span class="grow"><span class="row"><b class="mono">${c.name}</b><span class="small muted">${c.gb} GB</span>${c.badge ? `<span class="badge good">${c.badge}</span>` : ""}<span class="badge ${["too big", "not enough disk"].includes(c.fit) ? "hot" : c.fit === "fits well" ? "good" : ""}">${c.fit}</span></span><span class="small muted">${esc(c.about)}</span></span>
+        ${c.installed ? `<span class="small" style="color:var(--green-t)">● installed</span>` : `<button class="btn s" data-pull="${c.name}" ${!loc.ollama.running || ["too big", "not enough disk"].includes(c.fit) ? "disabled" : ""}>Download</button>`}</div>${p && !c.installed ? `<div class="small mono muted">${esc(p.status || "")}${pct !== null ? ` · ${pct}%` : ""}</div>` : ""}</div>`; }).join("")}</section>
       <aside class="col" style="width:380px;flex-shrink:0"><div class="card"><b>Another runtime</b><span class="small muted">LM Studio, llama.cpp, vLLM or anything with an OpenAI-compatible address.</span><div class="row"><label class="vh" for="cb">Server address</label><input class="f mono" id="cb" value="${esc(loc.custom.base)}"><button class="btn s" id="cbs">Connect</button></div><span class="small muted">${loc.custom.reachable ? "● reachable" : "not reachable yet"}</span></div>
       <div class="card small"><b>Tip</b><span>Use a local model for chat and a cloud model for learning new sites, in Models.</span></div></aside></div></div>`;
-    $$("[data-pull]").forEach((x) => (x.onclick = async () => { if (confirm(`Download ${x.dataset.pull} (${loc.catalog.find((c) => c.name === x.dataset.pull).gb} GB) through Ollama?`)) { await post("/api/models/pull", { name: x.dataset.pull }); toast("Downloading…"); } }));
+    $$("[data-pull]").forEach((x) => (x.onclick = async () => { if (await confirmBox(`Download ${x.dataset.pull} (${loc.catalog.find((c) => c.name === x.dataset.pull).gb} GB) from ollama.com?`, "Download")) { await post("/api/models/pull", { name: x.dataset.pull }); toast("Downloading…"); } }));
     $("#cbs").onclick = async () => { await post("/api/models/custom", { base: $("#cb").value }); this.refresh(); };
   },
 };
@@ -551,7 +558,7 @@ VIEWS.keys = {
       groq: "console.groq.com/keys", xai: "console.x.ai", mistral: "console.mistral.ai/api-keys", custom: "your server’s settings", telegram: "Telegram → @BotFather → /newbot" }[cur.provider];
     this.el.innerHTML = `${mobileBar("API keys")}<div class="page"><div class="row small"><a href="#/models" class="muted">Models</a><span class="muted">/</span><b>API keys</b></div>
       <div><h1>API keys</h1><p class="lede">Paste a key once. It stays in ${where} and only goes to that provider. There is no Inky server.</p></div>
-      <div class="row" style="align-items:flex-start;gap:22px"><section class="card panel" style="width:360px;flex-shrink:0;gap:2px;padding:10px">${keys.map((k) => `<a href="#/keys?p=${k.provider}" class="navlink ${k.provider === cur.provider ? "on" : ""}" style="min-height:48px"><span class="iconbtn" style="border-radius:10px;width:34px;height:34px">${esc(k.label[0])}</span><span class="grow">${esc(k.label)}</span><span class="small ${k.source ? "" : "muted"}" style="${k.source ? "color:var(--green-t)" : ""}">${k.source ? "● " + esc(k.source) : "not set"}</span></a>`).join("")}</section>
+      <div class="row" style="align-items:flex-start;gap:22px"><section class="card panel" style="width:360px;flex-shrink:0;gap:2px;padding:10px">${keys.map((k) => `<a href="#/keys?p=${k.provider}" aria-label="${esc(k.label)}: ${k.source ? esc(k.source) : "not set"}" class="navlink ${k.provider === cur.provider ? "on" : ""}" style="min-height:48px"><span class="iconbtn" style="border-radius:10px;width:34px;height:34px">${esc(k.label[0])}</span><span class="grow">${esc(k.label)}</span><span class="small ${k.source ? "" : "muted"}" style="${k.source ? "color:var(--green-t)" : ""}">${k.source ? "● " + esc(k.source) : "not set"}</span></a>`).join("")}</section>
       <section class="card grow" style="padding:22px 26px;gap:16px"><h2 style="font-size:20px">${cur.source ? "Replace" : "Add"} your ${esc(cur.label)} key</h2>
         <div class="row small"><span class="mono muted">1</span><span>Make a key at <b>${esc(hint)}</b>.</span></div>
         <div class="row" style="align-items:flex-start"><span class="mono small muted">2</span><div class="col grow"><label for="key" class="small">Paste it here</label><div class="row"><input class="f" id="key" type="password" autocomplete="off" placeholder="${cur.source ? "A key is saved. Paste a new one to replace it." : "Paste the key"}"><button class="btn s" id="paste">Paste</button></div><span class="small" id="kstat"></span></div></div>
@@ -563,7 +570,7 @@ VIEWS.keys = {
       try { await post("/api/keys", { provider: cur.provider, key: v, limit: $("#lim") && $("#lim").value !== "" ? +$("#lim").value : null }); $("#key").value = ""; toast(`Saved your ${cur.label} key`); this.refresh(); }
       catch (e) { $("#kstat").textContent = e.message; }
     };
-    if ($("#rm")) $("#rm").onclick = async () => { if (confirm(`Remove your ${cur.label} key?`)) { await del(`/api/keys/${cur.provider}`); this.refresh(); } };
+    if ($("#rm")) $("#rm").onclick = async () => { if (await confirmBox(`Remove your ${cur.label} key?`, "Remove", true)) { await del(`/api/keys/${cur.provider}`); this.refresh(); } };
   },
 };
 
@@ -659,8 +666,8 @@ VIEWS.settings = {
     const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid #F0EEE9"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x}</kbd>`).join("")}</span></div>`;
     this.el.innerHTML = `${mobileBar("Settings")}<div class="page"><div><h1>Settings</h1><p class="lede">For the whole app. Each bot has its own settings on its page.</p></div>
       <div class="grid2"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}</div>
-        <div class="card"><b>Privacy and data</b>${tog("crash_reports", s.crash_reports, "Send crash reports")}<div class="between"><span>Never record password fields</span><span class="small muted row">${icon("lock", 13)}always</span></div><div class="between"><span>Bots never type your passwords</span><span class="small muted row">${icon("lock", 13)}always</span></div>
-          <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: ~/.inky</span></div>
+        <div class="card"><b>Privacy and data</b><div class="between"><span>Never record password fields</span><span class="small muted row">${icon("lock", 13)}always</span></div><div class="between"><span>Bots never type your passwords</span><span class="small muted row">${icon("lock", 13)}always</span></div>
+          <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
         <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("telegram", s.telegram.enabled, "On Telegram")}<div class="between"><label for="chat">Telegram chat id</label><input class="f" id="chat" style="width:180px;height:36px" value="${esc(s.telegram.chat_id || "")}"></div>
           <div class="between"><span>Bots on your screen</span><button class="toggle ${s.screen_allowed ? "on" : ""}" data-t="screen_allowed" role="switch" aria-checked="${!!s.screen_allowed}" aria-label="Bots on your screen"></button></div></div>
         <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div><div class="between"><label for="en">This computer’s name</label><input class="f" id="en" style="width:200px;height:36px" value="${esc(s.engine_name)}"></div>

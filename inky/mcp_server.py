@@ -70,15 +70,15 @@ def create_bot(a):
 
 BOT = {"type": "string", "description": "Bot name or id"}
 TOOLS = {
-    "list_bots": ("List your Inky bots with their status.", {"type": "object", "properties": {}}, list_bots),
-    "get_bot": ("One bot: job, rules, memory, skills, recent messages.", {"type": "object", "required": ["bot"], "properties": {"bot": BOT}}, get_bot),
+    "list_bots": ("List your Inky bots with their status.", {"type": "object", "properties": {}}, list_bots, {"readOnlyHint": True, "title": "List bots"}),
+    "get_bot": ("One bot: job, rules, memory, skills, recent messages.", {"type": "object", "required": ["bot"], "properties": {"bot": BOT}}, get_bot, {"readOnlyHint": True, "title": "Get a bot"}),
     "message_bot": ("Send a bot a chat message and get its reply (it may add rules, learn or run).",
                     {"type": "object", "required": ["bot", "text"], "properties": {"bot": BOT, "text": {"type": "string"}}}, message_bot),
     "run_skill": ("Run a bot's learned skill now (replays with no AI) and return what it found.",
                   {"type": "object", "required": ["bot"], "properties": {"bot": BOT, "skill": {"type": "string", "description": "Skill name or id; default all"}}}, run_skill),
     "bot_results": ("What a bot has found (listings, prices…).",
-                    {"type": "object", "required": ["bot"], "properties": {"bot": BOT, "only_new": {"type": "boolean"}, "limit": {"type": "integer"}}}, bot_results),
-    "list_needs": ("What your bots are waiting for you on (read only; approve in the Inky app).", {"type": "object", "properties": {}}, list_needs),
+                    {"type": "object", "required": ["bot"], "properties": {"bot": BOT, "only_new": {"type": "boolean"}, "limit": {"type": "integer"}}}, bot_results, {"readOnlyHint": True, "title": "Bot results"}),
+    "list_needs": ("What your bots are waiting for you on (read only; approve in the Inky app).", {"type": "object", "properties": {}}, list_needs, {"readOnlyHint": True, "title": "Needs you"}),
     "create_bot": ("Create a new bot from a job description.", {"type": "object", "required": ["job"], "properties": {"job": {"type": "string"}}}, create_bot),
 }
 

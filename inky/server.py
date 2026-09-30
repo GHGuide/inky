@@ -281,8 +281,10 @@ def local(E, h, q, body):
                ("llama3.2:3b", 2.0, "Tiny and quick, for chat only.", ""),
                ("llama3.3:70b", 43.0, "Very capable, very large.", "")]
     have = {m["name"] for m in st["ollama"]["models"]}
+    disk = st["hardware"].get("disk_free_gb")
+    fit = lambda gb: "not enough disk" if disk is not None and gb + 1 > disk else fits(gb * 2**30, mem, running)
     st["catalog"] = [{"name": n, "gb": gb, "about": a, "badge": b, "installed": n in have or any(x.startswith(n + ":") for x in have),
-                      "fit": fits(gb * 2**30, mem, running)} for n, gb, a, b in catalog]
+                      "fit": fit(gb)} for n, gb, a, b in catalog]
     st["pulls"] = E.store.setting("pulls", {})
     return st
 
@@ -398,10 +400,11 @@ def mcp_remove(E, h, q, body, name):
 @route("GET", "/api/mcp/inky-config")
 def inky_config(E, h, q, body):
     py = os.sys.executable
-    env = {"INKY_HOME": str(E.home), "INKY_URL": f"http://127.0.0.1:{h.server.server_port}"}
+    env = {"INKY_HOME": str(E.home), "INKY_URL": f"http://127.0.0.1:{h.server.server_port}",
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
     return {"claude": {"mcpServers": {"inky": {"command": py, "args": ["-m", "inky.mcp_server"], "env": env}}},
-            "claude_cli": f"claude mcp add inky -e INKY_HOME={env['INKY_HOME']} -e INKY_URL={env['INKY_URL']} -- {py} -m inky.mcp_server",
-            "codex_toml": f'[mcp_servers.inky]\ncommand = "{py}"\nargs = ["-m", "inky.mcp_server"]\nenv = {{ INKY_HOME = "{env["INKY_HOME"]}", INKY_URL = "{env["INKY_URL"]}" }}'}
+            "claude_cli": f"claude mcp add inky -e INKY_HOME={env['INKY_HOME']} -e INKY_URL={env['INKY_URL']} -e PYTHONPATH={env['PYTHONPATH']} -- {py} -m inky.mcp_server",
+            "codex_toml": f'[mcp_servers.inky]\ncommand = "{py}"\nargs = ["-m", "inky.mcp_server"]\nenv = {{ INKY_HOME = "{env["INKY_HOME"]}", INKY_URL = "{env["INKY_URL"]}", PYTHONPATH = "{env["PYTHONPATH"]}" }}'}
 
 
 # ------------------------------------------------------------------ computers, settings, health
@@ -435,10 +438,9 @@ def del_computer(E, h, q, body, cid):
 
 
 def settings_view(E):
-    d = {"setup_done": False, "engine_name": os.uname().nodename, "recordings_days": 7, "crash_reports": False,
-         "notify_app": True, "quiet_from": "23:00", "quiet_to": "07:00", "screen_allowed": False, "theme": "light",
-         "auto_update": True}
+    d = {"setup_done": False, "engine_name": os.uname().nodename, "notify_app": True, "screen_allowed": False}
     d.update(E.store.setting("app", {}))
+    d["data_folder"] = str(E.home)
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
     return d
 

@@ -113,10 +113,12 @@ async function route() {
   $("#app").classList.toggle("bare", !!v.bare);
   $("#nav").style.display = v.bare ? "none" : "";
   renderNav();
+  const el = $("#view").cloneNode(false);  // fresh node per route: a slow render of the last view lands on a detached one
+  $("#view").replaceWith(el);
   try {
-    await v.show($("#view"), rest.filter(Boolean), qs);
+    await v.show(el, rest.filter(Boolean), qs);
   } catch (e) {
-    $("#view").innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
+    el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
   }
 }
 window.addEventListener("hashchange", route);
@@ -192,6 +194,14 @@ function modal(html, onmount) {
   m.innerHTML = `<div class="box">${html}</div>`;
   m.onclick = (e) => { if (e.target === m) closeModal(); };
   if (onmount) onmount(m);
+}
+function confirmBox(text, ok = "OK", danger = false) {
+  return new Promise((res) => {
+    modal(`<h2>${esc(text)}</h2><div class="row" style="justify-content:flex-end"><button class="btn" id="cno">Cancel</button><button class="btn ${danger ? "hot" : "p"}" id="cyes">${esc(ok)}</button></div>`, () => {
+      $("#cno").onclick = () => { closeModal(); res(false); };
+      $("#cyes").onclick = () => { closeModal(); res(true); };
+    });
+  });
 }
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 

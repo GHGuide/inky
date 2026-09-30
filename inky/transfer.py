@@ -12,19 +12,22 @@ def pair_code(token):
     return "".join(c for c in token.upper() if c.isalnum())[:6]
 
 
-def export_bot(engine, bid):
+def export_bot(engine, bid, private=False):
+    """private=True (moving to your own server) carries sign-ins and chat; a shared file never does."""
     b = engine.store.get("bots", bid)
     cookies = []
-    try:
-        cookies = engine.computer(bid).call("storage_state").get("cookies", [])
-    except Exception:
-        pass
+    if private:
+        try:
+            cookies = engine.computer(bid).call("storage_state").get("cookies", [])
+        except Exception:
+            pass
     strip = ("id", "bot_id", "status", "key", "ts")
     clean = lambda r: {k: v for k, v in r.items() if k not in strip}
-    return {"bundle": BUNDLE, "exported": time.time(), "bot": clean(b),
+    bot = clean(b) if private else {k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer")}
+    return {"bundle": BUNDLE, "exported": time.time(), "bot": bot,
             "skills": [clean(s) for s in engine.store.find("skills", bot_id=bid, desc=False)],
             "results": [dict(clean(r), key=r["key"]) for r in engine.store.find("results", bot_id=bid, limit=2000)],
-            "messages": [clean(m) for m in engine.store.find("messages", bot_id=bid, limit=200, desc=False)],
+            "messages": [clean(m) for m in engine.store.find("messages", bot_id=bid, limit=200, desc=False)] if private else [],
             "cookies": cookies}
 
 
@@ -70,7 +73,7 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
     b = engine.store.get("bots", bid)
     engine.control(bid, "stop")
     progress("paused", text="Paused between two runs")
-    bundle = export_bot(engine, bid)
+    bundle = export_bot(engine, bid, private=True)
     size = len(str(bundle))
     progress("packed", text=f"Packed its memory, {len(bundle['skills'])} skills and settings", size=size)
     rid = remote.req("POST", "/api/import", bundle, timeout=120)["bot"]["id"]

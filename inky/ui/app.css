@@ -161,4 +161,5 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
   .botbody{flex-direction:column}.chatcol{width:auto;border-right:0;min-height:55vh}.botpage{height:auto;min-height:100vh}
   .bothead{padding:0 14px}.bothead .hide-s{display:none}.rightcol{min-height:60vh}.steps{grid-template-columns:repeat(2,minmax(0,1fr))}
   h1{font-size:26px}.hero{padding:28px 16px 10px}.wcard{padding:22px 18px}.wsteps li span{display:none}
+  .page .row,.tabbody .row,.between{flex-wrap:wrap}.btn{white-space:normal;max-width:100%;text-align:center}.page [style*="width:"]{max-width:100%}.page .mono,.page pre{overflow-wrap:anywhere;white-space:pre-wrap}
 }

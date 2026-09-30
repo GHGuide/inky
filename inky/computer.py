@@ -75,7 +75,7 @@ EXTRACT_JS = r"""(spec) => {
       const [css, attr] = v.split('@');
       const el = css ? it.querySelector(css) : it;
       row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
-      if (attr === 'href' && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
+      if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }
     return row;
   });

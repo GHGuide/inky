@@ -170,6 +170,8 @@ class MCPManager:
             if c and c.alive():
                 return c
             s, env = self._config(name)
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # so `python -m inky.…` works from any folder
+            env = {"PYTHONPATH": os.pathsep.join(filter(None, [root, os.environ.get("PYTHONPATH")])), **env}
             c = MCPClient(s["command"], env=env, cwd=os.path.expanduser("~"), log=os.path.join(self.home, f"mcp-{name}.log"))
             c.start()
             self.clients[name] = c
@@ -207,7 +209,7 @@ class MCPManager:
 
 
 def serve_stdio(name, version, tools):
-    """tools: {tool_name: (description, input_schema, fn(args) -> str)}"""
+    """tools: {tool_name: (description, input_schema, fn(args) -> str[, annotations])}"""
     out = sys.stdout
     sys.stdout = sys.stderr  # nothing but protocol on the real stdout
 
@@ -230,14 +232,15 @@ def serve_stdio(name, version, tools):
             elif method == "ping":
                 res = {}
             elif method == "tools/list":
-                res = {"tools": [{"name": k, "description": d, "inputSchema": s} for k, (d, s, _) in tools.items()]}
+                res = {"tools": [dict({"name": k, "description": v[0], "inputSchema": v[1]}, **({"annotations": v[3]} if len(v) > 3 else {}))
+                                 for k, v in tools.items()]}
             elif method == "tools/call":
                 p = m.get("params") or {}
                 if p.get("name") not in tools:
                     raise KeyError(f"unknown tool {p.get('name')}")
                 t0 = time.time()
                 try:
-                    text, err = tools[p["name"]][2](p.get("arguments") or {}), False
+                    text, err = tools[p["name"]][2](p.get("arguments") or {}), False  # (desc, schema, fn[, annotations])
                 except Exception as e:
                     text, err = f"Error: {e}", True
                 res = {"content": [{"type": "text", "text": text if isinstance(text, str) else json.dumps(text)}],

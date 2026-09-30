@@ -83,12 +83,12 @@ class LLM:
         if self.keys.get("openrouter"):
             m = os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
             roles = {r: {"provider": "openrouter", "model": m} for r in ROLES}
-        local = [m["name"] for m in self.local_models()]
+        if roles:  # you have a key: keep using it until you pick a local model in Models
+            return roles
+        local = sorted((m["name"] for m in self.local_models()),
+                       key=lambda n: next((i for i, f in enumerate(("qwen3", "llama3", "gemma3", "mistral", "phi")) if n.startswith(f)), 99))
         if local:
-            roles["chat"] = {"provider": "ollama", "model": local[0]}
-            roles.setdefault("learn", {"provider": "ollama", "model": local[0]})
-            roles.setdefault("repair", {"provider": "ollama", "model": local[0]})
-            roles.setdefault("smart", {"provider": "ollama", "model": local[0]})
+            roles = {r: {"provider": "ollama", "model": local[0]} for r in ROLES}
         return roles
 
     def roles(self):
@@ -130,6 +130,8 @@ class LLM:
             text = "".join(c.get("text", "") for c in j.get("content", []))
             usage = {"in": j.get("usage", {}).get("input_tokens", 0), "out": j.get("usage", {}).get("output_tokens", 0)}
         else:
+            if "qwen3" in model.lower() and messages and messages[-1]["role"] == "user":
+                messages = messages[:-1] + [{**messages[-1], "content": messages[-1]["content"] + " /no_think"}]  # skip thinking
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
             if provider == "openrouter":
@@ -141,6 +143,7 @@ class LLM:
             res.raise_for_status()
             j = res.json()
             text = j["choices"][0]["message"].get("content") or ""
+            text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S).strip()
             u = j.get("usage") or {}
             usage = {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0), "cost": u.get("cost")}
         usage.update(provider=provider, model=model, role=role, seconds=round(time.time() - t0, 2),
