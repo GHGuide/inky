@@ -28,7 +28,9 @@ def classify(action, el, page=None):
     if action in ("fill", "type") and (el.get("role") == "password" or el.get("type") == "password"):
         return "password", "that is a password field"
     if action in ("click", "press") and (el.get("role") in ("button", "link") or el.get("type") == "submit"):
-        label = " ".join(filter(None, [el.get("name"), el.get("text")]))
+        label = el.get("name") or el.get("text") or ""
+        if el.get("text") and el.get("text") != label:
+            label = f"{label} {el['text']}"
         w = _has(PAY, label)
         if w:
             return "pay", f"“{label}” would spend money"

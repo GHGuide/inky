@@ -162,7 +162,10 @@ class Engine:
                                          "schedule", "automations", "mode", "computer", "last_run", "created")},
                 "status": status, "step": run.step if run else "", "step_n": run.n if run else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
-                "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover)}
+                "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
+                "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
+                "skill_id": run.skill_id if run else None, "shown": len(getattr(run, "show", None) or []) if run else 0,
+                "remote_id": b.get("remote_id")}
 
     def bots(self):
         return [self.bot_view(b) for b in self.store.find("bots", desc=False)]
@@ -174,7 +177,8 @@ class Engine:
             url = re.search(r"https?://\S+", job)
             words = [w for w in re.findall(r"[A-Za-z]+", job) if len(w) > 3][:2]
             d = {"name": " ".join(w.title() for w in words) or "New Bot", "summary": job[:140], "goal": job,
-                 "start_url": url and url.group(0), "every_minutes": 0, "filters": [], "questions": []}
+                 "start_url": url and url.group(0).rstrip(".,)"), "every_minutes": 0, "filters": [],
+                 "questions": ["I couldn’t reach my model, so this is a rough draft from your words. Check Models."]}
         n = len(self.store.find("bots"))
         kind, color, acc = LOOKS[n % len(LOOKS)]
         d.setdefault("look", {"kind": kind, "color": color, "acc": acc})
@@ -317,6 +321,11 @@ class Engine:
         return self.store.get("needs", nid).get("decision")
 
     def problem(self, bid, h, **meta):
+        if h.kind == "denied":  # you already decided: just say so, nothing to answer
+            self.store.message(bid, "bot", f"{h.title}. {h.body}")
+            self.store.event(bid, "denied", h.title)
+            self.bus.publish("messages", bot=bid)
+            return None
         nid = self.store.insert("needs", {"kind": h.kind, "title": h.title, "body": h.body, "options": h.options, **h.meta, **meta},
                                 bot_id=bid, status="open")
         self.store.message(bid, "bot", f"{h.title}. {h.body}", need=nid)
@@ -372,6 +381,8 @@ class Engine:
             {"role": "user", "content": text}]
         try:
             t, _ = self.llm.chat("chat", msgs, bot_id=bid, max_tokens=900)
+            if not t.strip():  # a reasoning model can spend its whole budget thinking: ask once more
+                t, _ = self.llm.chat("chat", msgs + [{"role": "user", "content": "Reply now with the JSON object only."}], bot_id=bid, max_tokens=900)
             d = skills_parse(t)
         except NoModel as e:
             d = {"reply": str(e), "actions": []}
@@ -496,9 +507,12 @@ class Engine:
             sid = self.store.insert("skills", skill, bot_id=bid, status="ok")
             self.store.event(bid, "learned", f"Learned {skill['name']}: {len(skill['steps'])} steps, {run.ai_calls} AI calls")
             self._finish(run, "ok", learned=sid)
+            reads = any(st["action"] == "extract" for st in skill["steps"])
             self.store.message(bid, "bot", f"Learned “{skill['name']}” in {len(skill['steps'])} steps with {run.ai_calls} AI calls. "
-                                           f"From now on it repeats with none. Checking it once now.")
+                                           f"From now on it repeats with none." + (" Checking it once now." if reads else " Done for now."))
             self.bus.publish("messages", bot=bid)
+            if not reads:  # an action (like sending) already happened while learning: don't do it twice
+                return
             run2 = Run("replay", sid)
             self.runs[bid] = run2
             run2.thread = threading.current_thread()
@@ -565,12 +579,19 @@ class Engine:
                     self.store.update("results", r["id"], new=False)
             self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"])
             self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new", ai=run.ai_calls)
-            if new:
+            if new and reason != "silent":
                 top = "; ".join(f"{x.get('title', '')} {x.get('price', '') or ''}".strip() for x in new[:3])
                 self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {len(out['items'])} results: {top}")
                 self.notify(bid, f"{len(new)} new: {top}")
+            elif not any(st["action"] == "extract" for st in skill["steps"]):
+                self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
             elif reason != "schedule":
                 self.store.message(bid, "bot", f"Checked {len(out['items'])} results with no AI. {len(kept)} pass your rules, none new.")
+            skipped = skills.unchecked(out["items"], b.get("filters"))
+            if skipped and b.get("warned_unchecked") != skipped:
+                self.store.update("bots", bid, warned_unchecked=skipped)
+                self.store.message(bid, "bot", f"I couldn’t check {'; '.join(skipped)}: this site’s results don’t show that. "
+                                               f"Its search already narrows it, or tell me another way to check.")
             for auto in b.get("automations", []):
                 if auto.get("when") == "every_run" or (auto.get("when") == "new_results" and new):
                     self.delegate(bid, auto, context=new, run=run)
@@ -686,7 +707,10 @@ class Engine:
         if shown and need:
             skill = self.store.get("skills", need["skill_id"])
             at = need["step"]
-            steps = skill["steps"][:at] + shown + skill["steps"][at + 1:]
+            failed = skill["steps"][at]
+            # your last click is the new target of the failed step (keeping what it typed); earlier clicks come before it
+            last = {**failed, "target": shown[-1]["target"], "shown": True}
+            steps = skill["steps"][:at] + shown[:-1] + [last] + skill["steps"][at + 1:]
             self.store.update("skills", skill["id"], steps=steps, version=skill.get("version", 1) + 1)
             self.store.update("needs", need["id"], status="resolved", decision="Shown")
             self.store.message(bid, "bot", f"Thanks. I replaced step {at + 1} with what you showed me ({len(shown)} click{'s' if len(shown) > 1 else ''}). Running it again.")

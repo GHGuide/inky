@@ -86,12 +86,18 @@ def parse_num(v):
 
 
 def keep(item, f):
-    v, op, want = item.get(f.get("field")), f.get("op"), f.get("value")
+    op, want = f.get("op"), f.get("value")
+    if f.get("field") not in item:  # the site has no such field: can't judge, so keep (unchecked() reports it)
+        return True
+    v = item.get(f.get("field"))
     if op in ("<", "<=", ">", ">="):
         a, b = parse_num(v), parse_num(want)
         if a is None or b is None:
             return False
         return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+    if op in ("==", "!=") and parse_num(v) is not None and parse_num(want) is not None:
+        same = parse_num(v) == parse_num(want)
+        return same if op == "==" else not same
     s = norm(str(v if v is not None else ""))
     if op == "==":
         return s == norm(str(want))
@@ -111,6 +117,12 @@ def keep(item, f):
 def apply_filters(items, filters):
     fs = [f for f in filters or [] if f and f.get("field")]
     return [it for it in items if all(keep(it, f) for f in fs)]
+
+
+def unchecked(items, filters):
+    """Rules this site's results can't be checked against (their field isn't extracted)."""
+    fields = {k for it in items[:20] for k in it}
+    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or [] if items and f.get("field") not in fields]
 
 
 def item_key(it):
@@ -191,12 +203,13 @@ def learn(ctx, goal, start_url, max_steps=24):
         page = page_after
         if act == "next_page":
             break  # one next-page is enough to learn the loop
-    if not extract:
+    if not extract and not steps:
         raise NeedsHelp("learn_failed", "Couldn’t find the results to read",
                         "It learned the steps but never reached a list of results. Tell it where to look, or show it once.",
                         ["Show me once", "Try a smarter model"])
     host = urlparse(start_url).netloc
-    return {"name": f"Check {host}", "site": host, "goal": goal, "start_url": start_url, "steps": steps,
+    name = f"Check {host}" if extract else (goal.strip().rstrip(".")[:48] or f"Job on {host}")
+    return {"name": name, "site": host, "goal": goal, "start_url": start_url, "steps": steps,
             "version": 1, "learned_at": time.time(), "max_pages": 3}
 
 

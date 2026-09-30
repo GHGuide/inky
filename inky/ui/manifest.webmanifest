@@ -1,0 +1,2 @@
+{"name": "Inky", "short_name": "Inky", "start_url": "/", "display": "standalone", "background_color": "#F7F6F3", "theme_color": "#F7F6F3",
+ "icons": [{"src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml"}]}

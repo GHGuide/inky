@@ -134,6 +134,8 @@ class LLM:
             body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
             if provider == "openrouter":
                 body["usage"] = {"include": True}
+                body["max_tokens"] = max(max_tokens, 6000)  # reasoning models think before they answer
+                body["reasoning"] = {"effort": self.store.setting("reasoning_effort", "low")}
             res = httpx.post(p["base"].rstrip("/") + "/chat/completions", json=body, headers=headers, timeout=timeout)
             self._record(provider, res)
             res.raise_for_status()
@@ -170,7 +172,7 @@ class LLM:
 
     def test(self, provider, model):
         text, usage = self.complete(provider, model, [{"role": "user", "content": "Reply with the single word OK."}],
-                                    max_tokens=20, timeout=60)
+                                    max_tokens=400, timeout=90)
         return {"ok": "ok" in text.lower(), "reply": text.strip()[:80], "seconds": usage["seconds"]}
 
     # ---- local runtimes

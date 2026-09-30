@@ -325,4 +325,6 @@ class Computer:
             page.keyboard.press(key)
         elif kind == "scroll":
             page.mouse.wheel(0, y)
+        elif kind == "goto":
+            page.goto(text if "://" in text else "https://" + text, wait_until="domcontentloaded", timeout=45000)
         return info
