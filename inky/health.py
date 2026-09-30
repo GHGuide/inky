@@ -9,14 +9,23 @@ import httpx
 from inky.llm import PROVIDERS, ROLES
 
 
+_docker = {"at": 0, "v": None}
+
+
 def docker():
+    """Docker's state, remembered for 30 s: `docker info` takes a moment and pages ask often."""
+    if _docker["v"] is not None and time.time() - _docker["at"] < 30:
+        return _docker["v"]
     if not shutil.which("docker"):
-        return {"installed": False, "running": False}
-    try:
-        r = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, text=True, timeout=6)
-        return {"installed": True, "running": r.returncode == 0, "version": r.stdout.strip()}
-    except Exception:
-        return {"installed": True, "running": False}
+        v = {"installed": False, "running": False}
+    else:
+        try:
+            r = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, text=True, timeout=6)
+            v = {"installed": True, "running": r.returncode == 0, "version": r.stdout.strip()}
+        except Exception:
+            v = {"installed": True, "running": False}
+    _docker.update(at=time.time(), v=v)
+    return v
 
 
 def check(engine):

@@ -257,7 +257,20 @@ def skill(E, h, q, body, sid):
 
 @route("PATCH", r"/api/skills/(\d+)")
 def patch_skill(E, h, q, body, sid):
-    return {"skill": E.store.update("skills", int(sid), **{k: v for k, v in body.items() if k in ("name", "steps", "max_pages", "start_url")})}
+    if not E.store.get("skills", int(sid)):
+        raise HTTPError(404, "That skill is gone.")
+    patch = {k: v for k, v in body.items() if k in ("name", "steps", "max_pages", "start_url")}
+    if "steps" in patch:
+        ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
+        if not isinstance(patch["steps"], list) or not patch["steps"] or not all(isinstance(st, dict) and st.get("action") in ok for st in patch["steps"]):
+            raise HTTPError(400, "A skill needs at least one step.")
+    if "name" in patch:
+        patch["name"] = str(patch["name"]).strip()[:60] or "Skill"
+    if "start_url" in patch and not skills_mod.web_address(patch["start_url"], ""):
+        raise HTTPError(400, "That isn’t a web address.")
+    if "max_pages" in patch:
+        patch["max_pages"] = max(1, min(int(patch["max_pages"] or 1), 20))
+    return {"skill": E.store.update("skills", int(sid), **patch)}
 
 
 @route("DELETE", r"/api/skills/(\d+)")
@@ -736,8 +749,7 @@ def computers(E, h, q, body):
     bots_ = E.bots()
     local = {"id": "local", "name": E.store.setting("engine_name", platform.node()), "kind": "local", "ok": True, "os": platform.system(),
              "bots": [b for b in bots_ if (b.get("computer") or "local") == "local"], "docker": health.docker()}
-    out = [local]
-    for c in E.store.find("computers", desc=False):
+    def remote(c):
         r = transfer.Remote(c["url"], c["token"])
         try:
             ok, rbots = True, r.req("GET", "/api/bots", timeout=4)["bots"]
@@ -746,7 +758,11 @@ def computers(E, h, q, body):
                 E.store.update("computers", c["id"], os=c["os"])
         except Exception:
             ok, rbots = False, []
-        out.append({"id": c["id"], "name": c["name"], "url": c["url"], "kind": "remote", "ok": ok, "bots": rbots, "os": c.get("os")})
+        return {"id": c["id"], "name": c["name"], "url": c["url"], "kind": "remote", "ok": ok, "bots": rbots, "os": c.get("os")}
+    from concurrent.futures import ThreadPoolExecutor
+    comps = E.store.find("computers", desc=False)
+    with ThreadPoolExecutor(max(1, min(8, len(comps)))) as ex:  # all servers at once, not one after another
+        out = [local] + list(ex.map(remote, comps))
     return {"computers": out, "pair_code": transfer.pair_code(E.token)}
 
 
