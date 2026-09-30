@@ -48,3 +48,20 @@ test("each bot has a stable voice of its own", () => {
   assert.ok(voiceOf(a).base >= 330 && voiceOf(a).base <= 880);
   assert.equal(voiceOf(b).wave, "triangle");
 });
+
+const { nextBehaviour } = require("./life.js");
+test("idle behaviours: the same for a seed, different between critters, fitting the mood", () => {
+  const beats = (seed, mood = "calm") => [0, 1, 2, 3, 4].map((n) => nextBehaviour(seed, n, mood));
+  assert.deepEqual(beats(3), beats(3));
+  const seen = new Set();
+  for (let s = 1; s <= 40; s++) { const k = JSON.stringify(beats(s)); assert.ok(!seen.has(k), `seed ${s} repeats another critter`); seen.add(k); }
+  const names = new Set();
+  for (let n = 0; n < 60; n++) {
+    assert.ok(["none", "sway"].includes(nextBehaviour(7, n, "asleep").name));
+    assert.notEqual(nextBehaviour(7, n, "focused").name, "yawn");
+    const b = nextBehaviour(7, n, "calm");
+    assert.ok(b.at >= 2500 && b.at <= 9000, `delay ${b.at}`);
+    names.add(b.name);
+  }
+  assert.ok(names.size >= 5, "a calm critter does lots of different things");
+});

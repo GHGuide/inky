@@ -209,6 +209,33 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 .critter[data-mood=dizzy] .spiral{opacity:1;animation:c-spin 1.2s linear infinite;transform-origin:60px 54px}
 .critter[data-mood=dizzy]{animation:c-wobble 1s ease-in-out 2}
 .critter.blink .eyes{transform:scaleY(.1)}
+/* idle life (life.js schedules b-*) and reactions (r-*) */
+.critter .limb{transform-box:fill-box;transform-origin:50% 0;animation:c-sway 3.2s ease-in-out infinite;animation-delay:calc(var(--i) * -.45s)}
+.critter[data-kind=cat] .limb{transform-origin:50% 100%;animation-name:c-knead;animation-duration:2.6s}
+.critter .tail{transform-box:fill-box;transform-origin:0 100%;animation:c-tail 2.8s ease-in-out infinite}
+.critter .yawn{opacity:0;transform-box:fill-box;transform-origin:50% 30%}
+.critter .gaze{transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
+.critter.b-look .gaze{transform:translateX(var(--lx,3px))}
+.critter.b-sway .limb{animation-duration:1.1s;--amp:9deg}.critter.b-sway .tail{animation-duration:1s}
+.critter[data-kind=blob].b-sway .body{animation:c-jiggle 1.1s ease-in-out}
+.critter.b-yawn .mouth{opacity:0}.critter.b-yawn .yawn{opacity:1;animation:c-yawn 1.9s ease-in-out}.critter.b-yawn .eyes{transform:scaleY(.35)}
+.critter.b-stretch .body{animation:c-stretch .95s cubic-bezier(.3,1.6,.5,1)}
+.critter.b-blink2 .eyes{animation:c-blink2 .46s linear}
+.critter.r-hover{animation:r-wiggle .6s ease-in-out}
+.critter.r-click{transform-origin:50% 92%;animation:r-squish .46s cubic-bezier(.3,1.6,.5,1)}
+.critter.r-results,.critter.r-learned{animation:r-dance 1.3s ease-in-out}
+.critter.r-needs{animation:r-jump .56s cubic-bezier(.3,1.6,.5,1)}
+@keyframes c-sway{0%,100%{transform:rotate(calc(var(--amp,4deg) * -1))}50%{transform:rotate(var(--amp,4deg))}}
+@keyframes c-knead{0%,100%{transform:translateY(0)}25%{transform:translateY(-2px)}}
+@keyframes c-tail{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(10deg)}}
+@keyframes c-jiggle{25%{transform:scaleX(1.05) scaleY(.96)}50%{transform:scaleX(.97) scaleY(1.04)}75%{transform:scaleX(1.02) scaleY(.99)}}
+@keyframes c-yawn{0%,100%{transform:scale(.4)}35%,70%{transform:scale(1.25,1.4)}}
+@keyframes c-stretch{40%{transform:scaleY(1.08) scaleX(.97)}}
+@keyframes c-blink2{0%,30%,60%,100%{transform:scaleY(1)}15%,45%{transform:scaleY(.1)}}
+@keyframes r-wiggle{20%{transform:rotate(-7deg)}45%{transform:rotate(6deg)}70%{transform:rotate(-3deg)}}
+@keyframes r-squish{30%{transform:scale(1.14,.84)}65%{transform:scale(.94,1.07)}}
+@keyframes r-dance{15%{transform:translateY(-12%) rotate(-8deg)}30%{transform:translateY(0) rotate(0)}45%{transform:translateY(-12%) rotate(8deg)}60%{transform:none}80%{transform:scale(1.08)}}
+@keyframes r-jump{40%{transform:translateY(-14%) scale(.96,1.05)}75%{transform:translateY(0) scale(1.05,.95)}}
 @keyframes c-breathe{50%{transform:scaleY(1.025) scaleX(.99)}}
 @keyframes c-tap{50%{transform:translateY(2px)}}
 @keyframes c-tilt{50%{transform:rotate(-6deg)}}

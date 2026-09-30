@@ -109,8 +109,8 @@ let knockFor = null;
 function feel(m) {
   if (!m.bot) return;
   const r = (RECENT[m.bot] = RECENT[m.bot] || {}), bot = S.bots.find((b) => b.id === m.bot);
-  if (m.kind === "results" && m.new > 0) { r.results = Date.now(); SOUND.play("plip", bot); if (bot) appNotify(bot, bot.name, `${m.new} new`, `#/bot/${bot.id}/results`); }
-  if (m.kind === "event" && m.ev === "learned") { r.learned = Date.now(); SOUND.play("rise", bot); }
+  if (m.kind === "results" && m.new > 0) { r.results = Date.now(); SOUND.play("plip", bot); LIFE.forBot(m.bot, "results"); if (bot) appNotify(bot, bot.name, `${m.new} new`, `#/bot/${bot.id}/results`); }
+  if (m.kind === "event" && m.ev === "learned") { r.learned = Date.now(); SOUND.play("rise", bot); LIFE.forBot(m.bot, "learned"); }
   if (m.kind === "event" && m.ev === "fixed") r.fixed = Date.now();
   if (m.kind === "event" && m.ev === "replay" && /pass your rules|^Done in/.test(m.text || "")) SOUND.play("chime", bot);
   if (m.kind === "needs") knockFor = bot;  // loadState knocks if the count went up
