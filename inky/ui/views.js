@@ -85,7 +85,7 @@ VIEWS.bots = {
       <div class="composer"><label class="vh" for="job">Describe the job</label><textarea id="job" rows="2" placeholder="Describe a job, or @mention a bot"></textarea>
         <div class="between"><span class="mono small muted">⌘K anywhere · @ to talk to a bot</span><button class="btn p" id="go">Start</button></div></div>
       <div class="row wrap" style="justify-content:center">${["Find rental flats abroad under €150k", "Watch 5 webshops for price drops", "Every morning, check new books on books.toscrape.com"].map((t) => `<button class="btn" data-ex="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
-      <div class="page" style="padding-top:12px"><div class="between"><h2>Your bots</h2><span class="row"><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
+      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
     const go = () => {
       const t = $("#job").value.trim();
       const m = t.match(/^@(\S+)\s+(.*)$/);
@@ -102,7 +102,20 @@ VIEWS.bots = {
       catch (err) { toast(`That isn’t an Inky bot file (${err.message})`); }
     };
     this.refresh();
+    this.recap();
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
+  },
+  async recap() {  // "While you were away", when the app was closed or hidden for 2+ hours
+    const since = awaySince();
+    if (!since) return;
+    const { recap } = await get(`/api/recap?since=${since}`);
+    const rows = recap.filter((r) => r.runs || r.needs || r.new);
+    if (!rows.length || !$("#recap")) return;
+    const away = Math.round((Date.now() / 1000 - since) / 3600);
+    $("#recap").innerHTML = `<div class="card panel" style="margin-bottom:18px"><div class="between"><b>While you were away · ${away} h</b><button class="btn s" id="recapx">Dismiss</button></div>
+      ${rows.map((r) => { const b = S.bots.find((x) => x.id === r.bot) || { look: {}, id: r.bot, status: "idle", schedule: {} };
+        return `<a class="row" style="text-decoration:none;color:inherit" href="#/bot/${r.bot}/computer">${botCritter(b, 30)}<span><b>${esc(r.name)}</b> <span class="small muted">${[r.runs && `${r.runs} run${r.runs > 1 ? "s" : ""}`, r.new && `${r.new} new`, r.fixed && `fixed ${r.fixed} step${r.fixed > 1 ? "s" : ""}`, r.needs && `${r.needs} waiting for you`].filter(Boolean).join(" · ")}</span></span></a>`; }).join("")}</div>`;
+    $("#recapx").onclick = () => { $("#recap").innerHTML = ""; clearAway(); };
   },
   refresh() {
     if (!$("#cards")) return;
@@ -224,10 +237,16 @@ VIEWS.bot = {
       const card = need ? `<div class="card hot" style="padding:12px 14px"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${esc(need.title)}</b>${need.body ? `<span class="small muted">${esc(need.body)}</span>` : ""}
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
       const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(x)}</span>`).join("");
-      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}</span>${done}${card}</div></div>`;
+      const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
+      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}</span>${done}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.need, x.dataset.o)));
+    $$("[data-chip]", box).forEach((x) => (x.onclick = async () => {
+      const m = this.data.messages.find((y) => y.id === +x.dataset.chip), c = m && m.chips[+x.dataset.ci];
+      if (!c) return;
+      try { await post(`/api/bots/${this.id}/apply`, { apply: c.apply, message: m.id }); toast(c.label, b); this.refresh(); } catch (e) { toast(e.message); }
+    }));
     box.scrollTop = 1e9;
   },
   drawTab(first) {

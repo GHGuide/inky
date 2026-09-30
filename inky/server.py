@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from inky import health, transfer
+from inky import health, insights, transfer
 from inky.llm import PROVIDERS, ROLES, fits
 from inky.mcp import PRESETS
 
@@ -155,7 +155,20 @@ def show_done(E, h, q, body, bid):
 def results(E, h, q, body, bid):
     bot_or_404(E, bid)
     rows = E.store.find("results", bot_id=int(bid), limit=int(q.get("limit", 300)))
-    return {"results": [{k: v for k, v in r.items() if k not in ("bot_id", "status", "key")} for r in rows]}
+    if not q.get("all"):  # near-misses are kept for suggestions, not shown as results
+        rows = [r for r in rows if r.get("passed") is not False]
+    return {"results": [{k: v for k, v in r.items() if k not in ("bot_id", "status", "key", "passed")} for r in rows]}
+
+
+@route("POST", r"/api/bots/(\d+)/apply")
+def apply_chip(E, h, q, body, bid):
+    bot_or_404(E, bid)
+    return {"bot": E.apply_chip(int(bid), body.get("apply"), body.get("message"))}
+
+
+@route("GET", "/api/recap")
+def recap(E, h, q, body):
+    return {"recap": insights.recap(E.store, float(q.get("since") or 0))}
 
 
 @route("GET", r"/api/bots/(\d+)/export")

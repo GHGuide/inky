@@ -98,6 +98,19 @@ setInterval(() => {  // moods fade back to calm without any event
   moodKey = k; renderNav(); if (S.view && S.view.refresh && !BAR) S.view.refresh();
 }, 30e3);
 
+// ---------------------------------------------------------------- away time, for "While you were away"
+const seenKey = "inkyLastSeen";
+const markSeen = () => { try { localStorage.setItem(seenKey, String(Date.now() / 1000)); } catch (e) {} };
+function awaySince() {  // when the app was last seen, if that was 2+ hours ago (read once per page load)
+  if (awaySince.v === undefined) { let t = 0; try { t = +localStorage.getItem(seenKey) || 0; } catch (e) {} awaySince.v = t && Date.now() / 1000 - t > 7200 ? t : 0; }
+  return awaySince.v;
+}
+const clearAway = () => { awaySince.v = 0; markSeen(); };
+awaySince();
+setInterval(() => { if (!document.hidden) markSeen(); }, 60e3);
+addEventListener("visibilitychange", () => { if (document.hidden) markSeen(); else if (Date.now() / 1000 - (+localStorage.getItem(seenKey) || 0) > 7200) { awaySince.v = undefined; awaySince(); } });
+addEventListener("pagehide", markSeen);
+
 // ---------------------------------------------------------------- live events
 let refreshTimer = null;
 function refreshSoon(ms = 250) {

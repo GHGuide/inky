@@ -19,6 +19,8 @@ from inky.mcp import MCPManager
 from inky.safety import classify
 from inky.store import Store
 from inky import persona as persona_mod
+from inky import insights
+from inky.insights import quiet
 
 LOOKS = [("octopus", "#E9A23B", "glasses"), ("cat", "#7C6CF2", "none"), ("blob", "#2BA59B", "headphones"),
          ("octopus", "#3B5BDB", "beanie"), ("cat", "#F07BA8", "bow"), ("blob", "#E86F51", "none")]
@@ -388,7 +390,7 @@ class Engine:
         run = self.runs.get(bid)
         if run and run.kind == "learn" and run.thread and run.thread.is_alive():
             run.fixes.append(text)
-        results = self.store.find("results", bot_id=bid, limit=3)
+        results = [r for r in self.store.find("results", bot_id=bid, limit=10) if r.get("passed") is not False][:3]
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
         sk = self.store.find("skills", bot_id=bid)
         hist = [m for m in reversed(self.store.find("messages", bot_id=bid, limit=12))]
@@ -397,7 +399,7 @@ class Engine:
         if last:
             status += (f". Last run {datetime.fromtimestamp(last['ts']).strftime('%a %H:%M')}: {last.get('items', 0)} results, "
                        f"{last.get('matched', 0)} pass the rules, {last.get('new', 0)} new, {last.get('ai_calls', 0)} AI calls. "
-                       f"Results saved so far: {len(self.store.find('results', bot_id=bid, limit=1000))}")
+                       f"Results saved so far: {sum(1 for r in self.store.find('results', bot_id=bid, limit=2000) if r.get('passed') is not False)}")
         sys = CHAT_SYSTEM.format(name=b["name"], job=b.get("job", ""), tone=b.get("look", {}).get("tone", "cheerful"),
                                  fields=", ".join(fields) or "none yet", rules="; ".join(r["text"] for r in b.get("rules", [])),
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
@@ -621,11 +623,16 @@ class Engine:
                 self.store.update("skills", sid, steps=skill["steps"])
             b = self.store.get("bots", bid)
             kept = skills.apply_filters(out["items"], b.get("filters"))
-            new = []
-            for it in kept:
-                _, is_new = self.store.upsert_key("results", bid, skills.item_key(it), {**it, "skill": skill["name"], "run": run.run_id, "new": True})
-                if is_new:
+            new, kept_ids = [], {id(x) for x in kept}
+            for it in kept:  # new = never seen, or used to miss a rule and now passes
+                k = skills.item_key(it)
+                prev = self.store.find("results", bot_id=bid, key=k, limit=1)
+                self.store.upsert_key("results", bid, k, {**it, "skill": skill["name"], "run": run.run_id, "new": True, "passed": True})
+                if not prev or prev[0].get("passed") is False:
                     new.append(it)
+            missed = [it for it in out["items"] if id(it) not in kept_ids]
+            for it in missed:  # kept, hidden, so near-misses can become suggestions
+                self.store.upsert_key("results", bid, skills.item_key(it), {**it, "skill": skill["name"], "run": run.run_id, "new": False, "passed": False})
             self.bus.publish("results", bot=bid, new=len(new))
             for r in self.store.find("results", bot_id=bid, limit=1000):
                 if r.get("new") and r.get("run") != run.run_id:
@@ -643,6 +650,8 @@ class Engine:
             elif reason != "schedule":
                 ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
                 self.store.message(bid, "bot", f"Checked {len(out['items'])} results with {ai}. {len(kept)} pass your rules, none new.")
+            if not new and reason != "silent":
+                self.maybe_suggest(bid, missed)
             skipped = skills.unchecked(out["items"], b.get("filters"))
             if skipped and b.get("warned_unchecked") != skipped:
                 self.store.update("bots", bid, warned_unchecked=skipped)
@@ -846,19 +855,49 @@ class Engine:
                 except Exception:
                     pass
             if s.get("summary_at") == hm and b.get("summary_day") != datetime.fromtimestamp(now).strftime("%Y-%m-%d"):
-                self.summary(b["id"])
+                self.post_paper(b["id"], now)
 
-    def summary(self, bid):
-        day_ago = time.time() - 86400
-        runs = [r for r in self.store.find("runs", bot_id=bid, limit=500) if r["ts"] > day_ago]
-        new = sum(r.get("new") or 0 for r in runs)
-        items = sum(r.get("items") or 0 for r in runs)
-        ai = sum(r.get("ai_calls") or 0 for r in runs)
-        text = f"Summary: {len(runs)} runs, {items} results checked, {new} new, {ai} AI calls in the last 24 hours."
-        self.store.message(bid, "bot", text)
-        self.store.update("bots", bid, summary_day=datetime.now().strftime("%Y-%m-%d"))
-        self.notify(bid, text)
-        return text
+    # ---------------------------------------------------------- insights: what a bot notices
+    def post_paper(self, bid, now=None):
+        """The morning paper: what happened, a trend, one suggestion. It's the bot's one unprompted note today."""
+        now = now or time.time()
+        b = self.store.get("bots", bid)
+        paper = insights.morning_paper(self.store, b, now)
+        self.store.message(bid, "bot", paper["text"], chips=paper["chips"], unprompted=True, paper=True, team=True)
+        self.store.update("bots", bid, summary_day=datetime.fromtimestamp(now).strftime("%Y-%m-%d"))
+        self.bus.publish("messages", bot=bid)
+        self.notify(bid, paper["text"])
+        return paper
+
+    def maybe_suggest(self, bid, missed):
+        b = self.store.get("bots", bid)
+        if not missed or not insights.may_post(self.store, b, time.time()):
+            return None
+        nm = insights.near_misses(missed, b.get("filters"))
+        if not nm:
+            return None
+        text, chips = insights.suggestion(b, nm)
+        self.store.message(bid, "bot", text + " Want me to widen it?", chips=chips, unprompted=True)
+        self.bus.publish("messages", bot=bid)
+        return chips
+
+    def apply_chip(self, bid, apply, msg_id=None):
+        """A tap on a suggestion. Only reversible settings: filters, schedule or look."""
+        if not isinstance(apply, dict) or len(apply) != 1 or not set(apply) <= {"filters", "schedule", "look"}:
+            raise ValueError("a suggestion can only change filters, schedule or look")
+        b = self.store.get("bots", bid)
+        patch = dict(apply)
+        if "filters" in apply:  # keep the rule texts in step with the filters
+            texts = {f.get("text") for f in b.get("filters") or []}
+            rules = [r for r in b.get("rules", []) if not (r["kind"] == "filter" and r["text"] in texts)]
+            have = {r["text"] for r in rules}
+            patch["rules"] = rules + [{"kind": "filter", "text": t} for t in dict.fromkeys(f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in apply["filters"]) if t not in have]
+        view = self.update_bot(bid, patch)
+        if msg_id:
+            self.store.update("messages", int(msg_id), chips_used=True)
+        self.store.message(bid, "note", "You tapped: " + ("rules updated" if "filters" in apply else "settings updated") + ".")
+        self.bus.publish("messages", bot=bid)
+        return view
 
     def close(self):
         for bid in list(self.runs):
@@ -866,12 +905,6 @@ class Engine:
         for bid in list(self.computers):
             self.close_computer(bid)
         self.mcp.close()
-
-
-def quiet(hm, a, b):
-    if not a or not b:
-        return False
-    return (a <= hm < b) if a < b else (hm >= a or hm < b)
 
 
 def fill_template(obj, vars):
