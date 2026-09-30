@@ -202,3 +202,9 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 @keyframes c-spin{to{transform:rotate(360deg)}}
 @keyframes c-wobble{25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
 @media (prefers-reduced-motion:reduce){.critter,.critter *{animation:none!important;transition:none!important}}
+.typing{display:flex;gap:4px;align-items:center;min-height:22px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:c-dots 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes c-dots{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;transform:translateY(-4px)}}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.18s}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none}}

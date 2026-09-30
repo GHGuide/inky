@@ -58,6 +58,27 @@ function toast(text, b) {
   setTimeout(() => el.remove(), 6000);
 }
 
+const calmMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function confetti(x = innerWidth / 2, y = innerHeight / 3) {  // a small burst for milestones
+  if (calmMotion()) return;
+  const c = document.createElement("canvas"), g = c.getContext("2d"), dpr = devicePixelRatio || 1;
+  c.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:200";
+  c.width = innerWidth * dpr; c.height = innerHeight * dpr; g.scale(dpr, dpr);
+  document.body.appendChild(c);
+  const colors = ["#E86F51", "#E9A23B", "#2BA59B", "#7C6CF2", "#3B5BDB", "#F07BA8"];
+  const ps = Array.from({ length: 40 }, (_, i) => ({ x, y, vx: Math.cos(i * 2.4) * (3 + (i % 5)), vy: -4 - (i % 7), r: 3 + (i % 3), c: colors[i % colors.length], a: i }));
+  const t0 = performance.now();
+  (function frame(t) {
+    const k = (t - t0) / 1400;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of ps) {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.25; p.a += 0.2;
+      g.save(); g.globalAlpha = Math.max(0, 1 - k); g.translate(p.x, p.y); g.rotate(p.a); g.fillStyle = p.c; g.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); g.restore();
+    }
+    if (k < 1) requestAnimationFrame(frame); else c.remove();
+  })(t0);
+}
+
 // ---------------------------------------------------------------- life: what just happened drives each critter's mood
 const RECENT = (window.RECENT = {});
 let knockFor = null;
@@ -139,18 +160,22 @@ async function route() {
   const [, name, ...rest] = h.split(/[/?]/);
   const qs = new URLSearchParams(h.split("?")[1] || "");
   if (S.view && S.view.leave) S.view.leave();
-  const v = VIEWS[name] || VIEWS.bots;
+  const v = VIEWS[name] || VIEWS.bots, prev = S.view;
   S.view = v;
   $("#app").classList.toggle("bare", !!v.bare);
   $("#nav").style.display = v.bare ? "none" : "";
   renderNav();
   const el = $("#view").cloneNode(false);  // fresh node per route: a slow render of the last view lands on a detached one
-  $("#view").replaceWith(el);
-  try {
-    await v.show(el, rest.filter(Boolean), qs);
-  } catch (e) {
-    el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
-  }
+  const swap = async () => {
+    $("#view").replaceWith(el);
+    try {
+      await v.show(el, rest.filter(Boolean), qs);
+    } catch (e) {
+      el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
+    }
+  };
+  if (document.startViewTransition && !calmMotion() && !(prev === v && v === VIEWS.bot)) await document.startViewTransition(swap).updateCallbackDone;
+  else await swap();
 }
 window.addEventListener("hashchange", () => {
   if (!BAR) return route();

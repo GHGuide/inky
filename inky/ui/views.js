@@ -181,8 +181,9 @@ VIEWS.bot = {
       const t = $("#say").value.trim(); if (!t) return;
       $("#say").value = "";
       this.data.messages.push({ role: "you", text: t, ts: Date.now() / 1000 });
-      this.drawMsgs(true);
+      this.typing = true; this.drawMsgs(true);
       try { await post(`/api/bots/${this.id}/chat`, { text: t }); } catch (e) { toast(e.message); }
+      this.typing = false; this.refresh();
     };
     $("#send").onclick = send;
     $("#say").onkeydown = (e) => { if (e.key === "Enter") send(); };
@@ -208,7 +209,7 @@ VIEWS.bot = {
   drawMsgs(force) {
     const box = $("#msgs"); if (!box) return;
     const b = this.data.bot;
-    const key = this.data.messages.length + ":" + (this.data.messages.at(-1) || {}).text;
+    const key = this.data.messages.length + ":" + (this.data.messages.at(-1) || {}).text + ":" + !!this.typing;
     if (!force && key === this.msgKey) return;
     this.msgKey = key;
     let lastDay = "";
@@ -224,6 +225,7 @@ VIEWS.bot = {
       const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(x)}</span>`).join("");
       return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}</span>${done}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
+    if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.need, x.dataset.o)));
     box.scrollTop = 1e9;
   },
