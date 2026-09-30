@@ -165,6 +165,7 @@ class Engine:
                                          "schedule", "automations", "mode", "computer", "last_run", "created")},
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
+                "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
                 "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
                 "skill_id": run.skill_id if run else None, "shown": len(getattr(run, "show", None) or []) if run else 0,

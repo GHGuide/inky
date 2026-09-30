@@ -164,3 +164,41 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
   h1{font-size:26px}.hero{padding:28px 16px 10px}.wcard{padding:22px 18px}.wsteps li span{display:none}
   .page .row,.tabbody .row,.between{flex-wrap:wrap}.btn{white-space:normal;max-width:100%;text-align:center}.page [style*="width:"]{max-width:100%}.page .mono,.page pre{overflow-wrap:anywhere;white-space:pre-wrap}
 }
+
+/* ---- living critters (life.js sets data-mood and blinks; reduced motion turns it all off) */
+.critter{overflow:visible}
+.critter .zzz,.critter .sweat,.critter .sparkle,.critter .star,.critter .spiral,.critter .brows{opacity:0;transition:opacity .3s}
+.critter .body{transform-origin:60px 110px;animation:c-breathe 3.6s ease-in-out infinite}
+.critter .eyes{transform-origin:60px 54px;transition:transform .08s}
+.critter .pupil{transition:transform .15s ease-out}
+.critter[data-mood=focused] .eyes{transform:scaleY(.62)}
+.critter[data-mood=focused] .limbs{animation:c-tap .45s ease-in-out infinite}
+.critter[data-mood=curious]{animation:c-tilt 2.4s ease-in-out infinite}
+.critter[data-mood=curious] .eyes{transform:scale(1.12)}
+.critter[data-mood=waving] .limbs{animation:c-wave 1s ease-in-out infinite;transform-origin:60px 78px}
+.critter[data-mood=waving]{animation:c-hop 1.8s ease-in-out infinite}
+.critter[data-mood=worried] .sweat{opacity:1;animation:c-drip 1.6s ease-in infinite}
+.critter[data-mood=worried] .brows{opacity:1}
+.critter[data-mood=asleep] .eyes{transform:scaleY(.08)}
+.critter[data-mood=asleep] .zzz{opacity:1;animation:c-float 3s ease-in-out infinite}
+.critter[data-mood=asleep] .body{animation-duration:6s}
+.critter[data-mood=happy]{animation:c-hop .6s ease-out 3}
+.critter[data-mood=happy] .sparkle{opacity:1;animation:c-twinkle 1s ease-in-out infinite}
+.critter[data-mood=proud] .star{opacity:1}
+.critter[data-mood=proud] .body{animation:c-puff 2s ease-in-out infinite}
+.critter[data-mood=dizzy] .pupil{opacity:0}
+.critter[data-mood=dizzy] .spiral{opacity:1;animation:c-spin 1.2s linear infinite;transform-origin:60px 54px}
+.critter[data-mood=dizzy]{animation:c-wobble 1s ease-in-out 2}
+.critter.blink .eyes{transform:scaleY(.1)}
+@keyframes c-breathe{50%{transform:scaleY(1.025) scaleX(.99)}}
+@keyframes c-tap{50%{transform:translateY(2px)}}
+@keyframes c-tilt{50%{transform:rotate(-6deg)}}
+@keyframes c-wave{0%,100%{transform:rotate(0)}50%{transform:rotate(-10deg)}}
+@keyframes c-drip{0%{transform:translateY(0);opacity:1}100%{transform:translateY(9px);opacity:0}}
+@keyframes c-float{50%{transform:translateY(-5px)}}
+@keyframes c-hop{30%{transform:translateY(-10%)}60%{transform:translateY(0)}}
+@keyframes c-twinkle{50%{opacity:.3}}
+@keyframes c-puff{50%{transform:scale(1.04)}}
+@keyframes c-spin{to{transform:rotate(360deg)}}
+@keyframes c-wobble{25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+@media (prefers-reduced-motion:reduce){.critter,.critter *{animation:none!important;transition:none!important}}

@@ -58,6 +58,22 @@ function toast(text, b) {
   setTimeout(() => el.remove(), 6000);
 }
 
+// ---------------------------------------------------------------- life: what just happened drives each critter's mood
+const RECENT = (window.RECENT = {});
+function feel(m) {
+  if (!m.bot) return;
+  const r = (RECENT[m.bot] = RECENT[m.bot] || {});
+  if (m.kind === "results" && m.new > 0) r.results = Date.now();
+  if (m.kind === "event" && m.ev === "learned") r.learned = Date.now();
+  if (m.kind === "event" && m.ev === "fixed") r.fixed = Date.now();
+}
+let moodKey = "";
+setInterval(() => {  // moods fade back to calm without any event
+  const k = S.bots.map((b) => moodOf(b, RECENT)).join();
+  if (k === moodKey) return;
+  moodKey = k; renderNav(); if (S.view && S.view.refresh && !BAR) S.view.refresh();
+}, 30e3);
+
 // ---------------------------------------------------------------- live events
 let refreshTimer = null;
 function refreshSoon(ms = 250) {
@@ -69,6 +85,7 @@ function listen() {
   es.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.kind === "notify" && S.settings.notify_app !== false) toast(m.text, S.bots.find((b) => b.id === m.bot));
+    feel(m);
     if (S.view && S.view.onEvent) S.view.onEvent(m);
     refreshSoon(m.kind === "run" ? 400 : 150);
   };
@@ -243,6 +260,7 @@ function signIn(why) {
 }
 
 window.addEventListener("load", async () => {
+  LIFE.start();
   if (!TOKEN) return signIn();
   try { await loadState(); } catch (e) {
     if (String(e.message).includes("401") || String(e.message).includes("token")) { try { localStorage.removeItem("inkyToken"); } catch (err) {} return signIn(); }
