@@ -32,7 +32,9 @@ def find_bot(ref):
 
 
 def list_bots(a):
-    return json.dumps([{k: b.get(k) for k in ("id", "name", "job", "status", "step", "skills", "next_run")}
+    where = {str(c["id"]): c["name"] for c in api("GET", "/api/computers")["computers"]}
+    return json.dumps([{**{k: b.get(k) for k in ("id", "name", "job", "status", "step", "skills", "next_run")},
+                        "runs_on": where.get(str(b.get("computer") or "local"), "this computer")}
                        for b in api("GET", "/api/bots")["bots"]], ensure_ascii=False)
 
 

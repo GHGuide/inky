@@ -130,17 +130,25 @@ async function route() {
     el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
   }
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => {
+  if (!BAR) return route();
+  if (location.hash !== "#/bar") { native({ type: "open", hash: location.hash }); history.replaceState(null, "", "?bar=1#/bar"); }
+});
 document.addEventListener("click", (e) => { const b = e.target.closest("[data-dl]"); if (b) { e.preventDefault(); download(b.dataset.dl, b.dataset.name); } });
 
 // ---------------------------------------------------------------- command bar (⌘K, Ctrl+K, Alt+Space)
 const CMD = { open: false, sel: 0, items: [] };
 function cmdItems(q) {
-  const m = q.match(/^@([^ ]+(?: [^ ]+)?)\s*(.*)$/);
   let text = q, target = null;
-  if (m) {
-    target = S.bots.find((b) => b.name.toLowerCase().startsWith(m[1].toLowerCase()) || b.name.toLowerCase() === m[1].toLowerCase());
-    if (target) text = q.slice(q.toLowerCase().indexOf(target.name.toLowerCase().split(" ")[0]) + target.name.length).trim() || m[2];
+  if (q.startsWith("@")) {  // "@Flat Checker check now" (full name) or "@flat check now" (start of its first word)
+    const rest = q.slice(1), low = rest.toLowerCase();
+    target = S.bots.find((b) => low === b.name.toLowerCase() || low.startsWith(b.name.toLowerCase() + " "));
+    if (target) text = rest.slice(target.name.length).trim();
+    else {
+      const [w, ...more] = rest.split(" ");
+      target = (w && S.bots.find((b) => b.name.toLowerCase().startsWith(w.toLowerCase()))) || null;
+      if (target) text = more.join(" ").trim();
+    }
   }
   const items = [];
   const bots = target ? [target] : S.bots;
@@ -149,8 +157,8 @@ function cmdItems(q) {
   const act = (label, k, d, run) => items.push({ sec: "OR", label, k, lead: `<span style="width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center">${icon(d, 15)}</span>`, run });
   act(text ? `Make a new bot: “${esc(text.slice(0, 60))}”` : "Make a new bot", "⌘ ↵", "plus", () => (location.hash = `#/new?job=${encodeURIComponent(text)}`));
   act("Open Needs you", `${S.needs}`, "check", () => (location.hash = "#/needs"));
-  act("Pause all bots", "⌥ P", "activity", () => pauseAll());
-  act('<span style="color:#F2957C">Stop everything on my screen</span>', "Esc", "x", () => stopScreens());
+  act("Pause all bots", BAR ? "⌃ ⌥ P" : "⌥ P", "activity", () => pauseAll());
+  act('<span style="color:#F2957C">Stop everything on my screen</span>', BAR ? "⌃ ⌥ Esc" : "Esc", "x", () => stopScreens());
   act("Models and keys", "", "models", () => (location.hash = "#/models"));
   act("Connectors · Claude Code, Codex", "", "plug", () => (location.hash = "#/connectors"));
   return items;
@@ -188,7 +196,10 @@ function openCmd(prefill = "") {
   inp.focus();
   requestAnimationFrame(() => inp.focus());
 }
-function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); }
+// Bar mode (?bar=1): the macOS menu bar app shows just the command bar in a floating panel.
+const BAR = new URLSearchParams(location.search).has("bar");
+const native = (m) => { try { window.webkit.messageHandlers.inky.postMessage(m); } catch (e) {} };
+function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
 async function runCmd() { const it = CMD.items[CMD.sel]; closeCmd(); if (it) try { await it.run(); } catch (e) { toast(e.message); } }
 document.addEventListener("keydown", (e) => {
   const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
@@ -238,5 +249,8 @@ window.addEventListener("load", async () => {
     throw e;
   }
   listen();
-  route();
+  if (!BAR) return route();
+  document.body.classList.add("bar");
+  window.inkyBarOpen = async () => { await loadState(); CMD.sel = 0; openCmd(); return true; };
+  openCmd();
 });

@@ -393,7 +393,7 @@ VIEWS.bot = {
     tb.innerHTML = `<div class="row" style="align-items:stretch;gap:18px;flex:1"><section class="call" id="callbox" aria-label="Call with ${esc(b.name)}">
       <div class="between" style="align-self:stretch"><span class="small" style="color:#C9C5BD">Call with ${esc(b.name)}</span><span class="mono small" id="ctime">0:00</span></div>
       <div class="rings" id="rings"><span style="width:170px;height:170px"></span><span style="width:220px;height:220px"></span><span style="width:260px;height:260px"></span>${botCritter(b, 130)}</div>
-      <b style="font-size:26px">${esc(b.name)}</b><span class="small" style="color:#F2957C" id="cstate">${SR ? "listening…" : "speech isn’t available in this browser: type instead"}</span>
+      <b style="font-size:26px">${esc(b.name)}</b><span class="small" style="color:#F2957C" id="cstate">${SR ? "allow the microphone to talk…" : "speech isn’t available in this browser: type instead"}</span>
       <div id="trans" style="align-self:stretch;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:260px;overflow:auto;font-size:14px"></div>
       <div class="row" style="align-self:stretch"><label class="vh" for="ctype">Type instead</label><input class="f" id="ctype" placeholder="Type instead…" style="background:rgba(255,255,255,.08);border-color:transparent;color:#fff"></div>
       <div class="row" style="gap:26px;margin-top:auto"><button class="callbtn" id="mute" aria-label="Mute">${icon("micoff", 22)}</button><button class="callbtn on" id="spk" aria-label="Speaker">${icon("speaker", 22)}</button><a class="callbtn end" href="#/bot/${b.id}/computer" aria-label="End call">${icon("phone", 22)}</a></div></section>
@@ -402,12 +402,15 @@ VIEWS.bot = {
     const t0 = Date.now();
     const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($("#ctime")) $("#ctime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; if ($("#callimg")) $("#callimg").src = screenUrl(b.id); }, 1000);
     const line = (who, text) => { const d = document.createElement("div"); d.innerHTML = `<b style="color:${who === "you" ? "#A8A49C" : "#F2957C"}">${who === "you" ? "You" : esc(b.name)}</b> ${esc(text)}`; $("#trans").appendChild(d); $("#trans").scrollTop = 1e9; };
-    let speaking = true, muted = false, rec = null;
+    let speaking = true, muted = false, rec = null, talking = false;
+    const hear = () => { if (rec && !muted && !talking && $("#callbox")) try { rec.start(); } catch (e) {} };
     const say = (text) => {
       if (!speaking || b.look.voice === "off" || !window.speechSynthesis) return;
       const u = new SpeechSynthesisUtterance(text);
       u.pitch = b.look.voice === "bright" ? 1.25 : 0.95; u.rate = 1.02;
-      $("#rings").classList.add("talk"); u.onend = () => $("#rings") && $("#rings").classList.remove("talk");
+      talking = true; if (rec) try { rec.abort(); } catch (e) {}  // don't hear its own voice through your speakers
+      $("#rings").classList.add("talk");
+      u.onend = u.onerror = () => { talking = false; $("#rings") && $("#rings").classList.remove("talk"); hear(); };
       speechSynthesis.speak(u);
     };
     const ask = async (text) => {
@@ -415,14 +418,19 @@ VIEWS.bot = {
       $("#cstate").textContent = "thinking…";
       try { const r = await post(`/api/bots/${b.id}/chat`, { text, source: "call" }); line("bot", r.reply); $("#cstate").textContent = "speaking"; say(r.reply); }
       catch (e) { line("bot", e.message); }
-      setTimeout(() => $("#cstate") && ($("#cstate").textContent = muted ? "muted" : "listening…"), 800);
+      setTimeout(() => $("#cstate") && ($("#cstate").textContent = !rec ? "type to talk" : muted ? "muted" : "listening…"), 800);
     };
     $("#ctype").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) { ask(e.target.value.trim()); e.target.value = ""; } };
     $("#spk").onclick = (e) => { speaking = !speaking; e.currentTarget.classList.toggle("on", speaking); if (!speaking) speechSynthesis.cancel(); };
     if (SR) {
       rec = new SR(); rec.continuous = true; rec.interimResults = false; rec.lang = navigator.language || "en-US";
-      rec.onresult = (e) => { const r = e.results[e.results.length - 1]; if (r.isFinal) ask(r[0].transcript.trim()); };
-      rec.onend = () => { if (!muted && $("#callbox")) try { rec.start(); } catch (e) {} };
+      rec.onresult = (e) => { const r = e.results[e.results.length - 1]; if (r.isFinal && !talking) ask(r[0].transcript.trim()); };
+      rec.onend = hear;
+      rec.onstart = () => { if ($("#cstate") && !talking) $("#cstate").textContent = "listening…"; };
+      rec.onerror = (e) => {
+        if (e.error !== "not-allowed" && e.error !== "service-not-allowed" && e.error !== "audio-capture") return;
+        muted = true; if ($("#cstate")) $("#cstate").textContent = e.error === "audio-capture" ? "no microphone found: type instead" : "microphone blocked: type instead";
+      };
       try { rec.start(); } catch (e) {}
     }
     $("#mute").onclick = (e) => { muted = !muted; e.currentTarget.classList.toggle("on", muted); $("#cstate").textContent = muted ? "muted" : "listening…"; if (rec) muted ? rec.stop() : rec.start(); };
@@ -665,7 +673,8 @@ VIEWS.settings = {
     const tog = (k, on, label) => `<div class="between"><span>${label}</span><button class="toggle ${on ? "on" : ""}" data-t="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}"></button></div>`;
     const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid #F0EEE9"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x}</kbd>`).join("")}</span></div>`;
     this.el.innerHTML = `${mobileBar("Settings")}<div class="page"><div><h1>Settings</h1><p class="lede">For the whole app. Each bot has its own settings on its page.</p></div>
-      <div class="grid2"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}</div>
+      <div class="grid2"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}
+        <span class="small muted" style="margin-top:8px">Anywhere on your Mac, with the menu bar app (<span class="mono">python -m inky --bar</span>):</span>${kb("Command bar over any app", "⌥ Space")}${kb("Pause all bots", "⌃ ⌥ P")}${kb("Stop everything on my screen", "⌃ ⌥ Esc")}</div>
         <div class="card"><b>Privacy and data</b><div class="between"><span>Never record password fields</span><span class="small muted row">${icon("lock", 13)}always</span></div><div class="between"><span>Bots never type your passwords</span><span class="small muted row">${icon("lock", 13)}always</span></div>
           <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
         <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("telegram", s.telegram.enabled, "On Telegram")}<div class="between"><label for="chat">Telegram chat id</label><input class="f" id="chat" style="width:180px;height:36px" value="${esc(s.telegram.chat_id || "")}"></div>

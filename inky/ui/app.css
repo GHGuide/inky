@@ -112,6 +112,7 @@ table.t td{padding:9px 12px;border-bottom:1px solid #F0EEE9;vertical-align:top}
 .need .opts{display:flex;gap:8px;flex-wrap:wrap}
 /* command bar */
 .cmd{position:fixed;inset:0;z-index:50;background:rgba(17,17,16,.18);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh}
+html:has(body.bar),body.bar{background:transparent}body.bar #app,body.bar #toasts{display:none}body.bar .cmd{background:transparent;padding:14px 0 0}
 .cmdbox{width:min(700px,92vw);border-radius:18px;background:rgba(28,28,27,.96);color:#fff;box-shadow:0 30px 80px rgba(17,17,16,.45);overflow:hidden}
 .cmdbox .in{display:flex;align-items:center;gap:12px;padding:16px 18px}.cmdbox .in b{color:var(--coral);font-size:20px}
 .cmdbox input{flex:1;border:0;outline:none;background:transparent;color:#fff;font-size:17px}

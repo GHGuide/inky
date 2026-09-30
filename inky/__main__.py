@@ -1,7 +1,8 @@
-"""python -m inky [--port 8800] [--home ~/.inky] [--host 127.0.0.1] [--name "This Mac"] [--no-open]"""
+"""python -m inky [--port 8800] [--home ~/.inky] [--host 127.0.0.1] [--name "This Mac"] [--no-open] [--bar]"""
 import argparse
 import os
 import signal
+import subprocess
 import sys
 import webbrowser
 from pathlib import Path
@@ -18,6 +19,7 @@ def main():
     ap.add_argument("--home", default=os.environ.get("INKY_HOME", "~/.inky"))
     ap.add_argument("--name", default=None, help="what this engine is called in Computers")
     ap.add_argument("--no-open", action="store_true")
+    ap.add_argument("--bar", action="store_true", help="macOS: also start the menu bar app (build it once with native/mac/build.sh)")
     a = ap.parse_args()
     load_dotenv(Path.cwd() / ".env")
     os.environ["INKY_HOME"] = str(Path(a.home).expanduser())
@@ -31,6 +33,12 @@ def main():
     print(f"Inky is running at {url}")
     print(f"Pairing code for other computers: {pair_code(engine.token)}", flush=True)
     signal.signal(signal.SIGTERM, lambda *_: (engine.close(), sys.exit(0)))
+    if a.bar and sys.platform == "darwin":
+        bar = Path(__file__).resolve().parent.parent / "native" / "mac" / "build" / "InkyBar.app"
+        if bar.exists():
+            subprocess.Popen(["open", str(bar), "--args", "--url", url])
+        else:
+            print("Build the menu bar app first: native/mac/build.sh")
     if not a.no_open:
         webbrowser.open(url)
     try:
