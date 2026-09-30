@@ -104,6 +104,32 @@ Plan: `docs/superpowers/plans/2026-09-30-inky-app-and-personality.md`. Unit test
 | Release app, fresh install | The release `.app` on an empty data folder: started its engine, downloaded the bots' browser by itself (557 MB installed), quit cleanly | Pass |
 | CI | Unit tests (Python + UI) and the app build (engine binary check, `cargo test`, `tauri build`) on macOS, Windows and Linux | Pass on all three (fixes: a Windows-only test assumption; engine.json is now written atomically, a race CI caught) |
 
+## Fourth pass: onboarding, motion, real logos, connectors, easy connect, agent library
+
+Plan: [plans/2026-09-30-inky-round3.md](plans/2026-09-30-inky-round3.md). Unit and browser tests: **70 Python tests and 6 UI tests, OK**. Checks were run against the new release build's own engine (a separate copy with its own data folder), dev engines, a real sshd container, a clean `python:3.12-slim` container and real public sandbox sites. Computer control of the test copy of the app was declined, so its screens were checked with a headless browser on the same engine the app window shows.
+
+| Area | What was done | Result |
+|---|---|---|
+| Onboarding | All 6 steps at the app's smallest window (900×600) and at 1280×820 | Continue stays on screen on every step (it was off screen on step 3 at y 602) |
+| Onboarding choices | Provider tiles, key form, pairing and Telegram all open inside the wizard | Pass: nothing leaves `#/setup` |
+| Model after a key | Inky lists the provider's models, picks one, tests it, and uses it (checked against realistic lists for 6 providers) | Pass: claude-sonnet-4-5, gpt-5-mini, gemini-2.5-flash, gpt-oss-120b, grok-4-fast, mistral-medium |
+| Local model | **Start Ollama** on this Mac, then "Use this" | Ollama answered in 0.6 s; qwen3:1.7b replied "OK." in 2.2 s |
+| Real logos | 20 brand marks (Simple Icons CC0 plus the brands' own files), each with its source in `ui/logos/SOURCES.md` | Pass; no letter tiles or generic glyphs left |
+| Motion | Pages slide in, content staggers in, numbers count up, buttons give when pressed, toasts spring | Checked in a browser, no errors; everything is off under reduced motion |
+| Critters | Separate tentacles sway, cat tail, look around, yawn, stretch; they wiggle on hover, squish on click and dance on new results | Gallery checked by eye; the scheduler tests pass |
+| App finds your tools | The test copy was started by LaunchServices (the bare Dock PATH) | Claude Code and Codex were both found (the engine's PATH has your login shell's folders) |
+| Claude Code, Codex | Connect and Test from Connectors | 26 and 2 tools; the status shows Claude Code "signed out" with its fix |
+| Telegram | Paste the token → send /start → Inky finds your chat and says hello (fake Telegram API, in the real browser) | Pass |
+| n8n, Apify | Setup, test, send a skill, trigger and run_actor against fake APIs; a wrong n8n address shows "Couldn’t reach n8n at …" | Pass. No real n8n or Apify account was used |
+| install.sh | In a clean `python:3.12-slim` container: install, start, print address and code | Pass: the engine it started answered on the network |
+| Set up over SSH | Real ssh into a throwaway sshd container with a throwaway key: connect, install, service, pair | Paired in 4.4 s. An unreachable host shows "Couldn’t reach … over SSH" with a fix |
+| Found on your network | Two real engines, the second on 0.0.0.0: UDP beacon, listed in Computers, paired with its code from the page | Pass from the dev engine. The release app heard nothing: macOS keeps apps off the local network until you allow it. The build now asks with a clear reason (Info.plist), and Computers says where to allow it |
+| Tailscale | `tailscale status --json` on this Mac | Read fine: 1 peer online, no Inky on it |
+| Pair links | `handleLink("inky://pair?…")` in the page: one confirm, then paired | Pass. The OS-level `open inky://…` wasn't tried, because your own Inky was running and macOS could have handed it the link |
+| Library | Two starters made by running them for real with no AI: Book Bargains (60 books over 3 pages, 14 under £20) and Quote of the Day (20 quotes), checked and indexed | Pass. The Library tab lists them; Get shows the permission preview; the installed agent ran in 3.4 s with 0 AI calls |
+| Domain guard | A library agent's step leading to another site | Stops with "This agent only works on …" (test); a same-site subdomain is allowed |
+| Posting | Share → Post to the library shows the exact public file and the checker's result | Checked up to the final button. Not pressed: it would open a real pull request on your GitHub |
+
 ## Limits
 
 - **The desktop app is unsigned**: macOS asks you to right-click → Open the first time; Windows SmartScreen asks too.
@@ -111,3 +137,6 @@ Plan: `docs/superpowers/plans/2026-09-30-inky-app-and-personality.md`. Unit test
 - **Windows and Linux builds** come from CI; their tray, buddy and shortcuts were not tried by hand.
 - **"Your screen" means a visible browser window** the bot drives, not your whole desktop (a non-goal in the spec).
 - **Live view and events** still pass the token in the URL (`?t=`), because images and EventSource can't send headers. These URLs are never shown as links.
+- **The public library, the one-line install and "Set up over SSH" use the `main` branch** (`library/index.json`, `install.sh`). Until `build` is merged into `main`, the Library tab shows the two starters that ship with the app, and the install line and SSH setup won't find `install.sh`.
+- **No install counts or ratings** in the library: they would need a server.
+- **Found on your network needs macOS's Local Network permission** for the app, which macOS asks for the first time you open Computers.

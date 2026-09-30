@@ -861,13 +861,18 @@ function bindServerAdder(install, onPaired) {
   $("#sshgo").onclick = ssh;
   $("#sshtarget").onkeydown = (e) => { if (e.key === "Enter") ssh(); };
   let shown = "";
+  const t0 = Date.now();
   const drawFound = async () => {
     const box = $("#found"); if (!box) return clearInterval(foundTimer);
     let found = [];
     try { ({ found } = await get("/api/computers/found")); } catch (e) { return; }
-    const key = found.map((f) => f.url).join();
+    const key = found.map((f) => f.url).join() || (Date.now() - t0 > 15e3 ? "quiet" : "");
     if (key === shown) return;  // don't wipe a code you're typing
     shown = key;
+    if (!found.length && key === "quiet" && APP && /Mac/.test(navigator.platform)) {  // macOS keeps apps off the local network until you allow it
+      box.innerHTML = `<span class="small muted">Nothing found on your network yet. If macOS asked whether Inky may find devices on your local network, allow it (System Settings → Privacy & Security → Local Network).</span>`;
+      return;
+    }
     box.innerHTML = found.length ? `<b>Found ${found.some((f) => f.via === "tailscale") ? "on your network and tailnet" : "on your network"}</b>` + found.map((f) => `<div class="card lrow" style="padding:10px 12px">${logo(f.via === "tailscale" ? "tailscale" : "linux", 30)}<span class="grow"><b>${esc(f.name)}</b><br><span class="mono small muted">${esc(f.host || f.url)}${f.via === "tailscale" ? " · works away from home" : ""}</span></span><input class="f mono" data-fcode="${esc(f.url)}" placeholder="Its code" style="width:120px" aria-label="Pairing code for ${esc(f.name)}"><button class="btn s" data-fpair="${esc(f.url)}">Pair</button></div>`).join("") : "";
     $$("[data-fpair]", box).forEach((b) => (b.onclick = async () => {
       const code = $(`[data-fcode="${b.dataset.fpair}"]`).value.trim();

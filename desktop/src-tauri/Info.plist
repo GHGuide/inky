@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS asks before an app may hear its local network; Computers → Found on your network needs it -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Inky looks for your other Inky computers on your Wi-Fi, so you can pair them without typing an address.</string>
+</dict>
+</plist>
