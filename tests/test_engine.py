@@ -148,6 +148,38 @@ class EngineTest(unittest.TestCase):
         urllib.request.urlopen(self.base + "/__layout?v=1").read()
 
 
+class ScreenModeTest(unittest.TestCase):
+    """Your-screen mode: chat typed in the on-page panel reaches the bot and its reply comes back;
+    a real mouse move pauses a run."""
+
+    def test_overlay_chat_and_pause(self):
+        os.environ["INKY_HEADLESS"] = "1"
+        site = site_server.start()
+        E = make_engine()
+        try:
+            b = E.create_bot({"name": "Screen Bot", "start_url": f"http://127.0.0.1:{site.server_port}/"})
+            E.update_bot(b["id"], {"mode": "screen"})
+            E.llm.chat_reply = {"reply": "Sure, skipping ground floors.", "actions": []}
+            E.computer(b["id"])
+            E._on_control(b["id"], {"type": "chat", "text": "skip ground floors"})
+            msgs = [m["text"] for m in E.store.find("messages", bot_id=b["id"])]
+            self.assertIn("skip ground floors", msgs)
+            self.assertIn("Sure, skipping ground floors.", msgs)
+            state = E.computers[b["id"]].call("overlay")
+            chat = E.computers[b["id"]].overlay_state.get("chat", [])
+            self.assertEqual(chat[-1]["text"], "Sure, skipping ground floors.")
+            E.learn(b["id"], "Flats in Bari", f"http://127.0.0.1:{site.server_port}/")
+            self.assertTrue(wait(lambda: E.runs[b["id"]].step, 30))
+            E._on_control(b["id"], {"type": "user_input", "kind": "mouse"})
+            self.assertTrue(E.runs[b["id"]].paused.is_set())
+            self.assertTrue(E.bot_view(E.store.get("bots", b["id"]))["takeover"])
+            E.control(b["id"], "stop")
+        finally:
+            E.close()
+            site.shutdown()
+            os.environ.pop("INKY_HEADLESS", None)
+
+
 class ServerMCPTransferTest(unittest.TestCase):
     """Two engines over HTTP: MCP server tools against engine A, and moving a bot from A to B."""
 

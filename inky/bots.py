@@ -1,5 +1,6 @@
 """The bot runtime: creating bots, chatting, learning, running, approvals, problems, take over, scheduling."""
 import json
+import os
 import re
 import secrets
 import threading
@@ -230,7 +231,8 @@ class Engine:
             if c and c.alive:
                 return c
             b = self.store.get("bots", bid)
-            c = Computer(bid, self.home / "profiles" / f"bot-{bid}", look=b.get("look"), headful=b.get("mode") == "screen",
+            headful = b.get("mode") == "screen" and not os.environ.get("INKY_HEADLESS")  # INKY_HEADLESS: tests, servers
+            c = Computer(bid, self.home / "profiles" / f"bot-{bid}", look=b.get("look"), headful=headful,
                          on_frame=None, on_control=self._on_control)
             self.computers[bid] = c
             if b.get("pending_cookies"):
@@ -356,7 +358,8 @@ class Engine:
         elif decision in ("Show me once",):
             self.start_show(bid, n)
         elif decision in ("Open its computer",):
-            self.control(bid, "takeover", reason="You have its computer. Press Hand back when you’re done.")
+            self.store.update("bots", bid, resume_after_handback=True)
+            self.control(bid, "takeover", reason="You have its computer. Press Hand back when you’re done, and I’ll carry on.")
 
     # ---------------------------------------------------------- chat
     def chat(self, bid, text, source="app"):
@@ -586,7 +589,8 @@ class Engine:
             elif not any(st["action"] == "extract" for st in skill["steps"]):
                 self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
             elif reason != "schedule":
-                self.store.message(bid, "bot", f"Checked {len(out['items'])} results with no AI. {len(kept)} pass your rules, none new.")
+                ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
+                self.store.message(bid, "bot", f"Checked {len(out['items'])} results with {ai}. {len(kept)} pass your rules, none new.")
             skipped = skills.unchecked(out["items"], b.get("filters"))
             if skipped and b.get("warned_unchecked") != skipped:
                 self.store.update("bots", bid, warned_unchecked=skipped)
@@ -612,6 +616,17 @@ class Engine:
             self.apply_overlay(bid, target=None, step="")
             self.bus.publish("messages", bot=bid)
             self.bus.publish("bots")
+            self._close_screen_later(bid)
+
+    def _close_screen_later(self, bid, delay=4):
+        """A window on your screen goes away when its run is done (unless you took over)."""
+        def go():
+            time.sleep(delay)
+            b = self.store.get("bots", bid)
+            run = self.runs.get(bid)
+            if b and b.get("mode") == "screen" and not self.busy(bid) and not (run and run.takeover):
+                self.close_computer(bid)
+        threading.Thread(target=go, daemon=True).start()
 
     def _finish(self, run, status, **data):
         self.store.update("runs", run.run_id, status=status, ended=time.time(), seconds=round(time.time() - run.started, 1),
@@ -633,8 +648,14 @@ class Engine:
                 open_takeover = [n for n in self.store.find("needs", bot_id=bid, status="open") if n.get("kind") in ("robot", "sign_in")]
                 for n in open_takeover:
                     self.store.update("needs", n["id"], status="resolved", decision="Handed back")
-                if open_takeover and not alive:
-                    self.run(bid, reason="after you signed in")
+                resume = open_takeover or b.get("resume_after_handback")
+                self.store.update("bots", bid, resume_after_handback=False)
+                if resume and not alive:
+                    self.store.message(bid, "bot", "Thanks, carrying on from here.")
+                    try:
+                        self.run(bid, reason="after you took over")
+                    except Exception as e:
+                        self.store.message(bid, "bot", f"I couldn’t carry on: {e}")
         elif cmd == "stop" and run:
             run.stop = True
             run.paused.clear()

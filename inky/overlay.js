@@ -108,9 +108,14 @@
   // Real people vs the bot: the engine sets __inkySynthetic around its own input.
   const human = (kind) => (e) => {
     if (!e.isTrusted || window.__inkySynthetic || S.mode !== "screen") return;
+    if (kind === "key" && ["Alt", "Meta", "Shift", "Control", "CapsLock"].includes(e.key)) return;
+    if (kind === "key" && e.key === "Escape") { call({ type: "stop" }); return; }  // Esc always stops, even from the chat
     if (host && e.composedPath && e.composedPath().includes(host)) return;
-    if (kind === "key" && e.key === "Escape") { call({ type: "stop" }); return; }
-    if (kind === "key" && e.altKey && (e.key === "c" || e.key === "ç" || e.code === "KeyC")) { S.chatOpen = !S.chatOpen; render(); e.preventDefault(); return; }
+    if (kind === "key" && e.altKey && (e.key === "c" || e.key === "ç" || e.code === "KeyC")) {
+      S.chatOpen = !S.chatOpen; render(); e.preventDefault(); e.stopPropagation();
+      if (S.chatOpen) els.input.focus(); else els.input.blur();
+      return;
+    }
     call({ type: "user_input", kind });
   };
   window.addEventListener("mousedown", human("mouse"), true);

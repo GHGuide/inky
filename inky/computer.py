@@ -121,7 +121,9 @@ class Computer:
     def _run(self):
         try:
             self.pw = sync_playwright().start()
-            args = ["--disable-blink-features=AutomationControlled"]
+            args = ["--disable-blink-features=AutomationControlled", "--disable-features=Translate,TranslateUI",
+                    "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble",
+                    "--disable-session-crashed-bubble"]
             self.ctx = self.pw.chromium.launch_persistent_context(
                 self.profile_dir, headless=not self.headful, viewport={"width": 1280, "height": 800}, args=args,
                 locale="en-US")

@@ -598,10 +598,14 @@ class Handler(BaseHTTPRequestHandler):
             c = E.store.get("computers", int(b["computer"]))
             r = httpx.get(f"{c['url']}/api/bots/{b['remote_id']}/screen.jpg", headers={"X-Inky-Token": c["token"]}, timeout=20)
             return self._send(r.status_code, r.content, "image/jpeg")
-        try:
-            comp = E.computer(bid)
-        except Exception as e:
-            return self._send(503, {"error": str(e)})
+        comp = E.computers.get(bid)
+        if not (comp and comp.alive):
+            if b and b.get("mode") == "screen":  # never open a window on your screen just to show it here
+                return self._send(204, b"", "image/jpeg")
+            try:
+                comp = E.computer(bid)
+            except Exception as e:
+                return self._send(503, {"error": str(e)})
         if kind == "jpg":
             return self._send(200, comp.frame or b"", "image/jpeg")
         self.send_response(200)
