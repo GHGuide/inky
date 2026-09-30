@@ -244,3 +244,9 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 .coach .ring{position:fixed;border-radius:14px;box-shadow:0 0 0 3px var(--coral),0 0 0 9999px rgba(17,17,16,.2);pointer-events:none;transition:all .25s}
 .coach .tip{position:fixed;width:320px;gap:10px;box-shadow:0 20px 50px rgba(17,17,16,.25)}
 @media (prefers-reduced-motion:reduce){.ritual,.ritual *{animation:none!important;opacity:1!important;transform:none!important}}
+
+/* ---- buddy window (desktop app): peeks in from the screen edge */
+body.buddymode #view{display:flex;align-items:flex-end;justify-content:center;height:100vh;overflow:hidden}
+.buddy{border:0;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;animation:b-peek .6s cubic-bezier(.2,1.4,.4,1)}
+.buddy span{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:#fff;box-shadow:0 2px 8px rgba(17,17,16,.15)}
+@keyframes b-peek{from{transform:translateY(110%)}to{transform:none}}

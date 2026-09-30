@@ -1,9 +1,10 @@
-"""python -m inky [--port 8800] [--home ~/.inky] [--host 127.0.0.1] [--name "This Mac"] [--no-open] [--bar]"""
+"""python -m inky [--port 8800] [--home ~/.inky] [--host 127.0.0.1] [--name "This Mac"] [--no-open] [--stop-with-stdin]"""
 import argparse
 import json
 import os
+import _thread
 import signal
-import subprocess
+import threading
 import sys
 import webbrowser
 from pathlib import Path
@@ -20,7 +21,7 @@ def main():
     ap.add_argument("--home", default=os.environ.get("INKY_HOME", "~/.inky"))
     ap.add_argument("--name", default=None, help="what this engine is called in Computers")
     ap.add_argument("--no-open", action="store_true")
-    ap.add_argument("--bar", action="store_true", help="macOS: also start the menu bar app (build it once with native/mac/build.sh)")
+    ap.add_argument("--stop-with-stdin", action="store_true", help="stop when stdin closes (the desktop app uses this, so a crash never leaves an engine behind)")
     a = ap.parse_args()
     load_dotenv(Path.cwd() / ".env")
     home = Path(a.home).expanduser()
@@ -38,12 +39,12 @@ def main():
     print(f"Pairing code for other computers: {pair_code(engine.token)}", flush=True)
     write_engine_file(home, url, os.getpid())
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # finally: below closes the engine and removes engine.json
-    if a.bar and sys.platform == "darwin":
-        bar = Path(__file__).resolve().parent.parent / "native" / "mac" / "build" / "InkyBar.app"
-        if bar.exists():
-            subprocess.Popen(["open", str(bar), "--args", "--url", url])
-        else:
-            print("Build the menu bar app first: native/mac/build.sh")
+    if a.stop_with_stdin:
+        def watch():
+            for _ in sys.stdin:
+                pass
+            _thread.interrupt_main()  # the app is gone: shut down like Ctrl+C (cleans up engine.json)
+        threading.Thread(target=watch, daemon=True).start()
     if not a.no_open:
         webbrowser.open(url)
     try:

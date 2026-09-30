@@ -86,7 +86,7 @@ let knockFor = null;
 function feel(m) {
   if (!m.bot) return;
   const r = (RECENT[m.bot] = RECENT[m.bot] || {}), bot = S.bots.find((b) => b.id === m.bot);
-  if (m.kind === "results" && m.new > 0) { r.results = Date.now(); SOUND.play("plip", bot); }
+  if (m.kind === "results" && m.new > 0) { r.results = Date.now(); SOUND.play("plip", bot); if (bot) appNotify(bot, bot.name, `${m.new} new`, `#/bot/${bot.id}/results`); }
   if (m.kind === "event" && m.ev === "learned") { r.learned = Date.now(); SOUND.play("rise", bot); }
   if (m.kind === "event" && m.ev === "fixed") r.fixed = Date.now();
   if (m.kind === "event" && m.ev === "replay" && /pass your rules|^Done in/.test(m.text || "")) SOUND.play("chime", bot);
@@ -97,7 +97,7 @@ let moodKey = "";
 setInterval(() => {  // moods fade back to calm without any event
   const k = S.bots.map((b) => moodOf(b, RECENT)).join();
   if (k === moodKey) return;
-  moodKey = k; renderNav(); if (S.view && S.view.refresh && !BAR) S.view.refresh();
+  moodKey = k; renderNav(); if (S.view && S.view.refresh && !BAR && !BUDDY) S.view.refresh();
 }, 30e3);
 
 // ---------------------------------------------------------------- away time, for "While you were away"
@@ -133,10 +133,40 @@ function listen() {
 
 async function loadState() {
   const st = await get("/api/state");
-  if (knockFor && S.settings && st.needs > S.needs) SOUND.play("knock", knockFor);
+  if (knockFor && S.settings && st.needs > S.needs) { SOUND.play("knock", knockFor); appNotify(knockFor, `${knockFor.name} needs you`, "Open Inky to decide.", "#/needs"); }
   knockFor = null;
   Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done });
   renderNav();
+  if (APP && !BAR && !BUDDY) invoke("tray", { needs: S.needs, bots: S.bots.map((b) => ({ id: b.id, name: b.name, status: b.status })), buddy: S.settings.buddy !== false });
+  if (BUDDY) drawBuddy();
+}
+
+// the app tells you about new things when its window isn't in front (and never in quiet hours)
+function appNotify(bot, title, body, hash) {
+  if (!APP || BAR || BUDDY || (document.hasFocus() && !document.hidden) || S.settings.notify_app === false) return;
+  if (bot && inQuiet(bot.schedule, new Date())) return;
+  invoke("notify", { title, body, hash });
+}
+
+// double-clicking an .inky bot file (or .inkyskill) in Finder/Explorer
+async function importFile(text) {
+  try {
+    const d = JSON.parse(text);
+    if (d.inky_skill) {
+      const id = location.hash.match(/#\/bot\/(\d+)/);
+      if (!id) return toast("Open a bot first, then open the skill file again.");
+      await post(`/api/bots/${id[1]}/skills/import`, d); toast("Skill added"); return refreshSoon();
+    }
+    const r = await post("/api/import", d);
+    await loadState(); location.hash = `#/bot/${r.bot.id}/computer?hatch=1`;
+  } catch (e) { toast(`That isn’t an Inky file (${e.message})`); }
+}
+
+// buddy mode (?buddy=1): a critter that peeks in from the screen edge when a bot needs you
+function drawBuddy() {
+  const b = S.bots.find((x) => x.status === "needs_you" || x.needs > 0);
+  $("#view").innerHTML = b ? `<button class="buddy" title="${esc(b.name)} needs you">${botCritter(b, 110)}<span>${esc(b.name)}</span></button>` : "";
+  const btn = $(".buddy"); if (btn) btn.onclick = () => invoke("open_needs");
 }
 
 // ---------------------------------------------------------------- sidebar
@@ -260,8 +290,10 @@ function openCmd(prefill = "") {
   requestAnimationFrame(() => inp.focus());
 }
 // Bar mode (?bar=1): the macOS menu bar app shows just the command bar in a floating panel.
-const BAR = new URLSearchParams(location.search).has("bar");
-const native = (m) => { try { window.webkit.messageHandlers.inky.postMessage(m); } catch (e) {} };
+const BAR = new URLSearchParams(location.search).has("bar"), BUDDY = new URLSearchParams(location.search).has("buddy");
+const APP = !!(window.__TAURI__ && window.__TAURI__.core);  // inside the Inky desktop app
+const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).catch(() => null) : Promise.resolve(null));
+const native = (m) => (APP ? invoke("bar", { msg: m }) : null);
 function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
 async function runCmd() { const it = CMD.items[CMD.sel]; closeCmd(); if (it) try { await it.run(); } catch (e) { toast(e.message); } }
 document.addEventListener("keydown", (e) => {
@@ -292,7 +324,7 @@ function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHT
 function getBrowser() {  // first launch of the app: the bots' browser downloads once (~170 MB)
   $("#app").classList.add("bare"); $("#nav").style.display = "none";
   $("#view").innerHTML = `<div class="page" style="max-width:520px;margin:14vh auto;text-align:center;align-items:center">${critter("octopus", "#E86F51", "none", 110, "curious")}
-    <h1>Getting your bots a browser…</h1><p class="lede">Each bot uses its own private browser. It downloads once, about 170 MB.</p>
+    <h1>Getting your bots a browser…</h1><p class="lede">Each bot uses its own private browser. It downloads once, about 250 MB.</p>
     <div class="mono small muted" id="blog" style="min-height:20px">Starting…</div><button class="btn hidden" id="bretry">Try again</button></div>`;
   const go = () => { $("#bretry").classList.add("hidden"); post("/api/setup/browser").catch((e) => { $("#blog").textContent = e.message; $("#bretry").classList.remove("hidden"); }); };
   S.view = { onEvent(m) {
@@ -329,7 +361,8 @@ window.addEventListener("load", async () => {
     throw e;
   }
   listen();
-  if (!BAR && !(await get("/api/setup/browser").catch(() => ({ ready: true }))).ready) return getBrowser();
+  if (!BAR && !BUDDY && !(await get("/api/setup/browser").catch(() => ({ ready: true }))).ready) return getBrowser();
+  if (BUDDY) { document.body.classList.add("bar", "buddymode"); window.inkyBuddy = () => loadState(); return drawBuddy(); }
   if (!BAR) return route();
   document.body.classList.add("bar");
   window.inkyBarOpen = async () => { await loadState(); CMD.sel = 0; openCmd(); return true; };

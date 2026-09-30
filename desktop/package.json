@@ -1,0 +1,14 @@
+{
+  "name": "inky-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "engine": "cd .. && python desktop/scripts/build-engine.py",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "npm run engine && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
