@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import re
+import sys
 import threading
 import time
 import traceback
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from inky import health, insights, transfer
+from inky import connectors, health, insights, transfer
 from inky.llm import PROVIDERS, ROLES, fits
 from inky.mcp import PRESETS
 
@@ -243,17 +244,7 @@ def delete_skill(E, h, q, body, sid):
 def export_skill(E, h, q, body, sid):
     s = E.store.get("skills", int(sid))
     if q.get("format") == "n8n":
-        port = h.server.server_port
-        return {"name": f"Inky · {s['name']}", "nodes": [
-            {"parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}, "name": "Every 15 minutes",
-             "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [0, 0], "id": "t1"},
-            {"parameters": {"method": "POST", "url": f"http://127.0.0.1:{port}/api/bots/{s['bot_id']}/run",
-                            "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
-                            "sendBody": True, "specifyBody": "json", "jsonBody": json.dumps({"skill": s["id"], "wait": True})},
-             "credentials": {"httpHeaderAuth": {"name": "Inky token (Header X-Inky-Token)"}},  # you fill it in n8n; the file carries no token
-             "name": f"Run {s['name']} (no AI)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [260, 0], "id": "r1"}],
-                "connections": {"Every 15 minutes": {"main": [[{"node": f"Run {s['name']} (no AI)", "type": "main", "index": 0}]]}},
-                "settings": {}}
+        return connectors.n8n_workflow(s, f"http://127.0.0.1:{h.server.server_port}")
     return {"inky_skill": 1, **{k: s[k] for k in ("name", "site", "goal", "start_url", "steps", "version", "max_pages") if k in s}}
 
 
@@ -463,15 +454,83 @@ def mcp_remove(E, h, q, body, name):
     return {"ok": True}
 
 
-@route("GET", "/api/mcp/inky-config")
-def inky_config(E, h, q, body):
+def inky_mcp(E):
+    """How Claude Code or Codex start Inky's own MCP server. It finds the running engine through engine.json."""
     from inky.mcp import launcher
     py, *args = launcher("inky.mcp_server", "mcp-server")
-    env = {"INKY_HOME": str(E.home), "INKY_URL": f"http://127.0.0.1:{h.server.server_port}",
-           "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    env = {"INKY_HOME": str(E.home)}
+    if not getattr(sys, "frozen", False):  # running from source: `python -m inky.mcp_server` needs the repo on the path
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    return py, args, env
+
+
+@route("GET", "/api/mcp/inky-config")
+def inky_config(E, h, q, body):
+    py, args, env = inky_mcp(E)
     return {"claude": {"mcpServers": {"inky": {"command": py, "args": args, "env": env}}},
-            "claude_cli": f"claude mcp add inky -e INKY_HOME={env['INKY_HOME']} -e INKY_URL={env['INKY_URL']} -e PYTHONPATH={env['PYTHONPATH']} -- {py} {' '.join(args)}",
-            "codex_toml": f'[mcp_servers.inky]\ncommand = "{py}"\nargs = {json.dumps(args)}\nenv = {{ INKY_HOME = "{env["INKY_HOME"]}", INKY_URL = "{env["INKY_URL"]}", PYTHONPATH = "{env["PYTHONPATH"]}" }}'}
+            "claude_argv": ["claude", "mcp", "add", "--scope", "user", "inky", *[x for k, v in env.items() for x in ("-e", f"{k}={v}")], "--", py, *args],
+            "claude_cli": f"claude mcp add --scope user inky {' '.join(f'-e {k}={v}' for k, v in env.items())} -- {py} {' '.join(args)}",
+            "codex_toml": f'[mcp_servers.inky]\ncommand = {json.dumps(py)}\nargs = {json.dumps(args)}\nenv = {{ {", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items())} }}\n'}
+
+
+# ------------------------------------------------------------------ connectors (status, setup, test)
+@route("GET", "/api/connectors")
+def connectors_list(E, h, q, body):
+    return {"connectors": connectors.status(E), "inky": inky_config(E, h, q, body)}
+
+
+@route("POST", r"/api/connectors/([\w-]+)/test")
+def connector_test(E, h, q, body, name):
+    return connectors.test(E, name)
+
+
+@route("POST", r"/api/connectors/(telegram|n8n|apify)/setup")
+def connector_setup(E, h, q, body, name):
+    return connectors.PROVIDERS[name].save(E, body.get("values") or {})
+
+
+@route("POST", "/api/connectors/telegram/find-chat")
+def telegram_find_chat(E, h, q, body):
+    chat = connectors.PROVIDERS["telegram"].find_chat(E)
+    return {"chat_id": chat, "bot": E.store.setting("telegram", {}).get("bot")}
+
+
+@route("POST", "/api/connectors/claude-code/add-inky")
+def claude_add_inky(E, h, q, body):
+    """Changes Claude Code's own settings, so the UI shows the exact command first and only calls this on your click."""
+    import shutil
+    import subprocess
+    argv = inky_config(E, h, q, body)["claude_argv"]
+    exe = shutil.which("claude")
+    if not exe:
+        raise HTTPError(400, "Claude Code isn’t installed")
+    subprocess.run([exe, "mcp", "remove", "--scope", "user", "inky"], capture_output=True, timeout=20)  # replace an older entry
+    r = subprocess.run([exe, *argv[1:]], capture_output=True, text=True, timeout=30)
+    return {"ok": r.returncode == 0, "text": (r.stdout or r.stderr).strip()[:400]}
+
+
+@route("POST", "/api/connectors/codex/add-inky")
+def codex_add_inky(E, h, q, body):
+    """Adds [mcp_servers.inky] to ~/.codex/config.toml if it isn't there. Only on your click; returns what it wrote."""
+    cfg = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
+    have = cfg.read_text(encoding="utf-8") if cfg.exists() else ""
+    if re.search(r"^\[mcp_servers\.inky\]", have, re.M):
+        return {"ok": True, "wrote": "", "text": "Codex already has Inky."}
+    block = inky_config(E, h, q, body)["codex_toml"]
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    with open(cfg, "a", encoding="utf-8") as f:
+        f.write(("\n" if have and not have.endswith("\n") else "") + "\n" + block)
+    return {"ok": True, "wrote": block, "text": f"Added to {cfg}."}
+
+
+@route("POST", r"/api/skills/(\d+)/send-n8n")
+def send_n8n(E, h, q, body, sid):
+    s = E.store.get("skills", int(sid))
+    try:
+        wf = connectors.PROVIDERS["n8n"].send_skill(E, s, f"http://127.0.0.1:{h.server.server_port}")
+    except Exception as e:
+        return {"ok": False, "text": connectors._err(e, "n8n")}
+    return {"ok": True, "id": wf.get("id"), "text": f"Sent. It’s in n8n as “{wf.get('name')}”, turned off until you switch it on."}
 
 
 # ------------------------------------------------------------------ computers, settings, health
@@ -551,12 +610,13 @@ def setup(E, h, q, body):
 
 @route("POST", "/api/telegram/test")
 def telegram_test(E, h, q, body):
-    tg = E.store.setting("telegram", {})
     token = E.keys.get("telegram")
     if not token:
         raise HTTPError(400, "paste the bot token first")
-    r = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=15).json()
-    return {"ok": r.get("ok", False), "bot": (r.get("result") or {}).get("username"), "chat_id": tg.get("chat_id")}
+    r = httpx.get(connectors.PROVIDERS["telegram"].api(token, "getMe"), timeout=15).json()
+    if r.get("ok"):
+        E.store.set_setting("telegram", {**E.store.setting("telegram", {}), "bot": r["result"].get("username")})
+    return {"ok": r.get("ok", False), "bot": (r.get("result") or {}).get("username"), "chat_id": E.store.setting("telegram", {}).get("chat_id")}
 
 
 # ------------------------------------------------------------------ handler
@@ -733,4 +793,5 @@ class Handler(BaseHTTPRequestHandler):
 def serve(engine, host="127.0.0.1", port=8800):
     srv = ThreadingHTTPServer((host, port), type("EngineHandler", (Handler,), {"engine": engine}))
     srv.daemon_threads = True
+    engine.port = srv.server_port  # connectors that call back into Inky (n8n) need it
     return srv

@@ -124,6 +124,7 @@ class MCPManager:
         self.store, self.home = store, home
         self.clients, self.tools_cache = {}, {}
         self.lock = threading.Lock()
+        self.builtin = None  # connectors.Builtins: Telegram, n8n and Apify, called like any MCP server
 
     def servers(self):
         saved = {r["key"]: r for r in self.store.find("mcp")}
@@ -194,7 +195,14 @@ class MCPManager:
         return self.tools_cache.get(name, [])
 
     def call(self, name, tool, args, timeout=900):
+        if self.builtin and self.builtin.has(name):
+            return self.builtin.call(name, tool, args)
         return self.connect(name).call(tool, args, timeout=timeout)
+
+    def label(self, name):
+        if self.builtin and self.builtin.has(name):
+            return self.builtin.label(name)
+        return next((s["label"] for s in self.servers() if s["name"] == name), name)
 
     def catalog(self):
         """Short tool list of enabled, connected servers, for the chat model."""
@@ -204,6 +212,9 @@ class MCPManager:
                 for t in self.tools_cache.get(s["name"], []):
                     props = list((t.get("inputSchema") or {}).get("properties", {}).keys())
                     out.append(f"{s['name']}.{t['name']}({', '.join(props)}): {(t.get('description') or '')[:140]}")
+        for name, t in (self.builtin.catalog() if self.builtin else []):
+            props = list((t.get("inputSchema") or {}).get("properties", {}).keys())
+            out.append(f"{name}.{t['name']}({', '.join(props)}): {t.get('description', '')[:140]}")
         return out
 
     def close(self):

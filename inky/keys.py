@@ -8,7 +8,7 @@ from pathlib import Path
 
 ENV = {"openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
        "gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY", "xai": "XAI_API_KEY", "mistral": "MISTRAL_API_KEY",
-       "telegram": "TELEGRAM_BOT_TOKEN", "custom": "INKY_CUSTOM_API_KEY"}
+       "telegram": "TELEGRAM_BOT_TOKEN", "custom": "INKY_CUSTOM_API_KEY", "apify": "APIFY_TOKEN", "n8n": "N8N_API_KEY"}
 
 
 def load_dotenv(path):

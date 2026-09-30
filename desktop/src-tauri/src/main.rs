@@ -298,7 +298,7 @@ fn start_engine(app: &AppHandle) -> Result<String, String> {
         .shell()
         .sidecar("inky-engine")
         .map_err(|e| e.to_string())?
-        .args(["--port", "0", "--no-open", "--stop-with-stdin", "--home", &home.to_string_lossy()])
+        .args(["--port", "8800", "--or-any-port", "--no-open", "--stop-with-stdin", "--home", &home.to_string_lossy()])
         .spawn()
         .map_err(|e| e.to_string())?;
     *app.state::<Shared>().child.lock().unwrap() = Some(child);

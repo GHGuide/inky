@@ -14,9 +14,17 @@ HOME = Path(os.environ.get("INKY_HOME", "~/.inky")).expanduser()
 URL = os.environ.get("INKY_URL", "http://127.0.0.1:8800")
 
 
+def engine_url():
+    """The running engine's address from engine.json (the desktop app may pick a new port each start), else INKY_URL."""
+    try:
+        return json.loads((HOME / "engine.json").read_text(encoding="utf-8"))["url"]
+    except (OSError, ValueError, KeyError):
+        return URL
+
+
 def api(method, path, body=None, timeout=300):
     token = (HOME / "api_token").read_text().strip() if (HOME / "api_token").exists() else ""
-    r = httpx.request(method, URL + path, json=body, timeout=timeout, headers={"X-Inky-Token": token})
+    r = httpx.request(method, engine_url() + path, json=body, timeout=timeout, headers={"X-Inky-Token": token})
     r.raise_for_status()
     return r.json()
 

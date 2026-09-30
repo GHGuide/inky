@@ -21,6 +21,7 @@ def main():
     ap.add_argument("--home", default=os.environ.get("INKY_HOME", "~/.inky"))
     ap.add_argument("--name", default=None, help="what this engine is called in Computers")
     ap.add_argument("--no-open", action="store_true")
+    ap.add_argument("--or-any-port", action="store_true", help="if the port is taken, use any free one (the desktop app prefers 8800 so links and pairings keep working)")
     ap.add_argument("--stop-with-stdin", action="store_true", help="stop when stdin closes (the desktop app uses this, so a crash never leaves an engine behind)")
     a = ap.parse_args()
     load_dotenv(Path.cwd() / ".env")
@@ -28,11 +29,18 @@ def main():
     os.environ["INKY_HOME"] = str(home)
     if getattr(sys, "frozen", False):  # the desktop app: the bots' browser lives in Inky's folder
         os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(home / "browsers"))
+        from inky.connectors import fix_path
+        fix_path()  # opened from the Dock, the app can't see claude, codex, ollama or docker without this
     engine = Engine(a.home)
     if a.name:
         engine.store.set_setting("engine_name", a.name)
     engine.start_scheduler()
-    srv = serve(engine, a.host, a.port)  # port 0: any free port (the desktop app reads it from the first line)
+    try:
+        srv = serve(engine, a.host, a.port)  # port 0: any free port (the desktop app reads it from the first line)
+    except OSError:
+        if not a.or_any_port:
+            raise
+        srv = serve(engine, a.host, 0)
     url = f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '::', '') else a.host}:{srv.server_port}"  # this computer's browser gets the token
     from inky.transfer import pair_code
     print(f"Inky is running at {url}")

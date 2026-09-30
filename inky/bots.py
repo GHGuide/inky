@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from inky import skills
+from inky import connectors, skills
 from inky.bus import Bus
 from inky.computer import Computer
 from inky.keys import Keys
@@ -149,6 +149,7 @@ class Engine:
         self.keys = Keys(self.home)
         self.llm = LLM(self.store, self.keys, on_usage=self._usage)
         self.mcp = MCPManager(self.store, str(self.home))
+        self.mcp.builtin = connectors.Builtins(self)
         self.computers, self.runs, self.waits = {}, {}, {}
         self.hops = {}  # (from bot, to bot) -> times, so two bots can't talk in circles
         self.lock = threading.RLock()
@@ -508,7 +509,7 @@ class Engine:
     def delegate(self, bid, a, context=None, run=None):
         b = self.store.get("bots", bid)
         label = a.get("label") or f"{a.get('server')}.{a.get('tool')}"
-        who = next((x["label"] for x in self.mcp.servers() if x["name"] == a.get("server")), a.get("server"))
+        who = self.mcp.label(a.get("server"))
         args = fill_template(a.get("args") or {}, {"bot": b["name"], "count": len(context or []),
                                                    "new_json": json.dumps(context or [], ensure_ascii=False)[:6000]})
         if not a.get("approved_always"):
@@ -531,6 +532,13 @@ class Engine:
                 self.mcp.call(a["server"], "Read", {"file_path": args["file_path"]})  # Claude Code only overwrites files it has read
                 r = self.mcp.call(a["server"], a["tool"], args)
             out = (r["text"] or "").strip()
+            if a.get("as_results") and not r["error"]:  # e.g. an Apify Actor's items become this bot's results
+                try:
+                    items = [x for x in json.loads(out) if isinstance(x, dict)]
+                except (ValueError, TypeError):
+                    items = []
+                n = self.add_results(bid, items, label)
+                out = f"{len(items)} items, {n} new."
             try:  # Codex (and others) answer in JSON: show the reply itself
                 j = json.loads(out)
                 if isinstance(j, dict):  # a tool result without a reply (e.g. Write) just says it's done
@@ -546,6 +554,19 @@ class Engine:
             return None
         finally:
             self.bus.publish("messages", bot=bid)
+
+    def add_results(self, bid, items, source):
+        """Results from outside a skill run (a connector): the same rules and new/seen tracking. Returns how many are new."""
+        b = self.store.get("bots", bid)
+        kept = skills.apply_filters(items, b.get("filters"))
+        new = 0
+        for it in kept:
+            k = skills.item_key(it)
+            prev = self.store.find("results", bot_id=bid, key=k, limit=1)
+            self.store.upsert_key("results", bid, k, {**it, "skill": source, "run": "connector", "new": not prev, "passed": True})
+            new += not prev
+        self.bus.publish("results", bot=bid, new=new)
+        return new
 
     # ---------------------------------------------------------- runs
     def busy(self, bid):
@@ -821,16 +842,12 @@ class Engine:
     # ---------------------------------------------------------- notify, schedule
     def notify(self, bid, text):
         self.bus.publish("notify", bot=bid, text=text)
-        tg = self.store.setting("telegram", {})
-        if tg.get("enabled") and tg.get("chat_id"):
-            token = self.keys.get("telegram")
-            if token:
-                name = (self.store.get("bots", bid) or {}).get("name", "Inky") if bid else "Inky"
-                try:
-                    httpx.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                               json={"chat_id": tg["chat_id"], "text": f"{name}: {text}"[:4000]}, timeout=15)
-                except Exception:
-                    pass
+        if self.store.setting("telegram", {}).get("enabled") and connectors.PROVIDERS["telegram"].configured(self):
+            name = (self.store.get("bots", bid) or {}).get("name", "Inky") if bid else "Inky"
+            try:
+                connectors.PROVIDERS["telegram"].send(self, f"{name}: {text}")
+            except Exception:
+                pass
 
     def start_scheduler(self):
         if self._sched:
