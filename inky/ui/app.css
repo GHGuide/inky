@@ -226,6 +226,22 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
 @keyframes c-dots{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;transform:translateY(-4px)}}
 ::view-transition-old(root),::view-transition-new(root){animation-duration:.18s}
+/* ---- app motion (motion.js staggers entrances and counts numbers; this is the rest) */
+#view{view-transition-name:view}
+::view-transition-old(view){animation:vt-out .14s ease-in both}::view-transition-new(view){animation:vt-in .32s cubic-bezier(.2,.8,.2,1) both}
+@keyframes vt-out{to{opacity:0;transform:translateY(-4px)}}@keyframes vt-in{from{opacity:0;transform:translateY(10px)}}
+.btn,.iconbtn,.chip,.navbot,.navlink,.seg button,.seg a,.toggle{transition:transform .2s cubic-bezier(.3,1.6,.5,1),opacity .15s,background-color .15s,box-shadow .2s}
+.btn:active,.iconbtn:active,.chip:active,.navbot:active,.navlink:active,.seg button:active,.toggle:active{transform:scale(.96)}
+.botcard,a.card,.opt,.desk{transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s,border-color .15s}
+.botcard:hover,a.card:hover,.opt:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(17,17,16,.08)}
+.botcard:active,a.card:active,.opt:active,.desk:active{transform:translateY(0) scale(.985)}
+.toast{animation:toast-in .5s cubic-bezier(.3,1.4,.5,1) both}.toast.out{animation:toast-out .26s ease-in both}
+@keyframes toast-in{from{opacity:0;transform:translateX(28px) scale(.94)}}@keyframes toast-out{to{opacity:0;transform:translateX(18px) scale(.97)}}
+.pill.live i,.av i.live{animation:live 1.8s ease-in-out infinite}
+@keyframes live{50%{transform:scale(1.35);opacity:.65}}
+.modal .box{animation:pop-in .32s cubic-bezier(.3,1.4,.5,1) both}@keyframes pop-in{from{opacity:0;transform:translateY(8px) scale(.97)}}
+@media (prefers-reduced-motion:reduce){#view{view-transition-name:none}.btn,.iconbtn,.chip,.navbot,.navlink,.botcard,a.card,.opt,.desk,.toggle{transition:none!important;transform:none!important}
+  .toast,.toast.out,.pill.live i,.av i.live,.modal .box{animation:none!important}}
 @media (prefers-reduced-motion:reduce){.typing i{animation:none}}
 
 /* ---- office view: your bots at their desks */

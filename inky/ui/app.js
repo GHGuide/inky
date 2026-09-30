@@ -79,7 +79,7 @@ function toast(text, b) {
   el.className = "toast";
   el.innerHTML = `${b ? botCritter(b, 30) : critter("octopus", "#E86F51", "none", 30)}<div><b>${esc(b ? b.name : "Inky")}</b><br>${esc(text)}</div>`;
   $("#toasts").appendChild(el);
-  setTimeout(() => el.remove(), 6000);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 260); }, 6000);
 }
 
 const calmMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -201,7 +201,7 @@ function renderNav() {
     <a class="newbot" href="#/new">${icon("plus", 16, 2.2)}New bot</a>
     <div class="navlabel">Bots</div>
     ${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/computer" data-bot="${b.id}">
-      <span class="av">${botCritter(b, 26)}<i style="background:${m.color}"></i></span>
+      <span class="av">${botCritter(b, 26)}<i class="${["working", "learning"].includes(b.status) ? "live" : ""}" style="background:${m.color}"></i></span>
       <span class="t"><span>${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}
     <div class="navbottom">
       <a class="navlink needlink${on("#/needs")}" href="#/needs"><i></i>${S.needs} need you</a>
@@ -239,6 +239,7 @@ async function route() {
     $("#view").replaceWith(el);
     try {
       await v.show(el, rest.filter(Boolean), qs);
+      MOTION.enter(el);
     } catch (e) {
       el.innerHTML = `<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p></div>`;
     }
