@@ -1,0 +1,136 @@
+{
+ "bundle": 1,
+ "bot": {
+  "name": "Book Bargains",
+  "job": "Finds books under £20 on books.toscrape.com and tells you about new ones.",
+  "summary": "Finds books under £20 on books.toscrape.com and tells you about new ones.",
+  "goal": "Books under £20",
+  "start_url": "https://books.toscrape.com/",
+  "look": {
+   "tone": "cheerful",
+   "voice": "soft",
+   "frame": "coral",
+   "cursor": "name",
+   "labels": true,
+   "speed": "normal",
+   "kind": "cat",
+   "color": "#7C6CF2",
+   "acc": "glasses"
+  },
+  "rules": [
+   {
+    "kind": "own",
+    "text": "Read, search, take notes"
+   },
+   {
+    "kind": "ask",
+    "text": "Send, post, reply, delete, submit forms, sign up"
+   },
+   {
+    "kind": "never",
+    "text": "Buy or pay"
+   },
+   {
+    "kind": "filter",
+    "text": "price ≤ £20"
+   }
+  ],
+  "filters": [
+   {
+    "field": "price",
+    "op": "<=",
+    "value": 20,
+    "text": "price ≤ £20"
+   }
+  ],
+  "memory": [],
+  "automations": [],
+  "schedule": {
+   "every_minutes": 1440,
+   "summary_at": "08:00",
+   "quiet_from": "23:00",
+   "quiet_to": "07:00"
+  },
+  "mode": "own",
+  "persona": {
+   "chatty": 0.35,
+   "playful": 0.5,
+   "emoji": false,
+   "catchphrase": "Consider it handled.",
+   "quirk": "a little aloof, likes naps between runs, secretly proud of good work",
+   "bio": ""
+  }
+ },
+ "skills": [
+  {
+   "name": "Cheap books",
+   "site": "books.toscrape.com",
+   "goal": "Books under £20",
+   "start_url": "https://books.toscrape.com/",
+   "max_pages": 3,
+   "steps": [
+    {
+     "action": "extract",
+     "spec": {
+      "item": "article.product_pod",
+      "fields": {
+       "title": "h3 a@title",
+       "link": "h3 a@href",
+       "price": ".price_color",
+       "stock": ".availability"
+      }
+     },
+     "text": "Read the books"
+    },
+    {
+     "action": "click",
+     "next_page": true,
+     "text": "Next page",
+     "target": {
+      "role": "link",
+      "name": "next",
+      "text": "next",
+      "tag": "a",
+      "css": "li.next > a",
+      "href": "/catalogue/page-2.html",
+      "id": "",
+      "attr_name": "",
+      "placeholder": "",
+      "type": ""
+     }
+    }
+   ]
+  }
+ ],
+ "results": [],
+ "messages": [],
+ "cookies": [],
+ "listing": {
+  "slug": "book-bargains",
+  "title": "Book Bargains",
+  "summary": "Finds books under £20 on books.toscrape.com and tells you about new ones.",
+  "tags": [
+   "shopping",
+   "books",
+   "starter"
+  ],
+  "author": "GHGuide",
+  "look": {
+   "tone": "cheerful",
+   "voice": "soft",
+   "frame": "coral",
+   "cursor": "name",
+   "labels": true,
+   "speed": "normal",
+   "kind": "cat",
+   "color": "#7C6CF2",
+   "acc": "glasses"
+  },
+  "sites": [
+   "books.toscrape.com"
+  ],
+  "may": [],
+  "version": 1,
+  "skills": 1
+ }
+}

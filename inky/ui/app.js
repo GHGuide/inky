@@ -207,6 +207,7 @@ function renderNav() {
       <a class="navlink needlink${on("#/needs")}" href="#/needs"><i></i>${S.needs} need you</a>
       <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
       <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>
+      <a class="navlink${on("#/library")}" href="#/library">${icon("store")}Library</a>
       <a class="navlink${on("#/computers")}" href="#/computers">${icon("monitor")}Computers</a>
       <a class="navlink${r.startsWith("#/models") || r.startsWith("#/keys") ? " on" : ""}" href="#/models">${icon("models")}Models</a>
       <a class="navlink${on("#/connectors")}" href="#/connectors">${icon("plug")}Connectors</a>
@@ -282,6 +283,7 @@ function cmdItems(q) {
   act('<span style="color:#F2957C">Stop everything on my screen</span>', BAR ? "⌃ ⌥ Esc" : "Esc", "x", () => stopScreens());
   act("Models and keys", "", "models", () => (location.hash = "#/models"));
   act("Connectors · Claude Code, Codex", "", "plug", () => (location.hash = "#/connectors"));
+  act("Library · agents other people made", "", "store", () => (location.hash = "#/library"));
   return items;
 }
 async function pauseAll() { for (const b of S.bots) if (["working", "learning"].includes(b.status)) await post(`/api/bots/${b.id}/control`, { cmd: "pause" }); toast("Paused all bots"); refreshSoon(); }
@@ -322,6 +324,7 @@ const BAR = new URLSearchParams(location.search).has("bar"), BUDDY = new URLSear
 const APP = !!(window.__TAURI__ && window.__TAURI__.core);  // inside the Inky desktop app
 const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).catch((e) => { console.warn("inky app:", cmd, e); return null; }) : Promise.resolve(null));
 const native = (m) => (APP ? invoke("bar", { msg: m }) : null);
+const openOut = (url) => (APP ? invoke("open_url", { url }) : window.open(url, "_blank", "noopener"));  // your own browser
 function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
 async function runCmd() { const it = CMD.items[CMD.sel]; closeCmd(); if (it) try { await it.run(); } catch (e) { toast(e.message); } }
 document.addEventListener("keydown", (e) => {
@@ -356,7 +359,8 @@ window.handleLink = async (link) => {  // inky:// links the desktop app hands ov
     catch (e) { toast(e.message); }
     return;
   }
-  toast("Inky can’t open that link yet.");
+  if (u.host === "install") return getAgent(u.searchParams.get("url"));
+  toast("Inky can’t open that link.");
 };
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 

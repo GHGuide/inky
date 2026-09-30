@@ -231,10 +231,34 @@ def repair(ctx, step, page, role="repair"):
     return el, conf, d.get("why", "")
 
 
+SLD = {"co", "com", "org", "net", "ac", "gov", "edu", "ne", "or"}
+
+
+def site_of(host):
+    """example.com for shop.example.com; example.co.uk for www.example.co.uk."""
+    parts = (host or "").lower().removeprefix("www.").split(".")
+    n = 3 if len(parts) > 2 and len(parts[-1]) == 2 and parts[-2] in SLD else 2
+    return ".".join(parts[-n:])
+
+
+def fence(ctx, url):
+    """Agents from the library keep to the sites they list (allowed_domains). Your own bots have no fence."""
+    allowed = (getattr(ctx, "bot", None) or {}).get("allowed_domains")
+    host = urlparse(url or "").hostname
+    if not allowed or not host:
+        return
+    if site_of(host) not in {site_of(d) for d in allowed}:
+        raise NeedsHelp("blocked", f"This agent only works on {', '.join(allowed)}",
+                        f"A step went to {host}. Agents from the library stay on the sites they list, so it stopped there.",
+                        ["OK"], url=url)
+
+
 def replay(ctx, skill, repair_role="repair"):
     """Run a skill with no model. -> {items, repairs, pages}"""
     comp = ctx.computer
+    fence(ctx, skill["start_url"])
     page = comp.call("open", skill["start_url"])
+    fence(ctx, page.get("url"))
     items, repairs, pages = [], [], 0
     steps = skill["steps"]
     extract_at = next((i for i, s in enumerate(steps) if s["action"] == "extract"), None)
@@ -260,8 +284,11 @@ def replay(ctx, skill, repair_role="repair"):
             i += 2 if nxt else 1
             continue
         if step["action"] == "goto" or not step.get("target"):
+            if step["action"] == "goto":
+                fence(ctx, step.get("value"))
             comp.call("act", step["action"], None, step.get("value"), step_text=f"{i + 1} · {step['text']}")
             page = comp.call("elements")
+            fence(ctx, page.get("url"))
             i += 1
             continue
         idx, how = locate(step["target"], page["elements"])
@@ -291,6 +318,7 @@ def replay(ctx, skill, repair_role="repair"):
             ctx.emit("repair", f"Fixed step {i + 1}: now “{el['name']}” ({round(conf * 100)}% sure)", step=i + 1)
         ctx.gate(step, el, page)
         page = _do(comp, step, idx, el, i + 1)
+        fence(ctx, page.get("url"))  # a click can lead off the site too
         ctx.emit("replay", step["text"], step=i + 1, how=how)
         i += 1
     if extract_at is None:

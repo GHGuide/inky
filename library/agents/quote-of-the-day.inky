@@ -1,0 +1,123 @@
+{
+ "bundle": 1,
+ "bot": {
+  "name": "Quote of the Day",
+  "job": "Collects quotes from quotes.toscrape.com, with who said them and their tags.",
+  "summary": "Collects quotes from quotes.toscrape.com, with who said them and their tags.",
+  "goal": "Collect quotes with author and tags",
+  "start_url": "https://quotes.toscrape.com/",
+  "look": {
+   "tone": "cheerful",
+   "voice": "soft",
+   "frame": "coral",
+   "cursor": "name",
+   "labels": true,
+   "speed": "normal",
+   "kind": "octopus",
+   "color": "#2BA59B",
+   "acc": "beanie"
+  },
+  "rules": [
+   {
+    "kind": "own",
+    "text": "Read, search, take notes"
+   },
+   {
+    "kind": "ask",
+    "text": "Send, post, reply, delete, submit forms, sign up"
+   },
+   {
+    "kind": "never",
+    "text": "Buy or pay"
+   }
+  ],
+  "filters": [],
+  "memory": [],
+  "automations": [],
+  "schedule": {
+   "every_minutes": 1440,
+   "summary_at": "08:00",
+   "quiet_from": "23:00",
+   "quiet_to": "07:00"
+  },
+  "mode": "own",
+  "persona": {
+   "chatty": 0.6,
+   "playful": 0.7,
+   "emoji": true,
+   "catchphrase": "Inked and on it!",
+   "quirk": "juggles many things at once and makes the odd gentle ink pun",
+   "bio": ""
+  }
+ },
+ "skills": [
+  {
+   "name": "Quotes",
+   "site": "quotes.toscrape.com",
+   "goal": "Quotes with author and tags",
+   "start_url": "https://quotes.toscrape.com/",
+   "max_pages": 2,
+   "steps": [
+    {
+     "action": "extract",
+     "spec": {
+      "item": "div.quote",
+      "fields": {
+       "title": "span.text",
+       "author": "small.author",
+       "tags": "meta.keywords@content"
+      }
+     },
+     "text": "Read the quotes"
+    },
+    {
+     "action": "click",
+     "next_page": true,
+     "text": "Next page",
+     "target": {
+      "role": "link",
+      "name": "Next →",
+      "text": "Next →",
+      "tag": "a",
+      "css": "li.next > a",
+      "href": "/page/2/",
+      "id": "",
+      "attr_name": "",
+      "placeholder": "",
+      "type": ""
+     }
+    }
+   ]
+  }
+ ],
+ "results": [],
+ "messages": [],
+ "cookies": [],
+ "listing": {
+  "slug": "quote-of-the-day",
+  "title": "Quote of the Day",
+  "summary": "Collects quotes from quotes.toscrape.com, with who said them and their tags.",
+  "tags": [
+   "reading",
+   "starter"
+  ],
+  "author": "GHGuide",
+  "look": {
+   "tone": "cheerful",
+   "voice": "soft",
+   "frame": "coral",
+   "cursor": "name",
+   "labels": true,
+   "speed": "normal",
+   "kind": "octopus",
+   "color": "#2BA59B",
+   "acc": "beanie"
+  },
+  "sites": [
+   "quotes.toscrape.com"
+  ],
+  "may": [],
+  "version": 1,
+  "skills": 1
+ }
+}

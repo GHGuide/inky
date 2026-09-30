@@ -8,7 +8,7 @@ triple = next(l.split(": ", 1)[1] for l in subprocess.run(["rustc", "-vV"], capt
               if l.startswith("host: "))
 sep, A = os.pathsep, os.path.abspath  # absolute paths: PyInstaller reads some relative to --specpath
 cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--onefile", "--name", f"inky-engine-{triple}",
-       "--collect-all", "playwright", "--add-data", f"{A('inky/ui')}{sep}inky/ui", "--add-data", f"{A('inky/overlay.js')}{sep}inky",
+       "--collect-all", "playwright", "--add-data", f"{A('inky/ui')}{sep}inky/ui", "--add-data", f"{A('inky/overlay.js')}{sep}inky", "--add-data", f"{A('library')}{sep}library",
        "--exclude-module", "tkinter", "--paths", A("."), "--distpath", A("desktop/src-tauri/binaries"),
        "--workpath", A("build/pyi"), "--specpath", A("build/pyi"), A("desktop/scripts/engine-entry.py")]
 print(" ".join(cmd))

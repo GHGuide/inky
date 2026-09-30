@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir playwright==1.63.0 httpx==0.28.1 \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY inky ./inky
+COPY library ./library
 ENV PYTHONUNBUFFERED=1 INKY_HEADLESS=1
 EXPOSE 8800
 VOLUME /data

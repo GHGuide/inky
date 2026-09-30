@@ -342,12 +342,13 @@ VIEWS.bot = {
   drawHead() {
     const b = this.data.bot, m = botMeta(b);
     const running = ["working", "learning", "paused"].includes(b.status);
-    $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning"].includes(b.status) ? "live" : ""}"><i style="background:${m.color}"></i>${esc(m.meta.slice(0, 50))}</span>
+    $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning"].includes(b.status) ? "live" : ""}"><i style="background:${m.color}"></i>${esc(m.meta.slice(0, 50))}</span>${b.library ? `<span class="badge hide-s" title="From the library${b.library.author ? " · by " + esc(b.library.author) : ""}. It only visits ${esc((b.allowed_domains || []).join(", "))}.">library · ${esc((b.allowed_domains || []).join(", "))}</span>` : ""}
       <span class="mono small muted hide-s row" style="gap:5px">${icon(b.remote ? "server" : "monitor", 13)}${esc(b.remote || (b.mode === "screen" ? "your screen" : "its own computer"))}</span></div>
       <div class="row">${running ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `<button class="btn s" id="runnow">Run now</button>`}
-      <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s" data-dl="/api/bots/${b.id}/export" data-name="${esc(b.name)}.inky" title="A file with its skills and settings, without your sign-ins or chat">Share</button></div>`;
+      <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s" id="sharebot" title="Download it, make a link, or post it to the library">Share</button></div>`;
     const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon);
     const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => toast(e.message));
+    $("#sharebot").onclick = () => shareBot(b);
   },
   drawMsgs(force) {
     const box = $("#msgs"); if (!box) return;
@@ -728,6 +729,93 @@ VIEWS.activity = {
       <span class="small muted">Every run leaves a log line. Nothing leaves your computers unless you connect something.</span></div>`;
   },
 };
+
+// ================================================================ the agent library
+async function getAgent(url) {  // a permission preview, then install (from the Library tab or an inky://install link)
+  let p;
+  try { p = await post("/api/library/preview", { url }); } catch (e) { return toast(e.message); }
+  const L = p.listing, c = p.check, look = L.look || {};
+  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${p.skills.length} skill${p.skills.length === 1 ? "" : "s"}</span></div></div>
+    <p class="small">${esc(L.summary || "")}</p>
+    ${c.ok ? `<div class="col" style="gap:8px">
+      <div class="chk"><i class="ok">✓</i><span><b>Only visits</b> ${esc(c.domains.join(", ") || "no sites")}<br><span class="small muted">If a step leads anywhere else, it stops.</span></span></div>
+      <div class="chk"><i class="${c.irreversible.length ? "bad" : "ok"}">${c.irreversible.length ? "!" : "✓"}</i><span><b>${c.irreversible.length ? "May do, and asks you first each time:" : "Nothing it can’t undo"}</b>${c.irreversible.length ? `<br><span class="small">${c.irreversible.map(esc).join("<br>")}</span>` : ""}</span></div>
+      <div class="chk"><i class="ok">✓</i><span><b>Brings no one’s data</b><br><span class="small muted">No sign-ins, memory, results or chat. It starts fresh, in its own browser.</span></span></div></div>`
+      : `<div class="chk"><i class="bad">!</i><span><b>This file didn’t pass Inky’s checks</b><br><span class="small">${c.problems.map(esc).join("<br>")}</span></span></div>`}
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Cancel</button>${c.ok ? `<button class="btn p" id="getit">Get ${esc(L.title)}</button>` : ""}</div>`, () => {
+    if (!$("#getit")) return;
+    $("#getit").onclick = async () => {
+      $("#getit").disabled = true; $("#getit").textContent = "Getting…";
+      try { const r = await post("/api/library/install", { url }); closeModal(); await loadState(); location.hash = `#/bot/${r.id}/computer?hatch=1`; }
+      catch (e) { closeModal(); toast(e.message); }
+    };
+  });
+}
+VIEWS.library = {
+  async show(el, _, qs) { this.el = el; this.q = qs.get("q") || ""; this.tag = qs.get("tag") || ""; this.data = await get("/api/library"); this.draw(); },
+  draw() {
+    const { agents, error } = this.data, q = this.q.toLowerCase();
+    const tags = [...new Set(agents.flatMap((a) => a.tags || []))].sort();
+    const shown = agents.filter((a) => (!this.tag || (a.tags || []).includes(this.tag)) && (!q || `${a.title} ${a.summary} ${(a.sites || []).join(" ")} ${a.author}`.toLowerCase().includes(q)));
+    this.el.innerHTML = `${mobileBar("Library")}<div class="page"><div><h1>Library</h1><p class="lede">Agents other people made and shared. Get one and it moves in with its skills, ready to run. Anyone can post one, and every file is checked before it’s listed.</p></div>
+      <div class="row wrap"><input class="f grow" id="lq" placeholder="Search agents, sites, authors" value="${esc(this.q)}" aria-label="Search the library" style="min-width:220px">
+        <span class="row wrap" style="gap:6px"><button class="chip ${this.tag ? "" : "hot"}" data-tag="">All</button>${tags.map((t) => `<button class="chip ${t === this.tag ? "hot" : ""}" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}</span></div>
+      ${error && !agents.length ? `<div class="card panel small">${esc(error)}</div>` : ""}
+      <div class="grid3">${shown.map((a) => { const look = a.look || {}; return `<div class="card" data-enter>
+        <div class="row">${critter(look.kind, look.color, look.acc, 52)}<div class="grow"><b style="font-size:16px">${esc(a.title)}</b><div class="small muted">${a.author ? `${logo("github", 14)} ${esc(a.author)}` : "anonymous"}</div></div></div>
+        <span class="small">${esc(a.summary || "")}</span>
+        <span class="small muted">Visits ${esc((a.sites || []).join(", ") || "no sites")}</span>
+        <span class="small ${a.may && a.may.length ? "" : "muted"}">${a.may && a.may.length ? `May: ${esc(a.may.join(", "))} (asks you)` : "Nothing it can’t undo"}</span>
+        <div class="between"><span class="row" style="gap:6px">${a.reviewed ? `<span class="badge good">Reviewed</span>` : ""}${a.starter ? `<span class="badge">Starter</span>` : ""}</span><button class="btn s p" data-get="${esc(a.url)}">Get</button></div></div>`; }).join("") || `<p class="muted">No agents match.</p>`}</div>
+      <div class="card panel small"><span><b>Post your own.</b> Open one of your bots → <b>Share</b> → <b>Post to the library</b>. Inky checks it and shows you exactly what becomes public first. <a href="https://github.com/GHGuide/inky/tree/main/library" target="_blank" rel="noopener">How the library works ↗</a></span></div></div>`;
+    const lq = $("#lq");
+    lq.oninput = () => { this.q = lq.value; const at = lq.selectionStart; this.draw(); const n = $("#lq"); n.focus(); n.setSelectionRange(at, at); };
+    $$("[data-tag]").forEach((b) => (b.onclick = () => { this.tag = b.dataset.tag; this.draw(); }));
+    $$("[data-get]").forEach((b) => (b.onclick = () => getAgent(b.dataset.get)));
+  },
+};
+function shareBot(b) {  // Share: download the file, make a link anyone can open, or post it to the library
+  modal(`<div class="row">${botCritter(b, 44)}<h2>Share ${esc(b.name)}</h2></div><span class="small muted">What you share is its skills, rules, look and personality. Never your sign-ins, memory, results or chat.</span>
+    <label class="l" for="shsum">One line about what it does</label><input class="f" id="shsum" value="${esc(b.summary || b.goal || "")}">
+    <label class="l" for="shtags">Tags (optional, comma separated)</label><input class="f" id="shtags" placeholder="shopping, flats">
+    <div class="col" style="gap:8px"><button class="btn" data-dl="/api/bots/${b.id}/export" data-name="${esc(b.name)}.inky">Download the file</button>
+      <button class="btn" id="shlink">${logo("github", 18)}Make a share link</button><button class="btn p" id="shpost">Post to the library</button></div>
+    <div class="col" id="shout" style="gap:8px"></div>`, () => {
+    const meta = () => ({ summary: $("#shsum").value.trim(), tags: $("#shtags").value.split(",").map((t) => t.trim()).filter(Boolean) });
+    const out = (html) => ($("#shout").innerHTML = html);
+    const review = async () => {  // exactly what becomes public, and the checker's verdict, before anything leaves
+      const p = await post(`/api/bots/${b.id}/publish/preview`, { meta: meta() });
+      if (!p.check.ok) { out(`<div class="chk"><i class="bad">!</i><span><b>Not shareable yet</b><br><span class="small">${p.check.problems.map(esc).join("<br>")}</span></span></div>`); return null; }
+      return p;
+    };
+    const confirmPublic = (p, go, label) => {
+      out(`<span class="small"><b>This becomes public.</b> Visits ${esc(p.check.domains.join(", ") || "no sites")}. ${p.check.irreversible.length ? "May do (asks first): " + esc(p.check.irreversible.join("; ")) : "Nothing it can’t undo."}</span>
+        <details><summary class="small">See the whole file (${Math.round(p.text.length / 1024 * 10) / 10} KB)</summary><pre class="code" style="max-height:30vh;overflow:auto">${esc(p.text)}</pre></details>
+        <div class="row" style="justify-content:flex-end"><button class="btn p" id="shgo">${esc(label)}</button></div>`);
+      $("#shgo").onclick = async () => { $("#shgo").disabled = true; $("#shgo").textContent = "Working…"; await go(); };
+    };
+    $("#shpost").onclick = async () => {
+      const p = await review(); if (!p) return;
+      confirmPublic(p, async () => {
+        const r = await post(`/api/bots/${b.id}/publish`, { meta: meta() });
+        if (r.mode === "pr") out(`<span class="small good">✓ Pull request opened. Once someone reviews and merges it, everyone’s Library shows it.</span><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Open the pull request ↗</a>`);
+        else if (r.mode === "web") { out(`<span class="small">${r.note ? esc(r.note) + " " : ""}GitHub opens with the file filled in. Click <b>Propose new file</b>, then <b>Create pull request</b>.</span><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Open GitHub ↗</a>`); openOut(r.url); }
+        else if (r.mode === "manual") out(`<span class="small">This agent is too big for GitHub’s link. Download the file, then upload it on GitHub’s page.</span><div class="row"><button class="btn s" data-dl="/api/bots/${b.id}/export" data-name="${esc(r.filename)}">Download</button><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Upload on GitHub ↗</a></div>`);
+        else out(`<span class="small bad">${esc((r.problems || []).join(" ") || r.text || "Couldn’t post it.")}</span>`);
+      }, p.gh ? "Open a pull request" : "Continue on GitHub");
+    };
+    $("#shlink").onclick = async () => {
+      const p = await review(); if (!p) return;
+      if (!p.gh) return out(`<span class="small">Share links need GitHub’s <b>gh</b> tool, signed in: run <span class="mono">gh auth login</span> once. You can still send the file.</span>`);
+      confirmPublic(p, async () => {
+        const r = await post(`/api/bots/${b.id}/share-link`, { meta: meta() });
+        if (r.mode !== "gist") return out(`<span class="small bad">${esc(r.text || (r.problems || []).join(" "))}</span>`);
+        out(`<span class="small good">✓ Anyone with Inky can open this link to get ${esc(b.name)}:</span><div class="row"><input class="f mono grow" id="shl" value="${esc(r.link)}" readonly aria-label="Share link"><button class="btn s" id="shcopy">Copy</button></div>`);
+        $("#shcopy").onclick = async () => { try { await navigator.clipboard.writeText(r.link); $("#shcopy").textContent = "Copied"; } catch (e) { $("#shl").select(); } };
+      }, "Make it public");
+    };
+  });
+}
 
 // ================================================================ adding a server (Computers and setup share this)
 let foundTimer = null, onServerPaired = null;

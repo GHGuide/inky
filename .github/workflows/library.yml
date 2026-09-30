@@ -1,0 +1,58 @@
+name: library
+
+# Every agent posted to the library is checked before a person reviews it, and the index is rebuilt after a merge.
+on:
+  pull_request:
+    paths: ["library/**"]
+  push:
+    branches: [main]
+    paths: ["library/agents/**"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install httpx
+      - name: Check the changed agents
+        id: check
+        run: |
+          files=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'library/agents/*.inky')
+          if [ -z "$files" ]; then echo "No agent files changed." > report.md; exit 0; fi
+          set +e
+          python -m inky.library check $files > report.md
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat report.md
+      - name: Post the summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment ${{ github.event.pull_request.number }} --body-file report.md || true  # a fork's pull request gets a read-only token
+      - name: Fail on problems
+        if: steps.check.outputs.status == '1'
+        run: exit 1
+
+  index:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install httpx
+      - run: python -m inky.library index library
+      - name: Commit the index
+        run: |
+          git config user.name "inky-library"
+          git config user.email "inky-library@users.noreply.github.com"
+          git add library/index.json
+          git diff --cached --quiet || (git commit -m "Library: rebuild index" && git push)

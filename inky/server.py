@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from inky import connect, connectors, health, insights, transfer
+from inky import connect, connectors, health, insights, library, transfer
 from inky.llm import PROVIDERS, ROLES, fits
 from inky.mcp import PRESETS
 
@@ -470,6 +470,51 @@ def inky_config(E, h, q, body):
             "claude_argv": ["claude", "mcp", "add", "--scope", "user", "inky", *[x for k, v in env.items() for x in ("-e", f"{k}={v}")], "--", py, *args],
             "claude_cli": f"claude mcp add --scope user inky {' '.join(f'-e {k}={v}' for k, v in env.items())} -- {py} {' '.join(args)}",
             "codex_toml": f'[mcp_servers.inky]\ncommand = {json.dumps(py)}\nargs = {json.dumps(args)}\nenv = {{ {", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items())} }}\n'}
+
+
+# ------------------------------------------------------------------ the agent library
+@route("GET", "/api/library")
+def library_index(E, h, q, body):
+    return library.index()
+
+
+@route("POST", "/api/library/preview")
+def library_preview(E, h, q, body):
+    """What an agent would do here, before it's installed: its sites, what it may do that can't be undone, its skills."""
+    try:
+        b = library.fetch(body.get("url", ""))
+    except (ValueError, httpx.HTTPError) as e:
+        raise HTTPError(400, f"Couldn’t get that agent: {e}")
+    return {"listing": b.get("listing") or library.listing(b), "check": library.check(b),
+            "skills": [{"name": s.get("name"), "steps": len(s.get("steps") or [])} for s in b.get("skills") or []]}
+
+
+@route("POST", "/api/library/install")
+def library_install(E, h, q, body):
+    url = body.get("url", "")
+    try:
+        bid = library.install(E, library.fetch(url), source=url)
+    except (ValueError, httpx.HTTPError) as e:
+        raise HTTPError(400, str(e))
+    return {"id": bid}
+
+
+@route("POST", r"/api/bots/(\d+)/publish/preview")
+def publish_preview(E, h, q, body, bid):
+    b, c, text = library.prepare(E, int(bid), body.get("meta") or {})
+    import shutil
+    gh = bool(shutil.which("gh")) and library._gh("auth", "status").returncode == 0
+    return {"text": text, "check": c, "listing": b["listing"], "gh": gh}
+
+
+@route("POST", r"/api/bots/(\d+)/publish")
+def publish(E, h, q, body, bid):
+    return library.publish(E, int(bid), body.get("meta") or {})
+
+
+@route("POST", r"/api/bots/(\d+)/share-link")
+def share_link(E, h, q, body, bid):
+    return library.share_link(E, int(bid), body.get("meta") or {})
 
 
 # ------------------------------------------------------------------ connectors (status, setup, test)

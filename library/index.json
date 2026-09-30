@@ -1,0 +1,64 @@
+{
+ "agents": [
+  {
+   "slug": "book-bargains",
+   "title": "Book Bargains",
+   "summary": "Finds books under £20 on books.toscrape.com and tells you about new ones.",
+   "tags": [
+    "shopping",
+    "books",
+    "starter"
+   ],
+   "author": "GHGuide",
+   "look": {
+    "tone": "cheerful",
+    "voice": "soft",
+    "frame": "coral",
+    "cursor": "name",
+    "labels": true,
+    "speed": "normal",
+    "kind": "cat",
+    "color": "#7C6CF2",
+    "acc": "glasses"
+   },
+   "sites": [
+    "books.toscrape.com"
+   ],
+   "may": [],
+   "version": 1,
+   "skills": 1,
+   "file": "agents/book-bargains.inky",
+   "reviewed": true
+  },
+  {
+   "slug": "quote-of-the-day",
+   "title": "Quote of the Day",
+   "summary": "Collects quotes from quotes.toscrape.com, with who said them and their tags.",
+   "tags": [
+    "reading",
+    "starter"
+   ],
+   "author": "GHGuide",
+   "look": {
+    "tone": "cheerful",
+    "voice": "soft",
+    "frame": "coral",
+    "cursor": "name",
+    "labels": true,
+    "speed": "normal",
+    "kind": "octopus",
+    "color": "#2BA59B",
+    "acc": "beanie"
+   },
+   "sites": [
+    "quotes.toscrape.com"
+   ],
+   "may": [],
+   "version": 1,
+   "skills": 1,
+   "file": "agents/quote-of-the-day.inky",
+   "reviewed": true
+  }
+ ],
+ "updated": "2026-09-30T21:49:58+00:00"
+}

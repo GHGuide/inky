@@ -171,7 +171,7 @@ class Engine:
         if sched.get("every_minutes") and sk:
             nxt = (b.get("last_run") or time.time()) + sched["every_minutes"] * 60
         return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory",
-                                         "schedule", "automations", "mode", "computer", "last_run", "created")},
+                                         "schedule", "automations", "mode", "computer", "last_run", "created", "allowed_domains", "library")},
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
