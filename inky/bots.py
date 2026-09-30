@@ -467,10 +467,11 @@ class Engine:
     def delegate(self, bid, a, context=None, run=None):
         b = self.store.get("bots", bid)
         label = a.get("label") or f"{a.get('server')}.{a.get('tool')}"
+        who = next((x["label"] for x in self.mcp.servers() if x["name"] == a.get("server")), a.get("server"))
         args = fill_template(a.get("args") or {}, {"bot": b["name"], "count": len(context or []),
                                                    "new_json": json.dumps(context or [], ensure_ascii=False)[:6000]})
         if not a.get("approved_always"):
-            decision = self.ask(bid, "decision", f"{b['name']} wants to hand a job to {a.get('server')}",
+            decision = self.ask(bid, "decision", f"{b['name']} wants to hand a job to {who}",
                                 f"{label}. Tool {a.get('tool')} with {json.dumps(args, ensure_ascii=False)[:400]}",
                                 ["Approve", "Always for this automation", "Deny"], run=run, delegate=label)
             if decision == "Deny":
@@ -482,21 +483,25 @@ class Engine:
                     if x.get("label") == a.get("label"):
                         x["approved_always"] = True
                 self.store.update("bots", bid, automations=autos)
-        self.store.event(bid, "delegate", f"Handed to {a.get('server')}: {label}")
+        self.store.event(bid, "delegate", f"Handed to {who}: {label}")
         try:
             r = self.mcp.call(a["server"], a["tool"], args)
+            if r["error"] and a["tool"] == "Write" and "not been read" in r["text"] and args.get("file_path"):
+                self.mcp.call(a["server"], "Read", {"file_path": args["file_path"]})  # Claude Code only overwrites files it has read
+                r = self.mcp.call(a["server"], a["tool"], args)
             out = (r["text"] or "").strip()
             try:  # Codex (and others) answer in JSON: show the reply itself
                 j = json.loads(out)
-                out = j.get("reply") or j.get("result") or out if isinstance(j, dict) else out
+                if isinstance(j, dict):  # a tool result without a reply (e.g. Write) just says it's done
+                    out = j.get("reply") or j.get("result") or f"done ({label})"
             except (ValueError, TypeError):
                 pass
-            self.store.message(bid, "bot", f"{a.get('server')} replied: {out[:1500]}" if not r["error"] else f"{a.get('server')} had a problem: {out[:600]}",
+            self.store.message(bid, "bot", f"{who}: {out[:1500]}" if not r["error"] else f"{who} had a problem: {out[:600]}",
                                delegate=label)
-            self.store.event(bid, "delegate", f"{a.get('server')} finished: {label}", error=r["error"])
+            self.store.event(bid, "delegate", f"{who} finished: {label}", error=r["error"])
             return r
         except Exception as e:
-            self.store.message(bid, "bot", f"Couldn’t reach {a.get('server')}: {e}")
+            self.store.message(bid, "bot", f"Couldn’t reach {who}: {e}")
             return None
         finally:
             self.bus.publish("messages", bot=bid)
