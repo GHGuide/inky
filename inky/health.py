@@ -1,4 +1,5 @@
 """Health: what works and what doesn't, with the fix for each."""
+import os
 import shutil
 import subprocess
 import time
@@ -57,3 +58,33 @@ def check(engine):
     if tg.get("enabled"):
         rows.append({"name": "Telegram", "ok": bool(engine.keys.get("telegram")), "detail": "ready" if engine.keys.get("telegram") else "no bot token", "fix": "#/connectors"})
     return rows
+
+
+_browser = {"ready": False}
+
+
+def browser_ready():
+    """Is the bots' browser (Chromium) installed? The desktop app downloads it on first launch."""
+    if _browser["ready"]:
+        return True
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            _browser["ready"] = os.path.exists(p.chromium.executable_path)
+    except Exception:
+        return False
+    return _browser["ready"]
+
+
+def install_browser(on_line):
+    """Runs Playwright's own installer for Chromium, line by line. True when it worked."""
+    from playwright._impl._driver import compute_driver_executable, get_driver_env
+    node, cli = compute_driver_executable()
+    p = subprocess.Popen([node, cli, "install", "chromium"], env=get_driver_env(), stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    for line in p.stdout:
+        if line.strip():
+            on_line(line.strip()[:200])
+    ok = p.wait() == 0
+    _browser["ready"] = False  # look again next time
+    return ok

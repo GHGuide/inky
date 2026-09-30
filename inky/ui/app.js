@@ -289,6 +289,22 @@ function confirmBox(text, ok = "OK", danger = false) {
 }
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 
+function getBrowser() {  // first launch of the app: the bots' browser downloads once (~170 MB)
+  $("#app").classList.add("bare"); $("#nav").style.display = "none";
+  $("#view").innerHTML = `<div class="page" style="max-width:520px;margin:14vh auto;text-align:center;align-items:center">${critter("octopus", "#E86F51", "none", 110, "curious")}
+    <h1>Getting your bots a browser…</h1><p class="lede">Each bot uses its own private browser. It downloads once, about 170 MB.</p>
+    <div class="mono small muted" id="blog" style="min-height:20px">Starting…</div><button class="btn hidden" id="bretry">Try again</button></div>`;
+  const go = () => { $("#bretry").classList.add("hidden"); post("/api/setup/browser").catch((e) => { $("#blog").textContent = e.message; $("#bretry").classList.remove("hidden"); }); };
+  S.view = { onEvent(m) {
+    if (m.kind !== "browser") return;
+    $("#blog").textContent = m.line;
+    if (m.done && m.ok) setTimeout(() => location.reload(), 600);
+    else if (m.done) $("#bretry").classList.remove("hidden");
+  } };
+  $("#bretry").onclick = go;
+  go();
+}
+
 function signIn(why) {
   $("#app").classList.add("bare"); $("#nav").style.display = "none";
   $("#view").innerHTML = `<div class="page" style="max-width:420px;margin:12vh auto"><h1>Sign in to this Inky</h1>
@@ -313,6 +329,7 @@ window.addEventListener("load", async () => {
     throw e;
   }
   listen();
+  if (!BAR && !(await get("/api/setup/browser").catch(() => ({ ready: true }))).ready) return getBrowser();
   if (!BAR) return route();
   document.body.classList.add("bar");
   window.inkyBarOpen = async () => { await loadState(); CMD.sel = 0; openCmd(); return true; };

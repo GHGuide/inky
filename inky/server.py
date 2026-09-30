@@ -167,6 +167,24 @@ def apply_chip(E, h, q, body, bid):
     return {"bot": E.apply_chip(int(bid), body.get("apply"), body.get("message"))}
 
 
+@route("GET", "/api/setup/browser")
+def browser_status(E, h, q, body):
+    return {"ready": health.browser_ready()}
+
+
+@route("POST", "/api/setup/browser")
+def browser_install(E, h, q, body):
+    def go():
+        try:
+            ok = health.install_browser(lambda line: E.bus.publish("browser", line=line, done=False))
+        except Exception as e:
+            E.bus.publish("browser", line=str(e), done=True, ok=False)
+            return
+        E.bus.publish("browser", line="Done." if ok else "It didn’t work.", done=True, ok=ok and health.browser_ready())
+    threading.Thread(target=go, daemon=True).start()
+    return {"ok": True}
+
+
 @route("GET", "/api/team")
 def team(E, h, q, body):
     return {"feed": E.team_feed(int(q.get("limit", 100)))}

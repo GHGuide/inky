@@ -349,3 +349,24 @@ class RitualTest(unittest.TestCase):
         E.store.insert("runs", {"kind": "replay", "items": 3, "new": 1}, bot_id=bid, status="ok")
         self.assertIn("1 new", E.good_night(bid, time.time()))
         E.close()
+
+
+class EngineFileTest(unittest.TestCase):
+    """What the desktop app relies on: a free port, and engine.json saying where the engine is."""
+
+    def test_port_zero_and_engine_file(self):
+        import subprocess
+        home = tempfile.mkdtemp()
+        p = subprocess.Popen([sys.executable, "-m", "inky", "--port", "0", "--home", home, "--no-open"],
+                             stdout=subprocess.PIPE, text=True)
+        try:
+            url = p.stdout.readline().strip().rsplit(" ", 1)[-1]
+            self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
+            self.assertTrue(wait(lambda: os.path.exists(os.path.join(home, "engine.json")), 10))
+            info = json.load(open(os.path.join(home, "engine.json")))
+            self.assertEqual((info["url"], info["pid"]), (url, p.pid))
+            self.assertTrue(json.load(urllib.request.urlopen(url + "/api/ping"))["ok"])
+        finally:
+            p.terminate()
+            p.wait(15)
+        self.assertFalse(os.path.exists(os.path.join(home, "engine.json")))
