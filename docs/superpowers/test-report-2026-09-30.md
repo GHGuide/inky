@@ -52,12 +52,25 @@ Models used: OpenRouter `z-ai/glm-5.3` (key in the macOS Keychain), local Ollama
 | Mobile (375 px) | 16 pages, menu drawer | Pass (fix: 6 pages scrolled sideways; rows and buttons now wrap) |
 | Navigation | Leaving a page while it loads | Pass (fix: a slow render could overwrite the next page) |
 
-## Limits, not tested or not built
+## Second pass: the items that were missing
 
-- **Claude Code calling Inky**: `claude -p` fails with "OAuth session expired" on this Mac. The protocol path passes in `test_engine`; Codex → Inky works live. Run `claude` once to sign in again.
-- **Voice input** on the Call tab: microphone blocked in the test browser. Typed input works.
-- **Windows and Linux**: only macOS was available.
-- **Native menu bar and global hotkeys**: not built. The command bar and ⌥P work inside the app. Esc, ⌥C and mouse-to-pause work in the bot's window.
-- **"Your screen" means a visible browser window** the bot drives, not your whole desktop.
-- **Download links carry the local API token in the URL** (`?t=`), like the live view and events stream. Fine on localhost; on a server install, don't paste those links anywhere.
-- **n8n `$env` access** is blocked by default in some n8n versions (`N8N_BLOCK_ENV_ACCESS_IN_NODE`); paste the token into the node instead if so.
+| Item | What was done | Result |
+|---|---|---|
+| Claude Code → Inky | One `claude -p` run through OpenRouter (Claude Haiku), `--strict-mcp-config` with only Inky's MCP server. It called `list_bots`, then `bot_results` for a bot living on the Linux server (proxied by the Mac engine) | Pass: correct bots and the 3 books with prices |
+| Linux | `Dockerfile` (python:3.12-slim + Playwright Chromium). The container on linux/aarch64 was paired from the Mac UI, then Travel Bookwatch was moved there: check run 11 results, then a proxied run (0 AI) and a live 1280×800 screenshot from the container | Pass |
+| Windows | CI matrix on GitHub: windows-latest, macos-latest, ubuntu-latest | Pass: 20 tests (19 on Windows and Linux, where the macOS-keychain test skips) |
+| Windows fixes found by reading | UTF-8 file reads (overlay.js has ⌥ and …), `.cmd` shims for `claude`/`codex`, `platform.node()` instead of `os.uname()`, memory via ctypes | Done, covered by the Windows CI run |
+| Remote sign-in | A browser on another device gets no token in the page. It types the pairing code (wrong code → message; right code → in) | Pass |
+| DNS rebinding | Page served to a foreign `Host` has no token (unit test) | Pass |
+| Downloads | Share, skill file and n8n export now download with header auth; no token in any link. n8n export uses an n8n Header Auth credential | Pass |
+| Menu bar app (macOS) | `native/mac/InkyBar` (Swift, no dependencies): status icon with Needs-you badge, menu per bot (Open, Run now, Pause/Resume/Stop), Needs you, Pause all, Stop my screen, Open Inky | Pass: `--selftest` builds the menu from live data |
+| System-wide shortcuts | ⌥Space floating command bar (falls back to ⌃⌥Space if taken), ⌃⌥P pause all, ⌃⌥Esc stop everything on your screen | Registered: yes. Self-test ran the shortcut's action: panel opens as key window with focus in the input, filters "@Flat …", Esc hides it through the page bridge, shortcut reopens and closes it. Snapshot checked |
+| Voice | Stand-in recognizer and synthesizer in the page: speech → message → spoken reply; mic paused while it speaks (the bot's own voice is ignored), resumed after; refused mic shows "microphone blocked" | Pass. Real-mic run in Chrome is waiting for the mic permission click |
+
+## Limits
+
+- **Real microphone**: not yet run; needs one "Allow" click in Chrome.
+- **Pressing the global shortcuts with a real keyboard** wasn't automated: it needs control of the whole desktop, which was declined. The self-test runs the same actions the shortcuts trigger, and the OS confirmed the shortcuts are registered.
+- **Menu bar on Windows and Linux**: not built (macOS only). The web app and command bar work there.
+- **"Your screen" means a visible browser window** the bot drives, not your whole desktop (a non-goal in the spec).
+- **Live view and events** still pass the token in the URL (`?t=`), because images and EventSource can't send headers. These URLs are never shown as links.
