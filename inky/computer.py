@@ -2,6 +2,7 @@
 Other threads talk to it through call(). Headless = the bot's own computer, streamed to the app.
 Headful = "your screen": a visible window on your desktop, with the coral frame and pill."""
 import base64
+import re
 import concurrent.futures
 import queue
 import threading
@@ -334,5 +335,6 @@ class Computer:
         elif kind == "scroll":
             page.mouse.wheel(0, y)
         elif kind == "goto":
-            page.goto(text if "://" in text else "https://" + text, wait_until="domcontentloaded", timeout=45000)
+            local = re.match(r"^(localhost|127\.|10\.|192\.168\.|\d+\.\d+\.\d+\.\d+)", text)  # your own machines rarely have https
+            page.goto(text if "://" in text else ("http://" if local else "https://") + text, wait_until="domcontentloaded", timeout=45000)
         return info

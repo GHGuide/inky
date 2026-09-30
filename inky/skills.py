@@ -107,10 +107,10 @@ def keep(item, f):
         return norm(str(want)) in s
     if op == "not_contains":
         return norm(str(want)) not in s
-    if op == "in":
-        return any(norm(str(w)) in s for w in (want or []))
-    if op == "not_in":
-        return not any(norm(str(w)) in s for w in (want or []))
+    if op in ("in", "not_in"):
+        ws = [w.strip() for w in re.split(r"[,;]", want)] if isinstance(want, str) else (want or [])  # "Bari, Lecce" or a list
+        hit = any(norm(str(w)) and norm(str(w)) in s for w in ws)
+        return hit if op == "in" else not hit
     return True
 
 
@@ -219,6 +219,10 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Show me once", "Try a smarter model", "Try again"])
             page = comp.call("elements")
             continue
+        if len(steps) >= 2 and all(st["action"] == step["action"] and st.get("target") == step.get("target") and st.get("value") == step.get("value") for st in steps[-2:]):
+            history.append(f"“{label}” done 3 times already; do the next thing")
+            page = page_after
+            continue
         steps.append(step)
         ctx.emit("learn", label, step=len(steps), target=el and el["name"])
         page = page_after
@@ -304,7 +308,7 @@ def replay(ctx, skill, repair_role="repair"):
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
                             "Bots don’t solve these. Solve it once on its computer and it carries on, or skip this site.",
-                            ["Open its computer", "Skip this site"], step=i)
+                            ["Open its computer", "Skip this run"], step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])
             items += rows
@@ -347,8 +351,11 @@ def replay(ctx, skill, repair_role="repair"):
                                 ["Show me once", "Try a smarter model", "Skip this run"], step=i, guess=el and el["name"],
                                 confidence=conf, url=page["url"])
             repairs.append({"step": i + 1, "from": step["target"].get("name"), "to": el["name"], "confidence": conf, "why": why})
+            old_name = step["target"].get("name") or ""
             step["target"] = descriptor(el)
             step["repaired"] = step.get("repaired", 0) + 1
+            if old_name and old_name in step.get("text", ""):  # the label follows: "Click Cerca" becomes "Click Trova"
+                step["text"] = step["text"].replace(old_name, el["name"] or old_name)
             idx = el["i"]
             ctx.emit("repair", f"Fixed step {i + 1}: now “{el['name']}” ({round(conf * 100)}% sure)", step=i + 1)
         ctx.gate(step, el, page)

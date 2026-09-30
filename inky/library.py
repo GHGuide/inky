@@ -95,7 +95,22 @@ def check(b):
                 irreversible.append(f"{sk.get('name') or 'Skill'}: {st.get('text') or t.get('name')}")
     for a in bot.get("automations") or []:
         irreversible.append(f"Hands work to {a.get('server')}: {a.get('label') or a.get('tool')}")
+    for d in domains:
+        if d and private_host(d):
+            problems.append(f"It visits {d}, a private address that only works on its maker’s own computer or network.")
     return {"ok": not problems, "problems": list(dict.fromkeys(problems)), "domains": sorted(d for d in domains if d), "irreversible": irreversible}
+
+
+def private_host(host):
+    import ipaddress
+    h = (host or "").split(":")[0].strip("[]").lower()
+    if h in ("localhost",) or h.endswith((".local", ".localhost", ".internal", ".lan", ".home")) or "." not in h:
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except ValueError:
+        return False
 
 
 def listing(b, meta=None):
@@ -146,20 +161,38 @@ def index():
 
 
 def fetch(url):
-    """A bundle from the library, a share link or the starters. https only (http for this computer, in tests)."""
+    """A bundle from the library, a share link or the starters. https only (http for this computer, in tests).
+    Every failure is a ValueError in plain words."""
+    url = (url or "").strip()
+    if not url:
+        raise ValueError("That link has no agent in it.")
     if url.startswith("bundled:"):
         p = (BUNDLED / url[8:]).resolve()
-        if BUNDLED.resolve() not in p.parents:
-            raise ValueError("bad starter path")
-        return json.loads(p.read_text(encoding="utf-8"))
+        if BUNDLED.resolve() not in p.parents or p.suffix != ".inky" or not p.is_file():
+            raise ValueError("That agent isn’t in the library.")
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            raise ValueError("That agent’s file is damaged.")
     u = urlsplit(url)
     if u.scheme != "https" and not (u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost")):
         raise ValueError("Agents only come from https links.")
-    r = httpx.get(url, timeout=20, follow_redirects=True)
-    r.raise_for_status()
+    try:
+        r = httpx.get(url, timeout=20, follow_redirects=True)
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise ValueError(f"That link doesn’t work ({e.response.status_code}).")
+    except httpx.HTTPError:
+        raise ValueError("Couldn’t reach that link.")
     if len(r.content) > MAX_BYTES:
         raise ValueError("That file is too big to be an agent.")
-    return r.json()
+    try:
+        b = r.json()
+    except ValueError:
+        raise ValueError("That link doesn’t point to an Inky agent.")
+    if not isinstance(b, dict) or not isinstance(b.get("bot"), dict):
+        raise ValueError("That link doesn’t point to an Inky agent.")
+    return b
 
 
 def install(E, b, source=None):

@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from inky import connect, connectors, health, insights, library, transfer
+from inky import skills as skills_mod
 from inky.llm import PROVIDERS, ROLES, fits, plain as llm_plain
 from inky.mcp import PRESETS
 
@@ -48,7 +49,8 @@ def bot_or_404(E, bid):
 # ------------------------------------------------------------------ bots
 @route("GET", "/api/ping")
 def ping(E, h, q, body):
-    return {"ok": True, "name": E.store.setting("engine_name", platform.node()), "time": time.time(), "os": platform.system()}
+    return {"ok": True, "name": E.store.setting("engine_name", platform.node()), "time": time.time(), "os": platform.system(),
+            "id": transfer.engine_id(E)}
 
 
 PAIR_TRIES = []
@@ -70,7 +72,7 @@ def pair_route(E, h, q, body):
 def state(E, h, q, body):
     usage = E.store.setting("usage", {})
     today = usage.get(datetime.now().strftime("%Y-%m-%d"), {"calls": 0, "tokens": 0, "cost": 0})
-    return {"bots": E.bots(), "needs": len(E.store.find("needs", status="open")), "setup_done": E.store.setting("setup_done", False),
+    return {"bots": E.bots(), "needs": len(E.store.find("needs", status="open")) + len(REMOTE_NEEDS["rows"]), "setup_done": E.store.setting("setup_done", False),
             "settings": settings_view(E), "today": today, "pair_code": transfer.pair_code(E.token),
             "engine": E.store.setting("engine_name", platform.node())}
 
@@ -110,8 +112,27 @@ def patch_bot(E, h, q, body, bid):
 
 @route("DELETE", r"/api/bots/(\d+)")
 def delete_bot(E, h, q, body, bid):
-    bot_or_404(E, bid)
+    b = bot_or_404(E, bid)
+    c = E.store.get("computers", int(b["computer"])) if b.get("remote_id") and str(b.get("computer") or "local") != "local" else None
+    if c:  # it lives on another computer: delete it there too (directly, never through another forward)
+        try:
+            httpx.delete(f"{c['url']}/api/bots/{b['remote_id']}", headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=30)
+        except httpx.HTTPError:
+            pass
     E.delete_bot(int(bid))
+    return {"ok": True}
+
+
+@route("POST", r"/api/bots/(\d+)/bring-back")
+def bring_back(E, h, q, body, bid):
+    bot_or_404(E, bid)
+
+    def go():
+        try:
+            transfer.bring_back(E, int(bid), progress=lambda step, **kw: E.bus.publish("move", bot=int(bid), step=step, **kw))
+        except Exception as e:
+            E.bus.publish("move", bot=int(bid), step="failed", text=str(e)[:200])
+    threading.Thread(target=go, daemon=True).start()
     return {"ok": True}
 
 
@@ -199,7 +220,7 @@ def recap(E, h, q, body):
 @route("GET", r"/api/bots/(\d+)/export")
 def export(E, h, q, body, bid):
     bot_or_404(E, bid)
-    return transfer.export_bot(E, int(bid))
+    return transfer.export_bot(E, int(bid), private=q.get("private") == "1")  # private: a move between your own computers
 
 
 @route("POST", "/api/import")
@@ -214,6 +235,9 @@ def import_(E, h, q, body):
 @route("POST", r"/api/bots/(\d+)/move")
 def move(E, h, q, body, bid):
     bot_or_404(E, bid)
+    c = E.store.get("computers", int(body.get("computer") or 0)) if str(body.get("computer") or "").isdigit() else None
+    if not c:
+        raise HTTPError(400, "Pick a paired computer to move it to.")
 
     def go():
         try:
@@ -252,24 +276,74 @@ def export_skill(E, h, q, body, sid):
 
 @route("POST", r"/api/bots/(\d+)/skills/import")
 def import_skill(E, h, q, body, bid):
-    if body.get("inky_skill") != 1:
-        raise HTTPError(400, "not an Inky skill file")
-    s = {k: body[k] for k in ("name", "site", "goal", "start_url", "steps", "version", "max_pages") if k in body}
+    bot_or_404(E, bid)
+    if not isinstance(body, dict) or body.get("inky_skill") != 1:
+        raise HTTPError(400, "That isn’t an Inky skill file." + (" It’s a bot file: import it on Your bots." if isinstance(body, dict) and body.get("bundle") else ""))
+    steps = body.get("steps")
+    ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
+    if not isinstance(steps, list) or not steps or not all(isinstance(st, dict) and st.get("action") in ok for st in steps):
+        raise HTTPError(400, "That skill file has no steps Inky can run.")
+    if not skills_mod.web_address(body.get("start_url"), ""):
+        raise HTTPError(400, "That skill file has no web address to start on.")
+    s = {k: body[k] for k in ("name", "site", "goal", "start_url", "version", "max_pages") if k in body}
+    s["name"] = (str(s.get("name") or "Imported skill").strip() or "Imported skill")[:60]
+    s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in steps]  # someone else's yes isn't yours: it asks again
     sid = E.store.insert("skills", s, bot_id=int(bid), status="ok")
     return {"skill": E.store.get("skills", sid)}
 
 
 # ------------------------------------------------------------------ needs, activity
+REMOTE_NEEDS = {"at": 0, "rows": []}
+
+
+def remote_needs(E):
+    """Open questions from your bots that moved to another computer, every 15 s at most."""
+    if time.time() - REMOTE_NEEDS["at"] < 15:
+        return REMOTE_NEEDS["rows"]
+    rows = []
+    for b in E.store.find("bots"):
+        if b.get("status") != "moved" or not b.get("remote_id"):
+            continue
+        c = E.store.get("computers", int(b["computer"])) if str(b.get("computer")).isdigit() else None
+        if not c:
+            continue
+        try:
+            got = transfer.Remote(c["url"], c["token"]).req("GET", "/api/needs", timeout=4)["needs"]
+        except Exception:
+            continue
+        rows += [dict(n, bot_id=b["id"], bot=b["name"], remote=c["name"]) for n in got if n.get("bot_id") == b["remote_id"]]
+    REMOTE_NEEDS.update(at=time.time(), rows=rows)
+    return rows
+
+
 @route("GET", "/api/needs")
 def needs(E, h, q, body):
     names = {b["id"]: b["name"] for b in E.store.find("bots")}
-    rows = E.store.find("needs", status=q.get("status", "open"), limit=100)
-    return {"needs": [dict(n, bot=names.get(n["bot_id"])) for n in rows]}
+    rows = [dict(n, bot=names.get(n["bot_id"])) for n in E.store.find("needs", status=q.get("status", "open"), limit=100)]
+    if q.get("status", "open") == "open":
+        rows += remote_needs(E)
+    return {"needs": rows}
 
 
 @route("POST", r"/api/needs/(\d+)")
 def answer(E, h, q, body, nid):
-    return {"need": E.resolve(int(nid), body.get("decision"))}
+    try:
+        return {"need": E.resolve(int(nid), body.get("decision"))}
+    except KeyError:
+        raise HTTPError(404, "That question is gone.")
+    except ValueError as e:
+        raise HTTPError(409, str(e))
+
+
+@route("POST", r"/api/bots/(\d+)/needs/(\d+)")
+def answer_for_bot(E, h, q, body, bid, nid):
+    """Answering from a bot's page: forwarded with the bot when it moved, and only ever that bot's question."""
+    try:
+        return {"need": E.resolve(int(nid), body.get("decision"), bot_id=int(bid))}
+    except KeyError:
+        raise HTTPError(404, "That question is gone.")
+    except ValueError as e:
+        raise HTTPError(409, str(e))
 
 
 @route("GET", "/api/activity")
@@ -283,7 +357,7 @@ def activity(E, h, q, body):
     usage = E.store.setting("usage", {})
     return {"events": ev, "runs": runs[:100], "usage": usage,
             "week": {"runs": len(wk), "ai_calls": sum(r.get("ai_calls") or 0 for r in wk), "cost": round(sum(r.get("cost") or 0 for r in wk), 4),
-                     "asked": len([n for n in E.store.find("needs", limit=500) if n["ts"] > week]),
+                     "asked": len([n for n in E.store.find("needs", limit=500) if n["ts"] > week and n.get("kind") == "decision"]),
                      "if_ai_every_step": steps_if_ai, "results": sum(r.get("items") or 0 for r in wk)}}
 
 
@@ -560,9 +634,11 @@ def library_preview(E, h, q, body):
     """What an agent would do here, before it's installed: its sites, what it may do that can't be undone, its skills."""
     try:
         b = library.fetch(body.get("url", ""))
-    except (ValueError, httpx.HTTPError) as e:
-        raise HTTPError(400, f"Couldn’t get that agent: {e}")
-    return {"listing": b.get("listing") or library.listing(b), "check": library.check(b),
+        listing = b.get("listing") or library.listing(b)
+    except Exception as e:
+        raise HTTPError(400, str(e) if isinstance(e, ValueError) else "That link doesn’t point to an Inky agent.")
+    have = [x["id"] for x in E.store.find("bots") if (x.get("library") or {}).get("slug") == listing.get("slug")]
+    return {"listing": listing, "check": library.check(b), "have": have,
             "skills": [{"name": s.get("name"), "steps": len(s.get("steps") or [])} for s in b.get("skills") or []]}
 
 
@@ -571,8 +647,8 @@ def library_install(E, h, q, body):
     url = body.get("url", "")
     try:
         bid = library.install(E, library.fetch(url), source=url)
-    except (ValueError, httpx.HTTPError) as e:
-        raise HTTPError(400, str(e))
+    except Exception as e:
+        raise HTTPError(400, str(e) if isinstance(e, ValueError) else "That agent couldn’t be installed.")
     return {"id": bid}
 
 
@@ -680,6 +756,8 @@ def add_computer(E, h, q, body):
     try:
         if url.startswith("inky://"):
             url, code = connect.parse_pair_link(url)
+        if not url or re.search(r"\s", url):
+            raise ValueError("That isn’t an address. It looks like 192.168.1.20:8800 or a pair link.")
         if not url.startswith(("http://", "https://")):
             url = "http://" + url + ("" if re.search(r":\d+$", url) else ":8800")
         cid = connect.pair_and_save(E, url, code)
@@ -748,13 +826,17 @@ def save_settings(E, h, q, body):
     if "lan" in body:
         lan_access(E, bool(body.pop("lan")))
     app = E.store.setting("app", {})
+    if "user_name" in body:
+        body["user_name"] = str(body["user_name"]).strip()[:40]
     tg = body.pop("telegram", None)
+    if tg and tg.get("enabled") and not E.keys.get("telegram"):
+        raise HTTPError(400, "Set up Telegram in Connectors first: paste your bot's token and send it /start.")
     app.update(body)
     E.store.set_setting("app", app)
     if "setup_done" in body:
         E.store.set_setting("setup_done", bool(body["setup_done"]))
     if "engine_name" in body:
-        E.store.set_setting("engine_name", body["engine_name"])
+        E.store.set_setting("engine_name", (str(body["engine_name"]).strip() or platform.node())[:40])
     if tg is not None:
         E.store.set_setting("telegram", {**E.store.setting("telegram", {}), **tg})
     return settings_view(E)
@@ -861,8 +943,8 @@ class Handler(BaseHTTPRequestHandler):
     def _proxy(self, method, path, body):
         """Bots that moved to another engine: forward their calls there."""
         m = re.match(r"^/api/bots/(\d+)(/.*)?$", path)
-        if not m or path.endswith("/move"):
-            return None
+        if not m or path.endswith(("/move", "/bring-back")) or method == "DELETE" or self.headers.get("X-Inky-Forwarded"):
+            return None  # deleting is never forwarded, and nothing is forwarded twice
         b = self.engine.store.get("bots", int(m.group(1)))
         if not b or not b.get("remote_id") or (b.get("computer") or "local") == "local":
             return None
@@ -872,7 +954,7 @@ class Handler(BaseHTTPRequestHandler):
         rpath = f"/api/bots/{b['remote_id']}{m.group(2) or ''}"
         try:
             r = httpx.request(method, c["url"] + rpath, json=body if method != "GET" else None,
-                              headers={"X-Inky-Token": c["token"]}, timeout=300)
+                              headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=120 if method != "GET" else 20)
             data = r.json()
             if isinstance(data, dict) and isinstance(data.get("bot"), dict):
                 data["bot"].update(id=b["id"], computer=b["computer"], remote=c["name"])
@@ -900,8 +982,13 @@ class Handler(BaseHTTPRequestHandler):
         E = self.engine
         b = E.store.get("bots", bid)
         if b and b.get("remote_id") and (b.get("computer") or "local") != "local":
-            c = E.store.get("computers", int(b["computer"]))
-            r = httpx.get(f"{c['url']}/api/bots/{b['remote_id']}/screen.jpg", headers={"X-Inky-Token": c["token"]}, timeout=20)
+            c = E.store.get("computers", int(b["computer"])) if str(b["computer"]).isdigit() else None
+            if not c:  # its computer was unpaired
+                return self._send(204, b"", "image/jpeg")
+            try:
+                r = httpx.get(f"{c['url']}/api/bots/{b['remote_id']}/screen.jpg", headers={"X-Inky-Token": c["token"]}, timeout=20)
+            except httpx.HTTPError:
+                return self._send(204, b"", "image/jpeg")
             return self._send(r.status_code, r.content, "image/jpeg")
         comp = E.computers.get(bid)
         if not (comp and comp.alive):

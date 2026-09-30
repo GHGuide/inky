@@ -279,6 +279,25 @@ class ServerMCPTransferTest(unittest.TestCase):
         self.assertEqual(via_a["bot"]["remote"], "Home server")
         with self.assertRaises(urllib.error.HTTPError):
             self.api(self.ub, "wrong", "GET", "/api/bots")
+        # its question is answered on B through A, and never by a bot on A that happens to share the id
+        nid = self.B.store.insert("needs", {"kind": "decision", "title": "Send?", "options": ["Approve", "Deny"]}, bot_id=rid, status="open")
+        local = A.store.insert("needs", {"kind": "decision", "title": "Other", "options": ["Approve", "Deny"]}, bot_id=b["id"] + 99, status="open")
+        self.api(self.ua, A.token, "POST", f"/api/bots/{b['id']}/needs/{nid}", {"decision": "Deny"})
+        self.assertEqual(self.B.store.get("needs", nid)["decision"], "Deny")
+        self.assertEqual(A.store.get("needs", local)["status"], "open")
+        with self.assertRaises(urllib.error.HTTPError):  # answered already, or not one of its answers
+            self.api(self.ua, A.token, "POST", f"/api/bots/{b['id']}/needs/{nid}", {"decision": "Approve"})
+        # bring it back: one bot on A again, nothing left on B
+        transfer.bring_back(A, b["id"])
+        self.assertEqual(A.store.get("bots", b["id"])["status"], "idle")
+        self.assertEqual([x["name"] for x in A.store.find("bots")].count("Flat Hunter"), 1)
+        self.assertIsNone(self.B.store.get("bots", rid))
+        self.assertTrue(A.store.find("skills", bot_id=b["id"]))
+        # moving again and deleting it here deletes it there too (and never through a second forward)
+        rid2 = transfer.move_bot(A, b["id"], cid)
+        self.api(self.ua, A.token, "DELETE", f"/api/bots/{b['id']}")
+        self.assertIsNone(A.store.get("bots", b["id"]))
+        self.assertIsNone(self.B.store.get("bots", rid2))
 
 
 if __name__ == "__main__":

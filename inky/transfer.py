@@ -12,6 +12,12 @@ def pair_code(token):
     return "".join(c for c in token.upper() if c.isalnum())[:6]
 
 
+def engine_id(engine):
+    """A stable id for an engine that reveals nothing about its token."""
+    import hashlib
+    return hashlib.sha256(("inky-engine:" + engine.token).encode()).hexdigest()[:16]
+
+
 def export_bot(engine, bid, private=False):
     """private=True (moving to your own server) carries sign-ins and chat; a shared file never does."""
     b = engine.store.get("bots", bid)
@@ -24,9 +30,16 @@ def export_bot(engine, bid, private=False):
     strip = ("id", "bot_id", "status", "key", "ts")
     clean = lambda r: {k: v for k, v in r.items() if k not in strip}
     # a shared file is a bot's skills, rules, look and personality; not what it knows about you or found for you
-    bot = clean(b) if private else {**{k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer")}, "memory": []}
+    bot = clean(b) if private else {**{k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer", "home")}, "memory": []}
+    if private:  # remember where it came from, so going back home reuses its old place instead of making a copy
+        bot.setdefault("home", {"engine": engine_id(engine), "bot": bid})
+    else:  # a shared file never carries your approvals: whoever gets it is asked again
+        bot["automations"] = [{k: v for k, v in a.items() if k != "approved_always"} for a in bot.get("automations") or []]
+    sks = [clean(s) for s in engine.store.find("skills", bot_id=bid, desc=False)]
+    if not private:
+        sks = [dict(s, steps=[{k: v for k, v in st.items() if k != "approved_always"} for st in s.get("steps") or []]) for s in sks]
     return {"bundle": BUNDLE, "exported": time.time(), "bot": bot,
-            "skills": [clean(s) for s in engine.store.find("skills", bot_id=bid, desc=False)],
+            "skills": sks,
             "results": [dict(clean(r), key=r["key"]) for r in engine.store.find("results", bot_id=bid, limit=2000)] if private else [],
             "messages": [clean(m) for m in engine.store.find("messages", bot_id=bid, limit=200, desc=False)] if private else [],
             "cookies": cookies}
@@ -44,16 +57,33 @@ def import_bot(engine, bundle):
     base, n = name, 2
     while name in names:  # importing the same file twice gives "Name 2", not two identical bots
         name, n = f"{base[:36]} {n}", n + 1
+    home = bundle["bot"].get("home") or {}
+    old = engine.store.get("bots", home.get("bot")) if home.get("engine") == engine_id(engine) and home.get("bot") else None
+    moving = bool(bundle.get("cookies") or bundle.get("messages") or home)  # a move carries its sign-ins and chat
+    if old and old.get("status") == "moved":  # it's coming home: take its old place back
+        name = old["name"]
     bot = dict(bundle["bot"], name=name, computer="local", pending_cookies=bundle.get("cookies") or None, remote=None, remote_id=None)
-    bid = engine.store.insert("bots", bot, status="idle")
+    if old and old.get("status") == "moved":
+        bid = old["id"]
+        for tb in ("skills", "results", "messages", "needs"):
+            engine.store.delete(tb, bot_id=bid)
+        bot.pop("home", None)
+        engine.store.update("bots", bid, **bot)
+        engine.store.update("bots", bid, status="idle")
+    else:
+        bid = engine.store.insert("bots", bot, status="idle")
     for s in bundle.get("skills", []):
+        s = dict(s)
+        if not moving:  # someone else's approvals don't count here: it asks you again
+            s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in s.get("steps") or []]
         engine.store.insert("skills", s, bot_id=bid, status="ok")
     for r in bundle.get("results", []):
         key = r.pop("key", None)
         engine.store.insert("results", r, bot_id=bid, key=key)
     for m in bundle.get("messages", []):
         engine.store.insert("messages", m, bot_id=bid, status=m.get("role"))
-    engine.store.event(bid, "arrived", f"{bot['name']} arrived with {len(bundle.get('skills', []))} skills")
+    n = len(bundle.get("skills", []))
+    engine.store.event(bid, "arrived", f"{bot['name']} arrived with {n} skill{'' if n == 1 else 's'}")
     if not bundle.get("messages"):  # a shared bot says hello when it moves in
         n = len(bundle.get("skills", []))
         engine.store.message(bid, "bot", f"Hi! I'm {bot['name']}. I just moved in" + (f" and brought {n} skill{'s' if n != 1 else ''}, so I can start right away." if n else "."), intro=True)
@@ -107,8 +137,32 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
             raise RuntimeError("the check run on the server did not pass; nothing was removed here")
     progress("checked", text=f"Checked a run there: {check.get('items', 0) if check else 0} results")
     engine.close_computer(bid)
+    home = b.get("home") or {}
+    if home.get("engine") and home.get("engine") == remote.req("GET", "/api/ping", timeout=10).get("id"):
+        engine.delete_bot(bid)  # it went back home: nothing needs to stay behind here
+        progress("done", text=f"{b['name']} is back on {comp['name']}")
+        return rid
     engine.store.update("bots", bid, computer=computer_id, remote_id=rid, status="moved")
     engine.store.event(bid, "moved", f"{b['name']} now runs on {comp['name']}")
     progress("done", text=f"{b['name']} now runs on {comp['name']}")
     engine.bus.publish("bots")
     return rid
+
+
+def bring_back(engine, bid, progress=lambda step, **kw: None):
+    """A bot that moved to another computer comes back here, with its memory, skills and sign-ins."""
+    b = engine.store.get("bots", bid)
+    comp = engine.store.get("computers", int(b["computer"])) if b and b.get("remote_id") else None
+    if not comp:
+        raise RuntimeError("it isn’t on another computer")
+    remote = Remote(comp["url"], comp["token"])
+    remote.req("POST", f"/api/bots/{b['remote_id']}/control", {"cmd": "stop"}, timeout=30)
+    progress("paused", text=f"Paused it on {comp['name']}")
+    bundle = remote.req("GET", f"/api/bots/{b['remote_id']}/export?private=1", timeout=120)
+    progress("packed", text=f"Packed its memory and {len(bundle.get('skills', []))} skills there")
+    bundle["bot"]["home"] = {"engine": engine_id(engine), "bot": bid}
+    import_bot(engine, bundle)
+    remote.req("DELETE", f"/api/bots/{b['remote_id']}", timeout=60)
+    progress("done", text=f"{b['name']} is back on this computer")
+    engine.bus.publish("bots")
+    return bid

@@ -32,6 +32,34 @@ DEFAULT_RULES = [{"kind": "own", "text": "Read, search, take notes"},
 CORAL = "#E86F51"
 
 
+def close_match(target, text):
+    """For forget / remove rule: the thing meant, not everything that happens to contain a few letters."""
+    a, b = (target or "").strip().lower(), (text or "").strip().lower()
+    if len(a) < 3:
+        return False
+    return a == b or (a in b and len(a) >= 0.4 * len(b)) or (b in a and len(b) >= 0.4 * len(a))
+
+
+RULE_STOP = {"before", "first", "always", "never", "ask", "asks", "with", "that", "this", "from", "what", "when", "your", "them",
+             "they", "have", "about", "into", "only", "anything", "something", "things", "without", "permission", "please",
+             "don't", "dont", "must", "should", "make", "sure", "just"}
+DEFAULT_RULE_TEXTS = {r["text"] for r in DEFAULT_RULES}
+
+
+def rule_hit(rules, kind, text):
+    """Your own Ask first / Never rules, matched by their key words against what a step does
+    ("Ask before contacting agencies" matches "Click Contact agency"). The built-in defaults are handled by safety.classify."""
+    stem = lambda w: w[:5]  # contact, contacting, contacts
+    said = {stem(w) for w in re.findall(r"[^\W\d_]{4,}", text.lower())}
+    for r in rules or []:
+        if r.get("kind") != kind or r.get("text") in DEFAULT_RULE_TEXTS:
+            continue
+        words = {stem(w) for w in re.findall(r"[^\W\d_]{4,}", r.get("text", "").lower()) if w not in RULE_STOP}
+        if words & said:
+            return r
+    return None
+
+
 def plain_error(e):
     """What went wrong, in words: browser and network errors are long and technical."""
     t = str(e)
@@ -76,7 +104,7 @@ CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). 
 Talk {tone}. Keep replies short (1–3 sentences). You can take actions. Reply with ONE JSON object:
 {{"reply": "<what you say>", "actions": [<zero or more actions>]}}
 Actions:
-{{"type":"add_rule","text":"<rule in words>","filter":{{"field":..,"op":..,"value":..}} or null}}   (op: < <= > >= == != contains not_contains in not_in)
+{{"type":"add_rule","text":"<rule in words>","kind":"own|ask|never","filter":{{"field":..,"op":..,"value":..}} or null}}   (op: < <= > >= == != contains not_contains in not_in; kind ask = ask the user first, never = never do it)
 {{"type":"remove_rule","text":"<rule to drop>"}}
 {{"type":"remember","text":"<fact about the user>"}}   {{"type":"forget","text":"<fact>"}}
 {{"type":"learn","goal":"<what to do on the site>","url":"<start URL>"}}   (learn a new site/search once)
@@ -141,9 +169,16 @@ class Ctx:
 
     def gate(self, step, el, page):
         verdict, why = classify(step["action"], el, page)
+        name = self.bot["name"]
+        said = f"{step.get('text') or ''} {(el or {}).get('name') or ''}"
+        never = rule_hit(self.bot.get("rules", []), "never", said)
+        if never and step["action"] != "goto":
+            raise skills.NeedsHelp("blocked", f"{name} stopped before “{step.get('text')}”", f"Your rule says: {never['text']}.", ["OK"])
+        ask = rule_hit(self.bot.get("rules", []), "ask", said)
+        if verdict == "ok" and ask and step["action"] in ("click", "press", "fill", "select"):
+            verdict, why = "irreversible", f"Your rule says: {ask['text']}"
         if verdict == "ok":
             return
-        name = self.bot["name"]
         if verdict == "robot":
             raise skills.NeedsHelp("robot", "The site shows a robot check", "Bots don’t solve these. Solve it once on its computer, then press Hand back.",
                                    ["Open its computer", "Skip"])
@@ -160,9 +195,10 @@ class Ctx:
         typed = next((r["text"] for r in preview if r.get("text")), None)
         if typed:
             body += f" Message: “{typed[:280]}”"
-        decision = self.e.ask(self.bot_id, "decision", f"{name} wants to {step['text'].lower()}", body,
+        what = step["text"][:1].lower() + step["text"][1:] if step["text"][1:2].islower() else step["text"]
+        decision = self.e.ask(self.bot_id, "decision", f"{name} wants to {what}", body,
                               ["Approve", "Always for this step", "Deny"], run=self.run, step=step.get("text"))
-        if decision == "Deny":
+        if decision not in ("Approve", "Always for this step"):  # only a clear yes goes ahead
             raise skills.NeedsHelp("denied", f"Stopped before “{step['text']}”", "You said no, so nothing was sent.", [])
         if decision == "Always for this step":
             step["approved_always"] = True
@@ -197,14 +233,21 @@ class Engine:
         needs = self.store.find("needs", bot_id=b["id"], status="open")
         status = b.get("status") or "idle"
         live = bool(run and run.thread and run.thread.is_alive())
-        if live:
+        if live and run.need:  # it's waiting on your yes
+            status = "needs_you"
+        elif live:
             status = "paused" if run.paused.is_set() else ("learning" if run.kind == "learn" else "working")
         elif needs:
             status = "needs_you"
         sched = b.get("schedule") or {}
         nxt = None
-        if sched.get("every_minutes") and sk:
-            nxt = (b.get("last_run") or time.time()) + sched["every_minutes"] * 60
+        if sched.get("every_minutes") and sk and b.get("status") != "moved":
+            nxt = max(time.time(), (b.get("last_run") or 0) + sched["every_minutes"] * 60)  # never ran: due now
+            end = sched.get("quiet_to")
+            if end and quiet(datetime.fromtimestamp(nxt).strftime("%H:%M"), sched.get("quiet_from"), end):
+                h, m = map(int, end.split(":"))  # quiet hours: the first run after they end
+                t = datetime.fromtimestamp(nxt).replace(hour=h, minute=m, second=0)
+                nxt = t.timestamp() if t.timestamp() > nxt else t.timestamp() + 86400
         return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory",
                                          "schedule", "automations", "mode", "computer", "last_run", "created", "allowed_domains", "library")},
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
@@ -254,7 +297,8 @@ class Engine:
         bid = self.store.insert("bots", bot, status="idle")
         self.store.event(bid, "created", f"Created {bot['name']}")
         p = bot["persona"]  # it hatches and says hello in its own words
-        self.store.message(bid, "bot", " ".join(x for x in (f"Hi! I'm {bot['name']}.", p.get("bio") or bot["summary"], p.get("catchphrase")) if x), intro=True)
+        dot = lambda x: x if not x or x[-1] in ".!?…" else x + "."  # each part is its own sentence
+        self.store.message(bid, "bot", " ".join(dot(x.strip()) for x in (f"Hi! I'm {bot['name']}.", p.get("bio") or bot["summary"], p.get("catchphrase")) if x and x.strip()), intro=True)
         self.bus.publish("bots")
         return self.bot_view(self.store.get("bots", bid))
 
@@ -294,7 +338,7 @@ class Engine:
         if run and run.thread:
             run.thread.join(15)  # let it finish writing before its rows go
         self.close_computer(bid)
-        for t in ("skills", "runs", "results", "messages", "events", "needs"):
+        for t in ("skills", "runs", "results", "messages", "events", "needs", "diary"):
             self.store.delete(t, bot_id=bid)
         self.store.delete("bots", bid)
         self.bus.publish("bots")
@@ -403,7 +447,9 @@ class Engine:
             self.store.event(bid, "denied", h.title)
             self.bus.publish("messages", bot=bid)
             return None
-        nid = self.store.insert("needs", {"kind": h.kind, "title": h.title, "body": h.body, "options": h.options, **h.meta, **meta},
+        roles = self.llm.roles()
+        opts = [o for o in h.options if not (o == "Try a smarter model" and roles.get("smart") == roles.get("repair"))]  # same model: no point
+        nid = self.store.insert("needs", {"kind": h.kind, "title": h.title, "body": h.body, "options": opts, **h.meta, **meta},
                                 bot_id=bid, status="open")
         self.store.message(bid, "bot", f"{h.title}. {h.body}", need=nid)
         self.store.event(bid, "problem", h.title, need=nid)
@@ -411,10 +457,14 @@ class Engine:
         self.notify(bid, f"{h.title}\n{h.body}")
         return nid
 
-    def resolve(self, nid, decision):
+    def resolve(self, nid, decision, bot_id=None):
         n = self.store.get("needs", nid)
-        if not n:
+        if not n or (bot_id is not None and n["bot_id"] != bot_id):
             raise KeyError(nid)
+        if n.get("status") != "open":
+            raise ValueError("That was already answered.")
+        if n.get("options") and decision not in n["options"]:
+            raise ValueError(f"“{decision}” isn’t one of the answers.")
         self.store.update("needs", nid, status="resolved", decision=decision)
         self.store.event(n["bot_id"], "answered", f"You chose “{decision}”: {n['title']}")
         ev = self.waits.pop(nid, None)
@@ -507,7 +557,7 @@ class Engine:
         done = []
         for a in d.get("actions") or []:
             try:
-                done.append(self.apply_action(bid, a))
+                done.append(self.apply_action(bid, a, said=text))
             except Exception as e:
                 done.append(f"couldn’t {a.get('type')}: {e}")
         reply = d.get("reply") or "OK."
@@ -515,28 +565,41 @@ class Engine:
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
 
-    def apply_action(self, bid, a):
+    def apply_action(self, bid, a, said=None):
+        """An action the model proposed. said: the message it answers, so it only does what was asked."""
         b = self.store.get("bots", bid)
         t = a.get("type")
         if t == "add_rule":
-            rules = b.get("rules", []) + [{"kind": "filter" if a.get("filter") else "own", "text": a["text"]}]
+            kind = "filter" if a.get("filter") else (a.get("kind") if a.get("kind") in ("own", "ask", "never") else "own")
+            if not (a.get("text") or "").strip():
+                raise ValueError("the rule has no words")
+            rules = b.get("rules", []) + [{"kind": kind, "text": a["text"].strip()}]
             filters = b.get("filters", []) + ([{**a["filter"], "text": a["text"]}] if a.get("filter") else [])
             self.store.update("bots", bid, rules=rules, filters=filters)
             return f"rule: {a['text']}"
         if t == "remove_rule":
-            low = a["text"].lower()
-            self.store.update("bots", bid, rules=[r for r in b.get("rules", []) if low not in r["text"].lower()],
-                              filters=[f for f in b.get("filters", []) if low not in f.get("text", "").lower()])
+            match = lambda x: close_match(a.get("text"), x)
+            rules = [r for r in b.get("rules", []) if not match(r["text"])]
+            if len(rules) == len(b.get("rules", [])):
+                raise ValueError(f"no rule like “{a.get('text')}”")
+            self.store.update("bots", bid, rules=rules, filters=[f for f in b.get("filters", []) if not match(f.get("text", ""))])
             return f"removed: {a['text']}"
         if t == "remember":
             self.store.update("bots", bid, memory=b.get("memory", []) + [{"text": a["text"], "ts": time.time()}])
             return f"remembered: {a['text']}"
         if t == "forget":
-            low = a["text"].lower()
-            self.store.update("bots", bid, memory=[m for m in b.get("memory", []) if low not in m["text"].lower()])
+            mem = [m for m in b.get("memory", []) if not close_match(a.get("text"), m["text"])]
+            if len(mem) == len(b.get("memory", [])):
+                raise ValueError(f"nothing remembered like “{a.get('text')}”")
+            self.store.update("bots", bid, memory=mem)
             return f"forgot: {a['text']}"
         if t == "learn":
-            self.learn(bid, a.get("goal") or b.get("goal"), a.get("url") or b.get("start_url"))
+            url = skills.web_address(a.get("url") or b.get("start_url"), "")
+            if said is not None and not (re.search(r"https?://|\b[\w-]+\.[a-z]{2,}\b", said, re.I) or re.search(r"\b(learn|teach|new site|another site|show you)\b", said, re.I)):
+                raise ValueError("you didn’t ask me to learn a site")  # a question is not a reason to go learning
+            if b.get("allowed_domains") and url and skills.site_of(urlparse(url).hostname) not in {skills.site_of(d) for d in b["allowed_domains"]}:
+                raise ValueError(f"I only work on {', '.join(b['allowed_domains'])}")
+            self.learn(bid, a.get("goal") or b.get("goal"), url)
             return "learning"
         if t == "run":
             self.run(bid)
@@ -560,6 +623,9 @@ class Engine:
             return f"asked {target['name']}"
         if t == "add_automation":
             auto = {k: a.get(k) for k in ("when", "server", "tool", "args", "label")}
+            if not (auto["server"] and auto["tool"]) or not (self.mcp.known(auto["server"]) or self.mcp.builtin and self.mcp.builtin.has(auto["server"])):
+                raise ValueError("an automation needs a connector and one of its tools")
+            auto["when"] = auto["when"] if auto["when"] in ("new_results", "every_run") else "new_results"
             self.store.update("bots", bid, automations=b.get("automations", []) + [auto])
             return f"automation: {a.get('label')}"
         raise ValueError(f"unknown action {t}")
@@ -670,7 +736,7 @@ class Engine:
             self._replay(bid, sid, run2, "first run after learning")
         except skills.NeedsHelp as h:
             self.problem(bid, h, url=url, goal=goal)
-            self._finish(run, "needs_you", note=h.title)
+            self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
         except skills.Stopped:
             self._finish(run, "stopped")
         except NoModel as e:
@@ -724,7 +790,8 @@ class Engine:
             for it in kept:  # new = never seen, or used to miss a rule and now passes
                 k = skills.item_key(it)
                 prev = self.store.find("results", bot_id=bid, key=k, limit=1)
-                self.store.upsert_key("results", bid, k, {**it, "skill": skill["name"], "run": run.run_id, "new": True, "passed": True})
+                fresh = not prev or prev[0].get("passed") is False
+                self.store.upsert_key("results", bid, k, {**it, "skill": skill["name"], "run": run.run_id, "new": fresh, "passed": True})
                 if not prev or prev[0].get("passed") is False:
                     new.append(it)
             missed = [it for it in out["items"] if id(it) not in kept_ids]
@@ -739,7 +806,7 @@ class Engine:
             self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
             if new and reason != "silent":
-                top = "; ".join(f"{x.get('title', '')} {x.get('price', '') or ''}".strip() for x in new[:3])
+                top = "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in new[:3])
                 self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {len(out['items'])} results: {top}")
                 self.notify(bid, f"{len(new)} new: {top}")
             elif not reads:
@@ -760,7 +827,7 @@ class Engine:
                     self.delegate(bid, auto, context=new, run=run)
         except skills.NeedsHelp as h:
             self.problem(bid, h, skill_id=sid)
-            self._finish(run, "needs_you", note=h.title)
+            self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
         except skills.Stopped:
             self._finish(run, "stopped")
             self.store.message(bid, "bot", "Stopped.")
@@ -998,7 +1065,10 @@ class Engine:
 
     def _ask_quietly(self, from_bid, to_name, text):
         try:
-            self.ask_bot(from_bid, to_name, text)
+            reply = self.ask_bot(from_bid, to_name, text)
+            if reply:  # the answer comes back to the bot (and you) that asked
+                self.store.message(from_bid, "peer", reply, sender=to_name, sender_id=self.find_bot(to_name, from_bid)["id"], team=True, reply_to=text[:120])
+                self.bus.publish("messages", bot=from_bid)
         except Exception as e:
             self.store.message(from_bid, "bot", f"I couldn't reach {to_name}: {e}")
             self.bus.publish("messages", bot=from_bid)

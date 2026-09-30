@@ -19,7 +19,7 @@ def ok_runs(runs):
 
 def stats(bot, runs, skills, now):
     good = ok_runs(runs)
-    steps_default = len(skills[0]["steps"]) if skills else 0
+    steps_default = len(skills[0].get("steps") or []) if skills else 0
     steps = [r.get("steps") or steps_default for r in good]
     created = bot.get("created") or now
     days = int((now - created) // 86400) + 1
