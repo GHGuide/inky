@@ -374,13 +374,13 @@ VIEWS.bot = {
         return `${day}<div class="m peer">${botCritter(sb, 26)}<div class="body"><span class="small" style="color:var(--coral-t);font-weight:600">${esc(m.sender)}</span><span>${esc(m.text)}</span></div></div>`; }
       const need = m.need && needIds.has(m.need) ? this.data.needs.find((n) => n.id === m.need) : null;
       const card = need ? `<div class="card hot" style="padding:12px 14px"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${esc(need.title)}</b>${need.body ? `<span class="small muted">${esc(need.body)}</span>` : ""}
-        <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
+        <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}" data-need="${need.id}" data-bot="${this.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>` : "";
       const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(x)}</span>`).join("");
       const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
       return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>${done}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
-    $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.need, x.dataset.o)));
+    $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.bot, +x.dataset.need, x.dataset.o)));
     $$("[data-chip]", box).forEach((x) => (x.onclick = async () => {
       const m = this.data.messages.find((y) => y.id === +x.dataset.chip), c = m && m.chips[+x.dataset.ci];
       if (!c) return;
@@ -673,10 +673,13 @@ function tour(i = 0) {
   $("#tskip").onclick = () => tour(TOUR.length);
 }
 
-async function answerNeed(id, decision) {
-  try { await post(`/api/needs/${id}`, { decision }); toast(`You chose “${decision}”`); } catch (e) { toast(e.message); }
-  if (decision === "Open its computer" || decision === "Show me once") { const n = await get("/api/needs?status=resolved"); const x = n.needs.find((y) => y.id === id); if (x) location.hash = `#/bot/${x.bot_id}/computer`; }
+async function answerNeed(bid, id, decision) {  // always through the bot, so a moved bot's question is answered on its own computer
+  try { await post(`/api/bots/${bid}/needs/${id}`, { decision }); toast(`You chose “${decision}”`, S.bots.find((b) => b.id === bid)); }
+  catch (e) { toast(e.message); refreshSoon(50); return false; }
+  if (decision === "Open its computer" || decision === "Show me once") location.hash = `#/bot/${bid}/computer`;
+  else if (decision === "Open Models") location.hash = "#/models";
   refreshSoon(50);
+  return true;
 }
 
 // ================================================================ needs you
@@ -708,11 +711,11 @@ VIEWS.needs = {
       <div class="row" style="align-items:flex-start;gap:28px"><section class="col grow" style="gap:12px">${list.map((n, i) => { const b = botOf(n); return `<div class="card need ${i === 0 && this.tab === "decisions" ? "hot" : ""}">
         <div class="between"><span class="row small" style="font-weight:600">${botCritter(b, 22)}${esc(b.name)} · ${esc(n.kind.replace("_", " "))}</span><span class="mono small muted">${ago(n.ts)}</span></div>
         <b style="font-size:16.5px">${esc(n.title)}</b>${n.body ? `<span class="small muted" style="line-height:1.5">${esc(n.body)}</span>` : ""}
-        <div class="opts">${((n.options || []).length ? n.options : ["Dismiss"]).map((o, j) => `<button class="btn ${j === 0 ? "p" : ""}" data-need="${n.id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}<a class="btn" href="#/bot/${n.bot_id}/computer">Watch it</a></div></div>`; }).join("") || `<p class="muted">Nothing here. Your bots are fine.</p>`}</section>
+        <div class="opts">${((n.options || []).length ? n.options : ["Dismiss"]).map((o, j) => `<button class="btn ${j === 0 ? "p" : ""}" data-need="${n.id}" data-bot="${n.bot_id}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}<a class="btn" href="#/bot/${n.bot_id}/computer">Watch it</a></div></div>`; }).join("") || `<p class="muted">Nothing here. Your bots are fine.</p>`}</section>
       <aside class="col" style="width:330px;flex-shrink:0">${this.tab === "decisions" ? `<div class="card panel"><b>Rules for every bot</b><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, reply, delete, submit forms, sign up, hand work to connectors</span></div><div class="rule"><b>Never</b><span>Buy or pay</span></div><div class="rule"><b>Passwords</b><span>You type them</span></div><span class="small muted">Change a bot’s rules by telling it, or in its Settings.</span></div>`
         : `<div class="card panel small"><b>How bots handle problems</b><span>1. Cheap fixes first: wait, find the button by its name.</span><span>2. Ask the model once, and only act when it’s sure.</span><span>3. Otherwise stop, tell you here and on your phone.</span><span>4. Keep the parts that still work running.</span></div>
         <div class="card"><b>Health</b>${health.map((h) => `<div class="between small"><span>${esc(h.name)}</span><span style="color:${h.ok ? "var(--green-t)" : h.info ? "var(--muted)" : "var(--coral-t)"}">● ${esc(h.detail)}</span></div>`).join("")}</div>`}</aside></div></div>`;
-    $$("[data-need]", this.el).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.need, x.dataset.o)));
+    $$("[data-need]", this.el).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.bot, +x.dataset.need, x.dataset.o)));
   },
 };
 

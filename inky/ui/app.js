@@ -276,18 +276,20 @@ document.addEventListener("click", (e) => {
 
 // ---------------------------------------------------------------- command bar (⌘K, Ctrl+K, Alt+Space)
 const CMD = { open: false, sel: 0, items: [] };
+function mention(q) {  // "@Flat Hunter check now" (full name, longest first) or "@flat check now" → {bot, text, named}
+  q = String(q || "").trim();
+  if (!q.startsWith("@")) return { bot: null, text: q, named: null };
+  const rest = q.slice(1), low = rest.toLowerCase();
+  const full = [...S.bots].sort((a, b) => b.name.length - a.name.length)
+    .find((b) => low === b.name.toLowerCase() || low.startsWith(b.name.toLowerCase() + " "));
+  if (full) return { bot: full, text: rest.slice(full.name.length).trim(), named: full.name };
+  const [w, ...more] = rest.split(/\s+/);
+  const byWord = w ? S.bots.filter((b) => b.name.toLowerCase().split(/\s+/)[0].startsWith(w.toLowerCase())) : [];
+  return { bot: byWord.length === 1 ? byWord[0] : null, text: more.join(" ").trim(), named: w || "", ambiguous: byWord.length > 1 };
+}
 function cmdItems(q) {
-  let text = q, target = null;
-  if (q.startsWith("@")) {  // "@Flat Checker check now" (full name) or "@flat check now" (start of its first word)
-    const rest = q.slice(1), low = rest.toLowerCase();
-    target = S.bots.find((b) => low === b.name.toLowerCase() || low.startsWith(b.name.toLowerCase() + " "));
-    if (target) text = rest.slice(target.name.length).trim();
-    else {
-      const [w, ...more] = rest.split(" ");
-      target = (w && S.bots.find((b) => b.name.toLowerCase().startsWith(w.toLowerCase()))) || null;
-      if (target) text = more.join(" ").trim();
-    }
-  }
+  const m = mention(q);
+  let text = m.bot ? m.text : q, target = m.bot;
   const items = [];
   const bots = target ? [target] : S.bots;
   bots.forEach((b) => items.push({ sec: "SEND TO", label: esc(b.name), lead: botCritter(b, 26), k: botMeta(b).meta,
