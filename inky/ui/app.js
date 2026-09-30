@@ -60,12 +60,15 @@ function toast(text, b) {
 
 // ---------------------------------------------------------------- life: what just happened drives each critter's mood
 const RECENT = (window.RECENT = {});
+let knockFor = null;
 function feel(m) {
   if (!m.bot) return;
-  const r = (RECENT[m.bot] = RECENT[m.bot] || {});
-  if (m.kind === "results" && m.new > 0) r.results = Date.now();
-  if (m.kind === "event" && m.ev === "learned") r.learned = Date.now();
+  const r = (RECENT[m.bot] = RECENT[m.bot] || {}), bot = S.bots.find((b) => b.id === m.bot);
+  if (m.kind === "results" && m.new > 0) { r.results = Date.now(); SOUND.play("plip", bot); }
+  if (m.kind === "event" && m.ev === "learned") { r.learned = Date.now(); SOUND.play("rise", bot); }
   if (m.kind === "event" && m.ev === "fixed") r.fixed = Date.now();
+  if (m.kind === "event" && m.ev === "replay" && /pass your rules|^Done in/.test(m.text || "")) SOUND.play("chime", bot);
+  if (m.kind === "needs") knockFor = bot;  // loadState knocks if the count went up
 }
 let moodKey = "";
 setInterval(() => {  // moods fade back to calm without any event
@@ -94,6 +97,8 @@ function listen() {
 
 async function loadState() {
   const st = await get("/api/state");
+  if (knockFor && S.settings && st.needs > S.needs) SOUND.play("knock", knockFor);
+  knockFor = null;
   Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done });
   renderNav();
 }

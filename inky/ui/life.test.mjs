@@ -39,3 +39,12 @@ test("blinks never sync", () => {
   a.concat(b).forEach((d) => assert.ok(d >= 3000 && d <= 7000));
   assert.notDeepEqual(a, b);
 });
+
+const { voiceOf } = require("./sound.js");
+test("each bot has a stable voice of its own", () => {
+  const a = { id: 1, look: { kind: "octopus", color: "#E9A23B" } }, b = { id: 2, look: { kind: "cat", color: "#7C6CF2" } };
+  assert.deepEqual(voiceOf(a), voiceOf({ ...a }));
+  assert.notEqual(voiceOf(a).base, voiceOf(b).base);
+  assert.ok(voiceOf(a).base >= 330 && voiceOf(a).base <= 880);
+  assert.equal(voiceOf(b).wave, "triangle");
+});

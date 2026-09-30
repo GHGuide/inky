@@ -440,7 +440,7 @@ def del_computer(E, h, q, body, cid):
 
 
 def settings_view(E):
-    d = {"setup_done": False, "engine_name": platform.node(), "notify_app": True, "screen_allowed": False}
+    d = {"setup_done": False, "engine_name": platform.node(), "notify_app": True, "screen_allowed": False, "sounds": True}
     d.update(E.store.setting("app", {}))
     d["data_folder"] = str(E.home)
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
