@@ -101,7 +101,7 @@ class WizardTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"TELEGRAM_API": f"http://127.0.0.1:{fake.server_port}"}):
             pg = self.page(1280, 820)
             pg.goto(self.url + "#/setup/5")
-            pg.fill("#tgtoken", "123:abc")
+            pg.fill("#tgtoken", "123456789:AAfakeTokenForTestsOnly_0123456")
             pg.click("#tgsave")
             pg.wait_for_function("document.querySelector('#tgmsg').textContent.includes('Found you')", timeout=15000)
         self.assertEqual(self.E.store.setting("telegram")["chat_id"], 4242)

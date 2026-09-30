@@ -219,7 +219,10 @@ class Computer:
 
     def _say(self, text):
         self.overlay_state.setdefault("chat", []).append({"role": "bot", "text": text})
-        return self.page.evaluate("t => window.__inky && window.__inky.say(t)", text)
+        try:
+            return self.page.evaluate("t => window.__inky && window.__inky.say(t)", text)
+        except Exception:
+            return None
 
     # ---- actions
     def _open(self, url):
@@ -245,8 +248,11 @@ class Computer:
             return
         speed = SPEED.get(self.look.get("speed", "normal"), 0.35)
         cx, cy = el["x"] + el["w"] * 0.6, el["y"] + el["h"] * 0.7
-        self.page.evaluate("([x,y,t,s]) => window.__inky && window.__inky.point(x,y,t,s)",
-                           [cx, cy, {k: el[k] for k in ("x", "y", "w", "h")}, step_text])
+        try:  # the overlay is decoration: a page that blocks it must never stop the step
+            self.page.evaluate("([x,y,t,s]) => window.__inky && window.__inky.point(x,y,t,s)",
+                               [cx, cy, {k: el[k] for k in ("x", "y", "w", "h")}, step_text])
+        except Exception:
+            pass
         if speed:
             self.page.wait_for_timeout(int(speed * 1000))
 

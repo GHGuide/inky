@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from pathlib import Path
 
 import httpx
@@ -30,9 +31,43 @@ DEFAULT_RULES = [{"kind": "own", "text": "Read, search, take notes"},
                  {"kind": "never", "text": "Buy or pay"}]
 CORAL = "#E86F51"
 
+
+def plain_error(e):
+    """What went wrong, in words: browser and network errors are long and technical."""
+    t = str(e)
+    if "Timeout" in type(e).__name__ or "Timeout " in t or "timed out" in t:
+        return "The page took too long to answer. The site may be slow or down right now; try again in a bit."
+    m = re.search(r"net::ERR_(\w+)", t)
+    if m:
+        why = {"NAME_NOT_RESOLVED": "that address doesn’t exist", "CONNECTION_REFUSED": "nothing answered there",
+               "INTERNET_DISCONNECTED": "this computer is offline", "ADDRESS_UNREACHABLE": "that address can’t be reached"}
+        return f"Couldn’t open the site: {why.get(m.group(1), m.group(1).replace('_', ' ').lower())}."
+    if "has been closed" in t:
+        return "Its browser closed while it was working. Try again."
+    if "invalid URL" in t:
+        return "It tried to open something that isn’t a web address."
+    return f"Something went wrong ({type(e).__name__}): {t.splitlines()[0][:200] if t else 'no details'}"
+
+
+def minutes(v):
+    """How often, in whole minutes (0 = only when you ask). Words a model might write are understood too."""
+    if isinstance(v, str):
+        t = v.lower()
+        if re.search(r"morning|daily|day|night|evening", t):
+            return 1440
+        if "hour" in t:
+            return 60
+        if "week" in t:
+            return 10080
+        v = re.sub(r"[^\d.]", "", t) or 0
+    try:
+        return max(0, min(int(float(v)), 525600))
+    except (TypeError, ValueError):
+        return 0
+
 DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON object:
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
- "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <how often to check: 1440 daily or "every morning", 60 hourly, 0 only when asked>, "summary_at": "<HH:MM or null>",
+ "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <a number of minutes: 1440 for daily or every morning, 60 for hourly, 0 for only when asked>, "summary_at": "<HH:MM or null>",
  "filters": [{"field": "<price|size|title|…>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
  "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}"""
@@ -198,16 +233,21 @@ class Engine:
         kind, color, acc = LOOKS[n % len(LOOKS)]
         d.setdefault("look", {"kind": kind, "color": color, "acc": acc})
         d["job"] = job
+        d["every_minutes"] = minutes(d.get("every_minutes"))
+        if d.get("start_url") and not skills.web_address(d["start_url"], ""):
+            d["start_url"] = None
         return d
 
     def create_bot(self, d):
+        if d.get("start_url"):
+            d = {**d, "start_url": skills.web_address(d["start_url"], "") or None}
         rules = list(DEFAULT_RULES) + [{"kind": "ask", "text": t} for t in d.get("ask_first") or []]
         rules += [{"kind": "filter", "text": f.get("text") or f"{f['field']} {f['op']} {f['value']}"} for f in d.get("filters") or []]
         look = {**DEFAULT_LOOK, **(d.get("look") or {})}
         bot = {"name": (d.get("name") or "New Bot").strip()[:40], "job": d.get("job") or d.get("summary") or "",
                "summary": d.get("summary") or "", "goal": d.get("goal") or d.get("job") or "", "start_url": d.get("start_url"),
                "look": look, "rules": rules, "filters": d.get("filters") or [], "memory": [], "automations": [],
-               "schedule": {"every_minutes": int(d.get("every_minutes") or 0), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
+               "schedule": {"every_minutes": minutes(d.get("every_minutes")), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
                             "quiet_from": "23:00", "quiet_to": "07:00"},
                "mode": "own", "computer": "local", "created": time.time(),
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
@@ -224,6 +264,13 @@ class Engine:
         patch = {k: v for k, v in patch.items() if k in allowed}
         if "look" in patch:
             patch["look"] = {**b.get("look", {}), **patch["look"]}
+        if "schedule" in patch:
+            patch["schedule"] = {**(b.get("schedule") or {}), **(patch["schedule"] or {})}
+            patch["schedule"]["every_minutes"] = minutes(patch["schedule"].get("every_minutes"))
+        if patch.get("start_url"):
+            patch["start_url"] = skills.web_address(patch["start_url"], "") or b.get("start_url")
+        if "name" in patch:
+            patch["name"] = (str(patch["name"]).strip() or b["name"])[:40]
         if "persona" in patch:
             kind = (patch.get("look") or b.get("look") or {}).get("kind", "octopus")
             patch["persona"] = persona_mod.normalize({**(b.get("persona") or {}), **patch["persona"]}, kind)
@@ -381,8 +428,18 @@ class Engine:
     def _follow_up(self, n, decision):
         """Answers to Problems (the run already ended)."""
         bid = n["bot_id"]
-        if decision in ("Try a smarter model",):
-            self.run(bid, n.get("skill_id"), repair_role="smart", reason="retry with a smarter model")
+        if decision in ("Try a smarter model", "Try again"):
+            smart = decision == "Try a smarter model"
+            try:
+                if n.get("skill_id"):
+                    self.run(bid, n["skill_id"], repair_role="smart" if smart else "repair", reason="you asked me to try again")
+                elif n.get("url"):  # learning never finished: learn again
+                    self.learn(bid, n.get("goal") or (self.store.get("bots", bid) or {}).get("goal"), n["url"])
+                else:
+                    self.run(bid, reason="you asked me to try again")
+            except (RuntimeError, ValueError) as e:
+                self.store.message(bid, "bot", f"I couldn’t try again: {e}.")
+                self.bus.publish("messages", bot=bid)
         elif decision in ("Show me once",):
             self.start_show(bid, n)
         elif decision in ("Open its computer",):
@@ -405,7 +462,9 @@ class Engine:
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
         sk = self.store.find("skills", bot_id=bid)
         hist = [m for m in reversed(self.store.find("messages", bot_id=bid, limit=12))]
-        status = self.bot_view(b)["status"] + (f" · {run.step}" if run and run.step else "")
+        saved = sum(1 for r in self.store.find("results", bot_id=bid, limit=2000) if r.get("passed") is not False)
+        status = self.bot_view(b)["status"] + (f" · {run.step}" if run and run.step else "") + \
+            ("" if saved else ". You have NO results yet: never say you found anything." + ("" if sk else " You haven’t learned a site yet."))
         last = next((r for r in self.store.find("runs", bot_id=bid, limit=5) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
         if last:
             status += (f". Last run {datetime.fromtimestamp(last['ts']).strftime('%a %H:%M')}: {last.get('items', 0)} results, "
@@ -583,15 +642,16 @@ class Engine:
         return run
 
     def learn(self, bid, goal, url):
+        url = skills.web_address(url, "")
         if not url:
-            raise ValueError("it needs a site to start on")
+            raise ValueError("it needs a web address to start on, like https://example.com")
         run = Run("learn")
         return self._start(bid, run, lambda: self._learn(bid, goal, url, run))
 
     def _learn(self, bid, goal, url, run):
         run.run_id = self.store.insert("runs", {"kind": "learn", "goal": goal, "url": url}, bot_id=bid, status="running")
         b = self.store.get("bots", bid)
-        self.store.message(bid, "bot", f"Learning {url.split('/')[2]} now, once. Watch if you like, and tell me if I pick something wrong.")
+        self.store.message(bid, "bot", f"Learning {urlparse(url).netloc or url} now, once. Watch if you like, and tell me if I pick something wrong.")
         self.bus.publish("messages", bot=bid)
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
@@ -617,7 +677,7 @@ class Engine:
             self.problem(bid, skills.NeedsHelp("no_model", "No model to learn with", str(e), ["Open Models"]))
             self._finish(run, "failed", note=str(e))
         except Exception as e:
-            self.problem(bid, skills.NeedsHelp("error", "Learning stopped", f"{type(e).__name__}: {str(e)[:300]}", ["Try again"]))
+            self.problem(bid, skills.NeedsHelp("error", "Learning stopped", plain_error(e), ["Try again", "Show me once"]), url=url, goal=goal)
             self._finish(run, "failed", note=str(e)[:300])
         finally:
             self.store.update("bots", bid, last_run=time.time())
@@ -708,7 +768,7 @@ class Engine:
             self.problem(bid, skills.NeedsHelp("no_model", "A step needs a fix, but there’s no model", str(e), ["Open Models"]), skill_id=sid)
             self._finish(run, "failed", note=str(e))
         except Exception as e:
-            self.problem(bid, skills.NeedsHelp("error", f"“{skill['name']}” stopped", f"{type(e).__name__}: {str(e)[:300]}", ["Try again"]), skill_id=sid)
+            self.problem(bid, skills.NeedsHelp("error", f"“{skill['name']}” stopped", plain_error(e), ["Try again"]), skill_id=sid)
             self._finish(run, "failed", note=str(e)[:300])
         finally:
             self.store.update("bots", bid, last_run=time.time())

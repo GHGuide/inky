@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from inky import connect, connectors, health, insights, library, transfer
-from inky.llm import PROVIDERS, ROLES, fits
+from inky.llm import PROVIDERS, ROLES, fits, plain as llm_plain
 from inky.mcp import PRESETS
 
 UI = Path(__file__).parent / "ui"
@@ -204,7 +204,10 @@ def export(E, h, q, body, bid):
 
 @route("POST", "/api/import")
 def import_(E, h, q, body):
-    bid = transfer.import_bot(E, body)
+    try:
+        bid = transfer.import_bot(E, body)
+    except ValueError as e:
+        raise HTTPError(400, str(e))
     return {"bot": E.bot_view(E.store.get("bots", bid))}
 
 
@@ -293,10 +296,14 @@ def models(E, h, q, body):
 
 @route("POST", "/api/models/role")
 def set_role(E, h, q, body):
-    if body.get("provider") not in PROVIDERS or body.get("role") not in ROLES:
+    prov, model = body.get("provider"), (body.get("model") or "").strip()
+    if prov not in PROVIDERS or body.get("role") not in ROLES:
         raise HTTPError(400, "unknown provider or role")
-    E.llm.set_role(body["role"], body["provider"], body.get("model", "").strip())
-    return {"roles": E.llm.roles()}
+    if not model:
+        raise HTTPError(400, "Pick or type a model name first.")
+    E.llm.set_role(body["role"], prov, model)
+    warn = None if PROVIDERS[prov].get("local") or E.keys.get(prov) else f"There’s no {PROVIDERS[prov]['label']} key yet, so this role won’t work until you add one in API keys."
+    return {"roles": E.llm.roles(), "warning": warn}
 
 
 @route("GET", "/api/models/local")
@@ -323,26 +330,37 @@ def local(E, h, q, body):
 def pull(E, h, q, body):
     name = body["name"]
 
+    last = {"t": 0, "status": None}
+
+    def save(st):
+        pulls = E.store.setting("pulls", {}) or {}
+        pulls[name] = st
+        E.store.set_setting("pulls", pulls)
+        E.bus.publish("pull", name=name, **st)
+
     def go():
-        def prog(p):
-            pulls = E.store.setting("pulls", {})
-            pulls[name] = {"status": p.get("status"), "completed": p.get("completed"), "total": p.get("total")}
-            E.store.set_setting("pulls", pulls)
-            E.bus.publish("pull", name=name, **pulls[name])
+        def prog(p):  # Ollama sends many lines a second: pass on a change of step, or twice a second
+            st = {"status": p.get("status"), "completed": p.get("completed"), "total": p.get("total")}
+            if st["status"] != last["status"] or time.time() - last["t"] > 0.5 or st["status"] == "success":
+                last.update(t=time.time(), status=st["status"])
+                save(st)
         try:
             E.llm.pull(name, prog)
         except Exception as e:
-            E.bus.publish("pull", name=name, status=f"failed: {e}")
+            save({"status": f"failed: {llm_plain(e, 'Ollama')}"})
     threading.Thread(target=go, daemon=True).start()
     return {"ok": True}
 
 
 @route("POST", "/api/models/test")
 def test_model(E, h, q, body):
+    prov = body.get("provider")
+    if prov not in PROVIDERS or not (body.get("model") or "").strip():
+        return {"ok": False, "reply": "Pick a provider and a model first."}
     try:
-        return E.llm.test(body["provider"], body["model"])
+        return E.llm.test(prov, body["model"].strip())
     except Exception as e:
-        return {"ok": False, "reply": str(e)[:200]}
+        return {"ok": False, "reply": llm_plain(e, PROVIDERS[prov]["label"])}
 
 
 @route("POST", "/api/models/connect")
@@ -351,18 +369,21 @@ def connect_model(E, h, q, body):
     prov = body.get("provider")
     if prov not in PROVIDERS:
         raise HTTPError(400, "unknown provider")
+    label = PROVIDERS[prov]["label"]
     try:
         model = body.get("model") or E.llm.pick_model(prov)
         if not model:
             return {"ok": False, "reply": "No models found. Download one first." if prov == "ollama" else "This key has no chat models."}
         res = E.llm.test(prov, model)
     except Exception as e:
-        msg = str(e)
-        if " 401" in msg or " 403" in msg:
-            msg = "That key was refused. Check you copied all of it."
-        return {"ok": False, "reply": msg[:200]}
-    if res["ok"]:
-        E.llm.remember_default(prov, model)
+        msg = llm_plain(e, label)
+        if msg.startswith("That key was refused") and E.keys.stored(prov):  # a refused key is not kept
+            E.keys.delete(prov)
+            msg += " It wasn’t saved."
+        return {"ok": False, "reply": msg}
+    if not res["ok"]:
+        return {**res, "model": model, "reply": f"{model} answered, but not as expected: “{res['reply']}”"}
+    E.llm.remember_default(prov, model)
     return {**res, "model": model}
 
 
@@ -373,35 +394,72 @@ def start_local(E, h, q, body):
 
 @route("POST", "/api/models/custom")
 def custom(E, h, q, body):
-    E.store.set_setting("custom_provider", {"base": body["base"].strip()})
-    return {"ok": True}
+    base = (body.get("base") or "").strip().rstrip("/")
+    if base and "://" not in base:
+        base = "http://" + base
+    if not re.match(r"^https?://[^\s/]+(/\S*)?$", base):
+        raise HTTPError(400, "That isn’t a server address. It looks like http://127.0.0.1:1234/v1")
+    E.store.set_setting("custom_provider", {"base": base})
+    return {"ok": True, "base": base, "reachable": E.llm.local_status()["custom"]["reachable"]}
 
 
 @route("GET", "/api/keys")
 def keys(E, h, q, body):
-    spend = E.store.setting("key_limits", {})
-    return {"keys": [{"provider": p["name"], "label": p["label"], "source": p["key"], "limit": spend.get(p["name"])}
-                     for p in E.llm.providers() if not p["local"] or p["name"] == "custom"] +
-                    [{"provider": "telegram", "label": "Telegram bot", "source": E.keys.source("telegram")}],
+    lims, errs = E.store.setting("key_limits", {}) or {}, E.store.setting("provider_errors", {}) or {}
+    rows = [{"provider": p["name"], "label": p["label"], "source": p["key"], "limit": lims.get(p["name"]),
+             "spent": round(E.llm.spent(p["name"]), 2), "error": (errs.get(p["name"]) or {}).get("status")}
+            for p in E.llm.providers() if not p["local"]]
+    custom = next(p for p in E.llm.providers() if p["name"] == "custom")
+    return {"keys": rows + [{"provider": "custom", "label": "Your own server (optional key)", "source": custom["key"]},
+                            {"provider": "telegram", "label": "Telegram bot", "source": E.keys.source("telegram")}],
             "backend": E.keys.backend}
 
 
 @route("POST", "/api/keys")
 def set_key(E, h, q, body):
-    prov = body.get("provider")
+    prov, key = body.get("provider"), (body.get("key") or "").strip()
     if prov not in PROVIDERS and prov != "telegram":
         raise HTTPError(400, "unknown provider")
-    E.keys.set(prov, body.get("key", ""))
-    if body.get("limit") is not None:
-        lim = E.store.setting("key_limits", {})
-        lim[prov] = body["limit"]
-        E.store.set_setting("key_limits", lim)
+    if "limit" in body:  # a monthly limit can be set, changed or cleared on its own
+        lim = body["limit"]
+        lims = E.store.setting("key_limits", {}) or {}
+        if lim in (None, ""):
+            lims.pop(prov, None)
+        else:
+            try:
+                lim = float(lim)
+            except (TypeError, ValueError):
+                raise HTTPError(400, "The limit must be a number of dollars.")
+            if lim < 0:
+                raise HTTPError(400, "The limit can’t be below zero.")
+            lims[prov] = lim
+        E.store.set_setting("key_limits", lims)
+    if not key:
+        if "limit" in body:
+            return {"ok": True, "source": E.keys.source(prov)}
+        raise HTTPError(400, "Paste a key first.")
+    if prov == "telegram":  # same check as Connectors: Telegram must know the token
+        r = connectors.PROVIDERS["telegram"].save(E, {"token": key})
+        if not r["ok"]:
+            raise HTTPError(400, r["text"])
+    else:
+        try:
+            E.keys.set(prov, key)
+        except (ValueError, RuntimeError) as e:
+            raise HTTPError(400, str(e)[:1].upper() + str(e)[1:] + ".")
+        errs = E.store.setting("provider_errors", {}) or {}
+        if errs.pop(prov, None):
+            E.store.set_setting("provider_errors", errs)
     return {"ok": True, "source": E.keys.source(prov)}
 
 
 @route("DELETE", r"/api/keys/(\w+)")
 def del_key(E, h, q, body, prov):
     E.keys.delete(prov)
+    for name in ("provider_errors", "key_limits"):  # nothing stale left behind
+        d = E.store.setting(name, {}) or {}
+        if d.pop(prov, None) is not None:
+            E.store.set_setting(name, d)
     return {"ok": True, "source": E.keys.source(prov)}
 
 
@@ -413,18 +471,28 @@ def mcp(E, h, q, body):
 
 @route("POST", "/api/mcp")
 def mcp_save(E, h, q, body):
-    name = re.sub(r"[^a-z0-9-]", "-", (body.get("name") or "").lower()).strip("-")
+    import shlex
+    name = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]", "-", (body.get("name") or "").lower())).strip("-")[:40]
     if not name:
-        raise HTTPError(400, "a name is needed")
+        raise HTTPError(400, "Give it a name, like github.")
+    if name in PRESETS or name in connectors.PROVIDERS or name == "inky":
+        raise HTTPError(400, f"“{name}” is already a built-in connector. Pick another name.")
     cmd = body.get("command")
     if isinstance(cmd, str):
-        cmd = cmd.split()
-    E.mcp.save(name, command=cmd, enabled=body.get("enabled", True), label=body.get("label"), env=body.get("env"))
-    return {"servers": E.mcp.servers()}
+        try:
+            cmd = shlex.split(cmd)
+        except ValueError:
+            raise HTTPError(400, "The command has an unclosed quote.")
+    if not cmd:
+        raise HTTPError(400, "Put in the command that starts it, like npx -y @modelcontextprotocol/server-github.")
+    E.mcp.save(name, command=cmd, enabled=body.get("enabled", True), label=(body.get("label") or "").strip() or name, env=body.get("env"))
+    return {"name": name, "servers": E.mcp.servers()}
 
 
 @route("POST", r"/api/mcp/([\w-]+)/connect")
 def mcp_connect(E, h, q, body, name):
+    if not E.mcp.known(name):
+        raise HTTPError(404, f"There’s no connector called {name}.")
     E.mcp.save(name, enabled=True)
     tools = E.mcp.tools(name)
     return {"tools": [{"name": t["name"], "description": (t.get("description") or "")[:300],
@@ -447,9 +515,18 @@ def mcp_call(E, h, q, body, name):
 
 @route("DELETE", r"/api/mcp/([\w-]+)")
 def mcp_remove(E, h, q, body, name):
-    if name in PRESETS:
-        raise HTTPError(400, "built-in connectors can only be turned off")
+    if name in PRESETS:  # a built-in goes back to how it came
+        E.mcp.remove(name)
+        return {"ok": True, "reset": True}
     E.mcp.remove(name)
+    return {"ok": True}
+
+
+@route("DELETE", r"/api/connectors/(telegram|n8n|apify)")
+def connector_forget(E, h, q, body, name):
+    """Disconnect a built-in service: its key and settings are removed from this computer."""
+    E.keys.delete(name)
+    E.store.set_setting(name, {"enabled": False} if name == "telegram" else {})
     return {"ok": True}
 
 
@@ -657,6 +734,7 @@ def settings_view(E):
     d["data_folder"] = str(E.home)
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
     d["n8n_connected"] = connectors.PROVIDERS["n8n"].configured(E)
+    d["web_url"] = lan_url(E)
     return d
 
 
@@ -667,6 +745,8 @@ def settings(E, h, q, body):
 
 @route("POST", "/api/settings")
 def save_settings(E, h, q, body):
+    if "lan" in body:
+        lan_access(E, bool(body.pop("lan")))
     app = E.store.setting("app", {})
     tg = body.pop("telegram", None)
     app.update(body)
@@ -694,7 +774,7 @@ def setup(E, h, q, body):
             "keys": {p["name"]: p["key"] for p in E.llm.providers() if not p["local"]}, "roles": E.llm.roles(),
             "claude": bool(shutil.which("claude")), "codex": bool(shutil.which("codex")),
             "telegram": E.store.setting("telegram", {"enabled": False}), "telegram_key": E.keys.source("telegram"),
-            "pair_code": transfer.pair_code(E.token), "install": f"curl -fsSL {connect.INSTALL_URL} | sh"}
+            "pair_code": transfer.pair_code(E.token), "install": f"curl -fsSL {connect.INSTALL_URL} | sh", "web_url": lan_url(E)}
 
 
 @route("POST", "/api/telegram/test")
@@ -883,4 +963,42 @@ def serve(engine, host="127.0.0.1", port=8800):
     srv = ThreadingHTTPServer((host, port), type("EngineHandler", (Handler,), {"engine": engine}))
     srv.daemon_threads = True
     engine.port = srv.server_port  # connectors that call back into Inky (n8n) need it
+    engine.host = host
     return srv
+
+
+def lan_access(E, on):
+    """Let phones and other computers on your Wi-Fi open Inky (they sign in with the pairing code). The engine
+    keeps its own address; this adds a second one on your network, and tells the network it's there."""
+    from inky import __version__
+    srv = getattr(E, "lan_srv", None)
+    if on and not srv and getattr(E, "host", "") not in ("0.0.0.0", "::", ""):
+        for port in ((E.port or 8800) + 1, 0):
+            try:
+                srv = ThreadingHTTPServer(("0.0.0.0", port), type("EngineHandler", (Handler,), {"engine": E}))
+                break
+            except OSError:
+                srv = None
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True, name="lan").start()
+        E.lan_srv = srv
+        E.lan_beacon = connect.start_beacon(lambda: E.store.setting("engine_name", platform.node()), srv.server_port, __version__)
+    elif not on and srv:
+        E.lan_beacon.set()
+        srv.shutdown()
+        srv.server_close()
+        E.lan_srv = None
+    app = E.store.setting("app", {}) or {}
+    E.store.set_setting("app", {**app, "lan": bool(on)})
+    return lan_url(E)
+
+
+def lan_url(E):
+    if getattr(E, "lan_srv", None):
+        port = E.lan_srv.server_port
+    elif getattr(E, "host", "") in ("0.0.0.0", "::", ""):
+        port = E.port
+    else:
+        return None
+    ip = connect.lan_ip()
+    return f"http://{ip}:{port}" if ip else None

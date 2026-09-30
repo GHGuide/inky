@@ -125,7 +125,7 @@ class ConnectorTest(unittest.TestCase):
     def test_telegram_finds_your_chat_and_sends(self):
         E = make_env()
         tg = connectors.PROVIDERS["telegram"]
-        self.assertEqual(tg.save(E, {"token": "123:abc"})["bot"], "inky_test_bot")
+        self.assertEqual(tg.save(E, {"token": "123456789:AAfakeTokenForTestsOnly_0123456"})["bot"], "inky_test_bot")
         self.assertEqual(tg.find_chat(E), 4242)  # the chat that sent /start
         self.assertEqual(E.store.setting("telegram")["chat_id"], 4242)
         r = tg.test(E)

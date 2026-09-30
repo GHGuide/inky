@@ -44,6 +44,12 @@ def parse_pair_link(link):
 
 def pair_and_save(E, url, code):
     token, name = transfer.pair(url, code)
+    if token == getattr(E, "token", None):
+        raise ValueError("That’s this computer. Pair another one.")
+    for c in E.store.find("computers"):
+        if c.get("token") == token:  # the same server again (maybe by another address): refresh it
+            E.store.update("computers", c["id"], url=url.rstrip("/"), name=name)
+            return c["id"]
     return E.store.insert("computers", {"name": name, "url": url.rstrip("/"), "token": token})
 
 
@@ -214,17 +220,25 @@ class Listener:
 
 def start_beacon(name_fn, port, version):
     """An engine that listens on your network says so every 5 s. No code, no token: pairing still needs the code.
-    ponytail: a Docker install's beacon stays inside Docker's network; the SSH setup and pair link cover those."""
+    Returns an Event: set it to stop. ponytail: a Docker install's beacon stays inside Docker's network;
+    the SSH setup and pair link cover those."""
+    stop = threading.Event()
+
     def loop():
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        while True:
+        while not stop.is_set():
             try:
                 s.sendto(beacon_packet(name_fn(), port, version), ("255.255.255.255", BEACON_PORT))
             except OSError:
                 pass
-            time.sleep(5)
+            stop.wait(5)
     threading.Thread(target=loop, daemon=True, name="lan-beacon").start()
+    return stop
+
+
+def lan_ip():
+    return next((ip for ip in local_ips() if not ip.startswith("127.")), None)
 
 
 # ---------------------------------------------------------------- Tailscale

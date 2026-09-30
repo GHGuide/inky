@@ -33,9 +33,18 @@ def export_bot(engine, bid, private=False):
 
 
 def import_bot(engine, bundle):
-    if bundle.get("bundle") != BUNDLE:
-        raise ValueError("not an Inky bot bundle")
-    bot = dict(bundle["bot"], computer="local", pending_cookies=bundle.get("cookies") or None, remote=None, remote_id=None)
+    if not isinstance(bundle, dict) or bundle.get("bundle") != BUNDLE or not isinstance(bundle.get("bot"), dict):
+        if isinstance(bundle, dict) and bundle.get("inky_skill"):
+            raise ValueError("That’s a skill file. Open a bot, then Skills → Import, to add it there.")
+        raise ValueError("That isn’t an Inky bot file.")
+    if not isinstance(bundle.get("skills", []), list):
+        raise ValueError("That bot file is damaged (its skills aren’t a list).")
+    names = {b["name"] for b in engine.store.find("bots")}
+    name = (str(bundle["bot"].get("name") or "Imported bot").strip() or "Imported bot")[:40]
+    base, n = name, 2
+    while name in names:  # importing the same file twice gives "Name 2", not two identical bots
+        name, n = f"{base[:36]} {n}", n + 1
+    bot = dict(bundle["bot"], name=name, computer="local", pending_cookies=bundle.get("cookies") or None, remote=None, remote_id=None)
     bid = engine.store.insert("bots", bot, status="idle")
     for s in bundle.get("skills", []):
         engine.store.insert("skills", s, bot_id=bid, status="ok")
@@ -63,9 +72,17 @@ class Remote:
 
 
 def pair(url, code):
-    r = httpx.post(url.rstrip("/") + "/api/pair", json={"code": code.strip().upper()}, timeout=15)
+    url = url.rstrip("/")
+    try:  # is it an Inky at all?
+        ping = httpx.get(url + "/api/ping", timeout=8).json()
+        assert ping.get("ok")
+    except (ValueError, AssertionError, AttributeError):
+        raise ValueError(f"{url} answered, but it isn’t an Inky.")
+    r = httpx.post(url + "/api/pair", json={"code": (code or "").strip().upper()}, timeout=15)
+    if r.status_code == 429:
+        raise ValueError("Too many tries. Wait a minute, then type the code again.")
     if r.status_code != 200:
-        raise ValueError("that code didn’t match")
+        raise ValueError("That code didn’t match. It’s the 6 letters and numbers that server shows.")
     info = r.json()
     return info["token"], info.get("name") or url
 

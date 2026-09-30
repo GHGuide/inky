@@ -47,6 +47,12 @@ def main():
     print(f"Inky is running at {url}")
     print(f"Pairing code for other computers: {pair_code(engine.token)}", flush=True)
     write_engine_file(home, url, os.getpid())
+    if (engine.store.setting("app", {}) or {}).get("lan"):  # you let your phone open Inky last time
+        from inky.server import lan_access
+        try:
+            lan_access(engine, True)
+        except Exception:
+            pass
     if a.host in ("0.0.0.0", "::", ""):  # reachable from your network: say so, so the app there finds it
         from inky import __version__
         from inky.connect import start_beacon

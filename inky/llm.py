@@ -49,6 +49,31 @@ class NoModel(RuntimeError):
     pass
 
 
+def plain(e, label="The provider"):
+    """A model call's error in words."""
+    if isinstance(e, NoModel):
+        return str(e)
+    if isinstance(e, httpx.HTTPStatusError):
+        code = e.response.status_code
+        if code in (400, 401, 403):
+            body = e.response.text.lower()
+            if code == 400 and "model" in body and "key" not in body:
+                return f"{label} doesn’t have that model."
+            return "That key was refused. Check you copied all of it."
+        if code == 404:
+            return f"{label} doesn’t have that model."
+        if code == 429:
+            return f"{label} says too many requests, or the account is out of credit."
+        if code >= 500:
+            return f"{label} had a problem answering ({code}). If it’s a local model, it may not be a chat model."
+        return f"{label} answered {code}."
+    if isinstance(e, httpx.ConnectError):
+        return f"Couldn’t reach {label}. Is it running?"
+    if isinstance(e, httpx.TimeoutException):
+        return f"{label} took too long to answer."
+    return str(e)[:200]
+
+
 def parse_json(text):
     """Pull the first JSON object out of a model reply (handles ```json fences and chatter)."""
     if text is None:
@@ -99,19 +124,27 @@ class LLM:
         d = self.store.setting("default_model") or {}
         if d.get("provider") in PROVIDERS and (PROVIDERS[d["provider"]].get("local") or self.keys.get(d["provider"])):
             return {r: {"provider": d["provider"], "model": d["model"]} for r in ROLES}
+        local = sorted((m["name"] for m in self.local_models()),
+                       key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))
+        if local:  # free and private; a key only takes over once you connect it (Models, API keys or setup)
+            return {r: {"provider": "ollama", "model": local[0]} for r in ROLES}
         if self.keys.get("openrouter"):
             m = os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
             roles = {r: {"provider": "openrouter", "model": m} for r in ROLES}
-        if roles:  # you have a key: keep using it until you pick a local model in Models
-            return roles
-        local = sorted((m["name"] for m in self.local_models()),
-                       key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))
-        if local:
-            roles = {r: {"provider": "ollama", "model": local[0]} for r in ROLES}
         return roles
 
     def remember_default(self, provider, model):
+        """Connecting a model makes it the one every role uses (you can still pick per role in Models)."""
         self.store.set_setting("default_model", {"provider": provider, "model": model})
+        self.store.set_setting("roles", {r: {"provider": provider, "model": model} for r in ROLES})
+
+    def over_limit(self, provider):
+        lim = (self.store.setting("key_limits", {}) or {}).get(provider)
+        spent = self.spent(provider)
+        return lim is not None and spent >= float(lim), spent, lim
+
+    def spent(self, provider):
+        return float(((self.store.setting("spend", {}) or {}).get(time.strftime("%Y-%m")) or {}).get(provider, 0.0))
 
     def list_models(self, provider):
         """Ask a provider which models it has (every provider here serves GET /models)."""
@@ -170,6 +203,9 @@ class LLM:
         key = self.keys.get(provider)
         if not p.get("local") and not key:
             raise NoModel(f"No key for {p['label']}. Paste one in API keys.")
+        over, spent, lim = self.over_limit(provider)
+        if over:
+            raise NoModel(f"{p['label']} reached your monthly limit (${spent:.2f} of ${float(lim):.2f}). Raise it in API keys.")
         t0 = time.time()
         if p.get("kind") == "anthropic":
             system = "\n".join(m["content"] for m in messages if m["role"] == "system")
@@ -201,6 +237,11 @@ class LLM:
             usage = {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0), "cost": u.get("cost")}
         usage.update(provider=provider, model=model, role=role, seconds=round(time.time() - t0, 2),
                      local=bool(p.get("local")))
+        if usage.get("cost"):  # only OpenRouter reports what a call cost; that is what monthly limits count
+            spend = self.store.setting("spend", {}) or {}
+            month = spend.setdefault(time.strftime("%Y-%m"), {})
+            month[provider] = month.get(provider, 0.0) + float(usage["cost"])
+            self.store.set_setting("spend", dict(list(spend.items())[-13:]))
         if self.on_usage:
             self.on_usage(bot_id, usage)
         return text, usage

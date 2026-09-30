@@ -3,6 +3,7 @@
 let TOKEN = document.querySelector('meta[name="inky-token"]').content;
 if (!TOKEN || TOKEN.startsWith("__")) { try { TOKEN = localStorage.getItem("inkyToken") || ""; } catch (e) { TOKEN = ""; } }
 const $ = (s, el = document) => el.querySelector(s);
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const S = { bots: [], needs: 0, settings: {}, route: "", view: null, pair: "" };
@@ -120,8 +121,15 @@ let moodKey = "";
 setInterval(() => {  // moods fade back to calm without any event
   const k = S.bots.map((b) => moodOf(b, RECENT)).join();
   if (k === moodKey) return;
-  moodKey = k; renderNav(); if (S.view && S.view.refresh && !BAR && !BUDDY) S.view.refresh();
+  moodKey = k; renderNav(); if (canRefresh()) S.view.refresh();
 }, 30e3);
+function canRefresh() {  // never redraw a page under your hands: form pages opt out (live:false), and nothing redraws while you type
+  const v = S.view;
+  if (!v || !v.refresh || v.live === false || BAR || BUDDY) return false;
+  if (v.live === true) return true;  // the page keeps its own inputs across a redraw
+  const a = document.activeElement;
+  return !(a && a.closest && a.closest("#view") && /INPUT|TEXTAREA|SELECT/.test(a.tagName));
+}
 
 // ---------------------------------------------------------------- away time, for "While you were away"
 const seenKey = "inkyLastSeen";
@@ -140,7 +148,7 @@ addEventListener("pagehide", markSeen);
 let refreshTimer = null;
 function refreshSoon(ms = 250) {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(async () => { await loadState(); if (S.view && S.view.refresh) S.view.refresh(); }, ms);
+  refreshTimer = setTimeout(async () => { await loadState(); if (canRefresh()) S.view.refresh(); }, ms);
 }
 function listen() {
   const es = new EventSource(`/api/events?t=${encodeURIComponent(TOKEN)}`);
@@ -303,17 +311,18 @@ function renderCmd() {
   let sec = "";
   $("#cmdlist").innerHTML = CMD.items.map((it, i) => {
     const head = it.sec !== sec ? `<div class="sec">${(sec = it.sec)}</div>` : "";
-    return `${head}<div class="it${i === CMD.sel ? " on" : ""}" data-i="${i}">${it.lead}<span>${it.label}</span><span class="k">${esc(it.k || "")}</span></div>`;
+    return `${head}<div class="it${i === CMD.sel ? " on" : ""}" data-i="${i}" role="option" aria-selected="${i === CMD.sel}">${it.lead}<span>${it.label}</span><span class="k">${esc(it.k || "")}</span></div>`;
   }).join("");
   $$("#cmdlist .it").forEach((el) => el.addEventListener("click", () => { CMD.sel = +el.dataset.i; runCmd(); }));
+  const on = $("#cmdlist .it.on"); if (on) on.scrollIntoView({ block: "nearest" });
 }
 function openCmd(prefill = "") {
   CMD.open = true;
   const c = $("#cmd");
   c.classList.remove("hidden");
-  c.innerHTML = `<div class="cmdbox"><div class="in"><b>›</b><label class="vh" for="cmdq">Ask a bot or describe a job</label><input id="cmdq" placeholder="Ask a bot (@name) or describe a new job…" autocomplete="off" value="${esc(prefill)}"><span class="mono small" style="color:#8E8A83">⌥ Space</span></div>
-    <div id="cmdlist" style="border-top:1px solid rgba(255,255,255,.08);padding-bottom:8px"></div>
-    <div class="foot"><span>↵ send · ⌘ ↵ new bot · ↑↓ choose</span><span>esc close</span></div></div>`;
+  c.innerHTML = `<div class="cmdbox"><div class="in"><b>›</b><label class="vh" for="cmdq">Ask a bot or describe a job</label><input id="cmdq" placeholder="Ask a bot (@name) or describe a new job…" autocomplete="off" value="${esc(prefill)}" role="combobox" aria-controls="cmdlist" aria-expanded="true"><span class="mono small" style="color:#8E8A83">${MAC ? (BAR ? "⌥ Space" : "⌘ K") : BAR ? "Alt Space" : "Ctrl K"}</span></div>
+    <div id="cmdlist" role="listbox" aria-label="Suggestions"></div>
+    <div class="foot"><span>↵ send · ${MAC ? "⌘" : "Ctrl"} ↵ new bot · ↑↓ choose</span><span>esc close</span></div></div>`;
   c.onclick = (e) => { if (e.target === c) closeCmd(); };
   const inp = $("#cmdq");
   inp.addEventListener("input", () => { CMD.sel = 0; renderCmd(); });
@@ -322,6 +331,7 @@ function openCmd(prefill = "") {
     else if (e.key === "ArrowUp") { CMD.sel = (CMD.sel - 1 + CMD.items.length) % CMD.items.length; renderCmd(); e.preventDefault(); }
     else if (e.key === "Enter") { if (e.metaKey || e.ctrlKey) CMD.sel = CMD.items.findIndex((x) => x.sec === "OR"); runCmd(); e.preventDefault(); }
     else if (e.key === "Escape") closeCmd();
+    else if (e.key === "Tab") { CMD.sel = (CMD.sel + (e.shiftKey ? CMD.items.length - 1 : 1)) % CMD.items.length; renderCmd(); e.preventDefault(); }
   });
   renderCmd();
   inp.focus();
@@ -341,21 +351,36 @@ document.addEventListener("keydown", (e) => {
   else if (e.code === "KeyP" && e.altKey && !inField) { e.preventDefault(); pauseAll(); }
   else if (e.key === "Escape" && CMD.open) closeCmd();
   else if (e.key === "Escape" && !$("#modal").classList.contains("hidden")) closeModal();
+  else if (e.key === "Tab" && !$("#modal").classList.contains("hidden")) trapTab($("#modal"), e);
 });
 
-function modal(html, onmount) {
+let modalReturn = null;
+function modal(html, onmount, onclose) {  // onclose: runs however it closes (a button, Esc, a click outside)
   const m = $("#modal");
+  if (m.classList.contains("hidden")) modalReturn = document.activeElement;
   m.classList.remove("hidden");
   m.innerHTML = `<div class="box">${html}</div>`;
+  const h = $("h2", m);
+  if (h) { h.id = "modalh"; m.setAttribute("aria-labelledby", "modalh"); } else m.removeAttribute("aria-labelledby");
+  m._onclose = onclose;
   m.onclick = (e) => { if (e.target === m) closeModal(); };
   if (onmount) onmount(m);
+  const first = m.querySelector("input:not([type=hidden]):not([readonly]),textarea,select") || m.querySelector("button,a[href]");
+  if (first) requestAnimationFrame(() => first.focus());
+}
+function trapTab(root, e) {  // Tab stays inside a dialog
+  const f = [...root.querySelectorAll("button:not([disabled]),a[href],input:not([disabled]),textarea,select,summary,[tabindex]:not([tabindex='-1'])")].filter((x) => x.offsetParent);
+  if (!f.length) return;
+  const i = f.indexOf(document.activeElement);
+  if (e.shiftKey && i <= 0) { f[f.length - 1].focus(); e.preventDefault(); }
+  else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { f[0].focus(); e.preventDefault(); }
 }
 function confirmBox(text, ok = "OK", danger = false, detail = "") {  // detail: the exact change, shown as code
   return new Promise((res) => {
     modal(`<h2>${esc(text)}</h2>${detail ? `<pre class="code" style="max-height:40vh;overflow:auto">${esc(detail)}</pre>` : ""}<div class="row" style="justify-content:flex-end"><button class="btn" id="cno">Cancel</button><button class="btn ${danger ? "hot" : "p"}" id="cyes">${esc(ok)}</button></div>`, () => {
-      $("#cno").onclick = () => { closeModal(); res(false); };
-      $("#cyes").onclick = () => { closeModal(); res(true); };
-    });
+      $("#cno").onclick = () => closeModal();
+      $("#cyes").onclick = () => { res(true); closeModal(); };
+    }, () => res(false));
   });
 }
 window.handleLink = async (link) => {  // inky:// links the desktop app hands over (from install.sh, a browser, a friend)
@@ -370,7 +395,15 @@ window.handleLink = async (link) => {  // inky:// links the desktop app hands ov
   if (u.host === "install") return getAgent(u.searchParams.get("url"));
   toast("Inky can’t open that link.");
 };
-function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
+function closeModal() {
+  const m = $("#modal");
+  if (m.classList.contains("hidden")) return;
+  m.classList.add("hidden"); m.innerHTML = "";
+  const cb = m._onclose; m._onclose = null;
+  if (cb) cb();
+  if (modalReturn && modalReturn.focus && document.contains(modalReturn)) modalReturn.focus();
+  modalReturn = null;
+}
 
 function getBrowser() {  // first launch of the app: the bots' browser downloads once (~170 MB)
   $("#app").classList.add("bare"); $("#nav").style.display = "none";

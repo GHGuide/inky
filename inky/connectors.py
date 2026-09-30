@@ -4,6 +4,7 @@ offer tools shaped like an MCP server's, so delegate, automations and the approv
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -89,6 +90,8 @@ def status(E):
                     v.update(detail="Signed out.", fix="Open a terminal, run codex login and sign in.")
         elif not s["installed"]:
             v.update(detail=f"“{s['command'][0]}” isn’t on this computer.", fix="Install it, or check the command.")
+        if s.get("error") and not s["connected"]:
+            v.update(detail=f"Last try: {s['error']}", fix=v["fix"] or "Check the command and its settings, then Connect again.")
         out.append(v)
     out += [p.view(E) for p in PROVIDERS.values()]
     return out
@@ -98,6 +101,8 @@ def test(E, name):
     """A real check: list an MCP server's tools, or ask a built-in service who you are."""
     if name in PROVIDERS:
         return PROVIDERS[name].test(E)
+    if not E.mcp.known(name):
+        return {"ok": False, "text": f"There’s no connector called {name}."}
     try:
         E.mcp.save(name, enabled=True)
         tools = E.mcp.tools(name)
@@ -157,6 +162,10 @@ class Telegram(Provider):
 
     def save(self, E, values):
         token = (values.get("token") or "").strip()
+        if not token:
+            return {"ok": False, "text": "Paste the token from @BotFather first."}
+        if not re.match(r"^\d{5,}:[\w-]{20,}$", token):
+            return {"ok": False, "text": "That doesn’t look like a bot token. It looks like 123456789:AA… and comes from @BotFather."}
         try:
             r = httpx.get(self.api(token, "getMe"), timeout=15).json()
         except Exception as e:
@@ -327,6 +336,8 @@ class Apify(Provider):
 
     def save(self, E, values):
         token = (values.get("token") or "").strip()
+        if not token:
+            return {"ok": False, "text": "Paste your Apify token first."}
         try:
             me = self.me(token)
         except Exception as e:

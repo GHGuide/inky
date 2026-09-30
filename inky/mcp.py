@@ -122,8 +122,9 @@ class MCPManager:
 
     def __init__(self, store, home):
         self.store, self.home = store, home
-        self.clients, self.tools_cache = {}, {}
+        self.clients, self.tools_cache, self.errors = {}, {}, {}
         self.lock = threading.Lock()
+        self.locks = {}  # one per server: a slow start doesn't hold up the others
         self.builtin = None  # connectors.Builtins: Telegram, n8n and Apify, called like any MCP server
 
     def servers(self):
@@ -133,14 +134,20 @@ class MCPManager:
             r = saved.pop(name, None) or {}
             out.append(self._view(name, r.get("command") or p["command"], p["label"], p["about"], r.get("enabled", False), True, r.get("env")))
         for name, r in saved.items():
+            if not r.get("command"):  # a half-saved row (no command) is ignored rather than breaking the list
+                continue
             out.append(self._view(name, r["command"], r.get("label") or name, r.get("about", ""), r.get("enabled", True), False, r.get("env")))
         return out
+
+    def known(self, name):
+        return name in PRESETS or any(r.get("command") for r in self.store.find("mcp", key=name))
 
     def _view(self, name, command, label, about, enabled, preset, env):
         c = self.clients.get(name)
         return {"name": name, "label": label, "about": about, "command": command, "enabled": enabled, "preset": preset,
                 "installed": bool(shutil.which(command[0]) or os.path.isabs(command[0])),
                 "connected": bool(c and c.alive()), "tools": [t["name"] for t in self.tools_cache.get(name, [])],
+                "error": self.errors.get(name),
                 "env_keys": sorted((env or {}).keys())}
 
     def save(self, name, command=None, enabled=True, label=None, env=None):
@@ -163,6 +170,11 @@ class MCPManager:
         for r in self.store.find("mcp", key=name):
             self.store.delete("mcp", r["id"])
         self.disconnect(name)
+        self.errors.pop(name, None)
+        try:
+            os.remove(os.path.join(self.home, f"mcp-{name}.log"))
+        except OSError:
+            pass
 
     def _config(self, name):
         s = next((s for s in self.servers() if s["name"] == name), None)
@@ -173,6 +185,8 @@ class MCPManager:
 
     def connect(self, name):
         with self.lock:
+            lock = self.locks.setdefault(name, threading.Lock())
+        with lock:
             c = self.clients.get(name)
             if c and c.alive():
                 return c
@@ -180,9 +194,16 @@ class MCPManager:
             root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # so `python -m inky.…` works from any folder
             env = {"PYTHONPATH": os.pathsep.join(filter(None, [root, os.environ.get("PYTHONPATH")])), **env}
             c = MCPClient(s["command"], env=env, cwd=os.path.expanduser("~"), log=os.path.join(self.home, f"mcp-{name}.log"))
-            c.start()
+            try:
+                c.start()
+                tools = c.tools()
+            except Exception as e:  # a server that won't start is stopped, not left running in the background
+                c.close()
+                self.errors[name] = str(e)[:200]
+                raise
+            self.errors.pop(name, None)
             self.clients[name] = c
-            self.tools_cache[name] = c.tools()
+            self.tools_cache[name] = tools
             return c
 
     def disconnect(self, name):

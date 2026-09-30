@@ -7,13 +7,17 @@
               paused: false, chat: [], chatOpen: false, visible: true, x: -100, y: -100, target: null, critter: "" };
   let root, host, els = {};
   const call = (msg) => { try { window.inkyControl && window.inkyControl(msg); } catch (e) {} };
+  // Pages that enforce Trusted Types refuse plain HTML strings; a policy of our own passes them (or we skip the overlay).
+  let TT = null;
+  try { if (window.trustedTypes && trustedTypes.createPolicy) TT = trustedTypes.createPolicy("inky-overlay", { createHTML: (x) => x }); } catch (e) {}
+  const html = (x) => (TT ? TT.createHTML(x) : x);
 
   function build() {
     if (host && document.documentElement.contains(host)) return;
     host = document.createElement("inky-overlay");
     host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block";
     root = host.attachShadow({ mode: "closed" });
-    root.innerHTML = `<style>
+    root.innerHTML = html(`<style>
       *{box-sizing:border-box;font-family:Geist,-apple-system,system-ui,sans-serif}
       .frame{position:fixed;inset:0;border:3px solid var(--c);box-shadow:inset 0 0 28px color-mix(in srgb,var(--c) 35%,transparent);transition:border-color .3s}
       .tag{position:fixed;left:50%;top:0;transform:translateX(-50%);padding:4px 12px;border-radius:0 0 10px 10px;background:var(--c);color:#fff;font-size:12.5px;font-weight:500;white-space:nowrap}
@@ -48,7 +52,7 @@
         <button data-a="chat">Chat<kbd>⌥C</kbd></button><button data-a="pause">Pause</button><button data-a="takeover">Take over</button><button data-a="stop" class="hot">Stop<kbd>Esc</kbd></button></div>
       <div class="chat hidden"><header>${"<b></b>"}<span>still driving</span></header><div class="msgs"></div>
         <div class="in"><form><input placeholder="Message the bot…" autocomplete="off"><button>Send</button></form><small>Your typing goes here, never into the page</small></div></div>
-    </div>`;
+    </div>`);
     const q = (s) => root.querySelector(s);
     els = { wrap: q(".wrap"), frame: q(".frame"), tag: q(".tag"), box: q(".box"), label: q(".label"), cursor: q(".cursor"),
             cname: q(".cursor .name"), crit: q(".cursor .crit"), pill: q(".pill"), pt: q(".pill b"), ps: q(".pill small"),
@@ -80,7 +84,7 @@
     els.tag.textContent = S.paused ? (S.pausedText || "Paused · you have the screen") : "";
     els.cname.textContent = S.name;
     els.cname.classList.toggle("hidden", S.cursor !== "name");
-    els.crit.innerHTML = S.cursor === "critter" ? S.critter : "";
+    els.crit.innerHTML = html(S.cursor === "critter" ? S.critter : "");
     els.cursor.style.transform = `translate(${S.x}px, ${S.y}px)`;
     const t = S.target;
     els.box.classList.toggle("hidden", !t);
@@ -98,7 +102,7 @@
     root.querySelector('[data-a="chat"]').classList.toggle("on", S.chatOpen);
     els.chat.classList.toggle("hidden", !(S.mode === "screen" && S.chatOpen));
     els.chatName.textContent = S.name;
-    els.msgs.innerHTML = "";
+    els.msgs.replaceChildren();
     for (const m of S.chat.slice(-30)) {
       const d = document.createElement("div"); d.className = "m " + (m.role === "you" ? "you" : "bot"); d.textContent = m.text; els.msgs.appendChild(d);
     }

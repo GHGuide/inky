@@ -3,7 +3,7 @@ A step targets an element by a descriptor (role, name, text, attrs, css). Replay
 descriptor; only if that fails does it ask a model once (repair), and it only acts when the model is sure."""
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 
 class NeedsHelp(Exception):
@@ -166,7 +166,8 @@ def learn(ctx, goal, start_url, max_steps=24):
                 f"CORRECTIONS FROM THE USER: {'; '.join(fixes) or 'none'}\n"
                 f"STEPS SO FAR:\n" + ("\n".join(f"{i + 1}. {s['text']}" for i, s in enumerate(steps)) or "none") +
                 f"\nEXTRACTED: {'yes' if extract else 'no'}\n\nPAGE: {page['title']} — {page['url']}\n"
-                f"HEADINGS: {' | '.join(page['heads'])}\nTEXT: {page['text'][:500]}\n\nELEMENTS:\n{table(page)}")
+                f"HEADINGS: {' | '.join(page['heads'])}\nTEXT: {page['text'][:500]}\n\nELEMENTS:\n{table(page)}" +
+                (f"\n\nYOUR LAST REPLIES DIDN’T WORK: {'; '.join(history[-3:])}. Pick an element by its number; goto needs a full URL." if history else ""))
         d, _ = ctx.llm.ask_json("learn", LEARN_SYSTEM, user, bot_id=ctx.bot["id"])
         act = d.get("action")
         if act == "done":
@@ -189,15 +190,35 @@ def learn(ctx, goal, start_url, max_steps=24):
             continue
         idx = d.get("index")
         el = next((e for e in page["elements"] if e["i"] == idx), None) if idx is not None else None
-        if act != "goto" and el is None:
-            history.append(f"index {idx} does not exist")
+        if act == "goto":  # the model sometimes "goes to" a word it meant to type
+            url = web_address(d.get("value"), page["url"])
+            if not url:
+                history.append(f"goto {d.get('value')!r} is not a web address")
+                continue
+            d["value"] = url
+        elif act not in ACTIONS:
+            history.append(f"{act!r} is not an action")
+            continue
+        elif el is None:
+            history.append(f"element {idx} does not exist")
             continue
         label = d.get("step") or f"{act} {el['name'] if el else d.get('value')}"
         step = {"action": "click" if act == "next_page" else act, "target": descriptor(el) if el else None,
                 "value": d.get("value"), "text": label, "next_page": act == "next_page",
                 "optional": bool(act == "click" and el and CONSENT.search(el["name"] or ""))}
         ctx.gate(step, el, page)
-        page_after = _do(comp, step, idx, el, len(steps) + 1)
+        try:
+            page_after = _do(comp, step, idx, el, len(steps) + 1)
+        except (NeedsHelp, Stopped):
+            raise
+        except Exception as e:  # a step that fails is feedback for the model, not the end of learning
+            history.append(f"“{label}” failed ({type(e).__name__})")
+            if len(history) >= 6:
+                raise NeedsHelp("learn_failed", "Learning got stuck on this site",
+                                f"The model kept picking steps that didn’t work here (last: “{label}”). Show it once, or try a smarter model.",
+                                ["Show me once", "Try a smarter model", "Try again"])
+            page = comp.call("elements")
+            continue
         steps.append(step)
         ctx.emit("learn", label, step=len(steps), target=el and el["name"])
         page = page_after
@@ -211,6 +232,20 @@ def learn(ctx, goal, start_url, max_steps=24):
     name = f"Check {host}" if extract else (goal.strip().rstrip(".")[:48] or f"Job on {host}")
     return {"name": name, "site": host, "goal": goal, "start_url": start_url, "steps": steps,
             "version": 1, "learned_at": time.time(), "max_pages": 3}
+
+
+ACTIONS = {"click", "fill", "select", "press", "next_page"}
+
+
+def web_address(v, base):
+    """A full URL, a /path on this site, or a bare domain; None for anything else (like a word to type)."""
+    v = str(v or "").strip()
+    if v.startswith("/"):
+        v = urljoin(base, v)
+    elif "://" not in v and re.match(r"^[\w-]+(\.[\w-]+)+(:\d+)?(/\S*)?$", v):
+        v = "https://" + v
+    u = urlparse(v)
+    return v if u.scheme in ("http", "https") and u.netloc and " " not in v else None
 
 
 def _do(comp, step, idx, el, n):
