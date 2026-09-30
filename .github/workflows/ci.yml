@@ -43,3 +43,11 @@ jobs:
         run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
       - name: unit tests
         run: uv run python -m unittest discover -s tests -t . -v
+
+  # The macOS menu bar app must keep compiling.
+  inkybar:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: native/mac/build.sh
