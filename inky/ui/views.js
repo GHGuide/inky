@@ -424,7 +424,7 @@ VIEWS.bot = {
     $("#spk").onclick = (e) => { speaking = !speaking; e.currentTarget.classList.toggle("on", speaking); if (!speaking) speechSynthesis.cancel(); };
     if (SR) {
       rec = new SR(); rec.continuous = true; rec.interimResults = false; rec.lang = navigator.language || "en-US";
-      rec.onresult = (e) => { const r = e.results[e.results.length - 1]; if (r.isFinal && !talking) ask(r[0].transcript.trim()); };
+      rec.onresult = (e) => { const r = e.results[e.results.length - 1], t = r[0].transcript.trim(); if (r.isFinal && !talking && t) ask(t); };
       rec.onend = hear;
       rec.onstart = () => { if ($("#cstate") && !talking) $("#cstate").textContent = "listening…"; };
       rec.onerror = (e) => {
