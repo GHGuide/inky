@@ -292,7 +292,7 @@ function openCmd(prefill = "") {
 // Bar mode (?bar=1): the macOS menu bar app shows just the command bar in a floating panel.
 const BAR = new URLSearchParams(location.search).has("bar"), BUDDY = new URLSearchParams(location.search).has("buddy");
 const APP = !!(window.__TAURI__ && window.__TAURI__.core);  // inside the Inky desktop app
-const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).catch(() => null) : Promise.resolve(null));
+const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).catch((e) => { console.warn("inky app:", cmd, e); return null; }) : Promise.resolve(null));
 const native = (m) => (APP ? invoke("bar", { msg: m }) : null);
 function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
 async function runCmd() { const it = CMD.items[CMD.sel]; closeCmd(); if (it) try { await it.run(); } catch (e) { toast(e.message); } }
@@ -362,7 +362,7 @@ window.addEventListener("load", async () => {
   }
   listen();
   if (!BAR && !BUDDY && !(await get("/api/setup/browser").catch(() => ({ ready: true }))).ready) return getBrowser();
-  if (BUDDY) { document.body.classList.add("bar", "buddymode"); window.inkyBuddy = () => loadState(); return drawBuddy(); }
+  if (BUDDY) { document.body.classList.add("buddymode"); window.inkyBuddy = () => loadState(); return drawBuddy(); }
   if (!BAR) return route();
   document.body.classList.add("bar");
   window.inkyBarOpen = async () => { await loadState(); CMD.sel = 0; openCmd(); return true; };

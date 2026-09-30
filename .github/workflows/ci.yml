@@ -43,11 +43,57 @@ jobs:
         run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
       - name: unit tests
         run: uv run python -m unittest discover -s tests -t . -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: UI logic tests
+        shell: bash
+        run: node --test inky/ui/*.test.mjs
 
-  # The macOS menu bar app must keep compiling.
-  inkybar:
-    runs-on: macos-latest
-    timeout-minutes: 10
+  # The Inky desktop app (Tauri): engine binary (PyInstaller) + app, on all three OSes. Unsigned builds, kept as artifacts.
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - run: native/mac/build.sh
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+      - run: uv sync
+      - name: engine binary
+        run: uv run python desktop/scripts/build-engine.py
+      - name: engine binary works
+        shell: bash
+        run: |
+          B=$(ls desktop/src-tauri/binaries/inky-engine-*)
+          H=$(mktemp -d)
+          "$B" --port 0 --home "$H" --no-open > "$H/out.log" 2>&1 &
+          for i in $(seq 1 60); do grep -q "running at" "$H/out.log" && break; sleep 1; done
+          curl -sf "$(head -1 "$H/out.log" | awk '{print $NF}')/api/ping"
+      - name: rust tests
+        working-directory: desktop/src-tauri
+        run: cargo test
+      - name: app
+        working-directory: desktop
+        run: npm ci && npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inky-${{ matrix.os }}
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: warn

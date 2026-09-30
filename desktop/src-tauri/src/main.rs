@@ -94,7 +94,7 @@ fn tray(app: AppHandle, needs: u32, bots: Vec<BotLite>, buddy: bool) {
 
 #[tauri::command]
 fn notify(app: AppHandle, title: String, body: String, hash: Option<String>) {
-    let _ = app.notification().builder().title(title).body(body).show();
+    let _ = app.notification().builder().title(&title).body(&body).show();
     // Desktop notifications can't carry buttons: the next time you come to Inky, it opens the right page.
     *app.state::<Shared>().open_on_focus.lock().unwrap() = hash;
 }
@@ -380,14 +380,16 @@ fn main() {
                 .on_menu_event(|app, e| on_menu(app, e.id.as_ref()))
                 .build(app)?;
             let _: &TrayIcon = &tray;
-            // system-wide shortcuts; ⌥Space is popular, so fall back to ⌃⌥Space
+            // system-wide shortcuts. ⌥Space is popular (other apps can grab it even when we register fine),
+            // so ⌃⌥Space always opens the bar too.
             let gs = app.global_shortcut();
-            let bar_key = if gs.register(Shortcut::new(Some(Modifiers::ALT), Code::Space)).is_ok() {
-                "⌥Space"
-            } else if gs.register(Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::Space)).is_ok() {
-                "⌃⌥Space"
-            } else {
-                "none"
+            let alt = gs.register(Shortcut::new(Some(Modifiers::ALT), Code::Space)).is_ok();
+            let ctl = gs.register(Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::Space)).is_ok();
+            let bar_key = match (alt, ctl) {
+                (true, true) => "⌥Space or ⌃⌥Space",
+                (true, false) => "⌥Space",
+                (false, true) => "⌃⌥Space",
+                _ => "none",
             };
             *app.state::<Shared>().bar_key.lock().unwrap() = bar_key.to_string();
             let _ = gs.register(Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::KeyP));
@@ -399,7 +401,7 @@ fn main() {
                     let h2 = handle.clone();
                     let _ = handle.run_on_main_thread(move || {
                         if let Err(e) = build_windows(&h2, &url) {
-                            js(&h2, &format!("document.body.dataset.error = {}", serde_json::to_string(&e.to_string()).unwrap()));
+                            js(&h2, &format!("window.showError && showError({})", serde_json::to_string(&e.to_string()).unwrap()));
                         }
                         let files: Vec<PathBuf> = std::mem::take(&mut *h2.state::<Shared>().pending_files.lock().unwrap());
                         if !files.is_empty() {

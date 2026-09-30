@@ -256,7 +256,7 @@ class ServerMCPTransferTest(unittest.TestCase):
         c.close()
         # a shared bot file never carries sign-ins or chat; a move does
         shared = self.api(self.ua, A.token, "GET", f"/api/bots/{b['id']}/export")
-        self.assertEqual((shared["cookies"], shared["messages"]), ([], []))
+        self.assertEqual((shared["cookies"], shared["messages"], shared["results"], shared["bot"]["memory"]), ([], [], [], []))
         self.assertTrue(shared["skills"])
         private = transfer.export_bot(A, b["id"], private=True)
         self.assertTrue(private["cookies"] and private["messages"])

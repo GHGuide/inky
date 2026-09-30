@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bar"
+description = "Enables the bar command without any pre-configured scope."
+commands.allow = ["bar"]
+
+[[permission]]
+identifier = "deny-bar"
+description = "Denies the bar command without any pre-configured scope."
+commands.deny = ["bar"]

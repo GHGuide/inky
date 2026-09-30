@@ -23,10 +23,11 @@ def export_bot(engine, bid, private=False):
             pass
     strip = ("id", "bot_id", "status", "key", "ts")
     clean = lambda r: {k: v for k, v in r.items() if k not in strip}
-    bot = clean(b) if private else {k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer")}
+    # a shared file is a bot's skills, rules, look and personality; not what it knows about you or found for you
+    bot = clean(b) if private else {**{k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer")}, "memory": []}
     return {"bundle": BUNDLE, "exported": time.time(), "bot": bot,
             "skills": [clean(s) for s in engine.store.find("skills", bot_id=bid, desc=False)],
-            "results": [dict(clean(r), key=r["key"]) for r in engine.store.find("results", bot_id=bid, limit=2000)],
+            "results": [dict(clean(r), key=r["key"]) for r in engine.store.find("results", bot_id=bid, limit=2000)] if private else [],
             "messages": [clean(m) for m in engine.store.find("messages", bot_id=bid, limit=200, desc=False)] if private else [],
             "cookies": cookies}
 
@@ -44,6 +45,9 @@ def import_bot(engine, bundle):
     for m in bundle.get("messages", []):
         engine.store.insert("messages", m, bot_id=bid, status=m.get("role"))
     engine.store.event(bid, "arrived", f"{bot['name']} arrived with {len(bundle.get('skills', []))} skills")
+    if not bundle.get("messages"):  # a shared bot says hello when it moves in
+        n = len(bundle.get("skills", []))
+        engine.store.message(bid, "bot", f"Hi! I'm {bot['name']}. I just moved in" + (f" and brought {n} skill{'s' if n != 1 else ''}, so I can start right away." if n else "."), intro=True)
     engine.bus.publish("bots")
     return bid
 

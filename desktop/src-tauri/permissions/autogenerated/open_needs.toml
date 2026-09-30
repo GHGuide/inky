@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-needs"
+description = "Enables the open_needs command without any pre-configured scope."
+commands.allow = ["open_needs"]
+
+[[permission]]
+identifier = "deny-open-needs"
+description = "Denies the open_needs command without any pre-configured scope."
+commands.deny = ["open_needs"]
