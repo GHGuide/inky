@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from inky import connectors, health, insights, transfer
+from inky import connect, connectors, health, insights, transfer
 from inky.llm import PROVIDERS, ROLES, fits
 from inky.mcp import PRESETS
 
@@ -23,7 +23,6 @@ UI = Path(__file__).parent / "ui"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
          ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json"}
 ROUTES = []
-INSTALL_URL = os.environ.get("INKY_INSTALL_URL", "https://raw.githubusercontent.com/GHGuide/inky/main/install.sh")
 
 
 def route(method, pattern):
@@ -49,7 +48,7 @@ def bot_or_404(E, bid):
 # ------------------------------------------------------------------ bots
 @route("GET", "/api/ping")
 def ping(E, h, q, body):
-    return {"ok": True, "name": E.store.setting("engine_name", platform.node()), "time": time.time()}
+    return {"ok": True, "name": E.store.setting("engine_name", platform.node()), "time": time.time(), "os": platform.system()}
 
 
 PAIR_TRIES = []
@@ -541,20 +540,64 @@ def computers(E, h, q, body):
              "bots": [b for b in bots_ if (b.get("computer") or "local") == "local"], "docker": health.docker()}
     out = [local]
     for c in E.store.find("computers", desc=False):
+        r = transfer.Remote(c["url"], c["token"])
         try:
-            info = transfer.Remote(c["url"], c["token"]).req("GET", "/api/bots", timeout=4)
-            ok, rbots = True, info["bots"]
+            ok, rbots = True, r.req("GET", "/api/bots", timeout=4)["bots"]
+            if not c.get("os"):  # remember what it runs, for its logo
+                c["os"] = r.req("GET", "/api/ping", timeout=4).get("os") or "Linux"
+                E.store.update("computers", c["id"], os=c["os"])
         except Exception:
             ok, rbots = False, []
-        out.append({"id": c["id"], "name": c["name"], "url": c["url"], "kind": "remote", "ok": ok, "bots": rbots})
+        out.append({"id": c["id"], "name": c["name"], "url": c["url"], "kind": "remote", "ok": ok, "bots": rbots, "os": c.get("os")})
     return {"computers": out, "pair_code": transfer.pair_code(E.token)}
 
 
 @route("POST", "/api/computers")
 def add_computer(E, h, q, body):
-    token, name = transfer.pair(body["url"], body["code"])
-    cid = E.store.insert("computers", {"name": body.get("name") or name, "url": body["url"].rstrip("/"), "token": token})
+    url, code = (body.get("url") or "").strip(), (body.get("code") or "").strip()
+    try:
+        if url.startswith("inky://"):
+            url, code = connect.parse_pair_link(url)
+        if not url.startswith(("http://", "https://")):
+            url = "http://" + url + ("" if re.search(r":\d+$", url) else ":8800")
+        cid = connect.pair_and_save(E, url, code)
+    except ValueError as e:
+        raise HTTPError(400, str(e))
+    except httpx.RequestError:
+        raise HTTPError(400, f"Couldn’t reach {url}. Is Inky running there, and is the port open?")
+    if body.get("name"):
+        E.store.update("computers", cid, name=body["name"])
     return {"id": cid}
+
+
+@route("POST", "/api/computers/link")
+def pair_link(E, h, q, body):
+    return add_computer(E, h, q, {"url": body.get("link", "")})
+
+
+@route("GET", "/api/computers/found")
+def computers_found(E, h, q, body):
+    return {"found": connect.found(E)}
+
+
+@route("POST", "/api/computers/ssh")
+def computers_ssh(E, h, q, body):
+    target = (body.get("target") or "").strip()
+    try:
+        connect.split_target(target)
+    except ValueError as e:
+        raise HTTPError(400, str(e))
+
+    def go():
+        say = lambda step, **kw: E.bus.publish("ssh", step=step, **kw)
+        try:
+            connect.ssh_setup(E, target, say)
+        except connect.SetupError as e:
+            say("failed", text=str(e), fix=e.fix)
+        except Exception as e:
+            say("failed", text=str(e)[:300])
+    threading.Thread(target=go, daemon=True).start()
+    return {"ok": True}
 
 
 @route("DELETE", r"/api/computers/(\d+)")
@@ -606,7 +649,7 @@ def setup(E, h, q, body):
             "keys": {p["name"]: p["key"] for p in E.llm.providers() if not p["local"]}, "roles": E.llm.roles(),
             "claude": bool(shutil.which("claude")), "codex": bool(shutil.which("codex")),
             "telegram": E.store.setting("telegram", {"enabled": False}), "telegram_key": E.keys.source("telegram"),
-            "pair_code": transfer.pair_code(E.token), "install": f"curl -fsSL {INSTALL_URL} | sh"}
+            "pair_code": transfer.pair_code(E.token), "install": f"curl -fsSL {connect.INSTALL_URL} | sh"}
 
 
 @route("POST", "/api/telegram/test")

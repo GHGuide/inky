@@ -14,6 +14,7 @@ use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -38,6 +39,7 @@ struct Shared {
     working: Arc<AtomicBool>,
     open_on_focus: Mutex<Option<String>>,
     pending_files: Mutex<Vec<PathBuf>>,
+    pending_links: Mutex<Vec<String>>,
     bar_key: Mutex<String>,
 }
 
@@ -347,11 +349,41 @@ fn build_windows(app: &AppHandle, url: &str) -> tauri::Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------- links: inky://pair?… from install.sh or a browser
+
+fn open_links(app: &AppHandle, links: Vec<String>) {
+    let links: Vec<String> = links.into_iter().filter(|l| l.starts_with("inky://")).collect();
+    if links.is_empty() {
+        return;
+    }
+    if app.state::<Shared>().url.lock().unwrap().is_empty() {
+        app.state::<Shared>().pending_links.lock().unwrap().extend(links); // opened before the engine is up
+        return;
+    }
+    for l in links {
+        // the page asks you to confirm before it pairs or installs anything
+        js(app, &format!("window.handleLink && handleLink({})", serde_json::to_string(&l).unwrap()));
+    }
+    show_main(app, None);
+}
+
 fn main() {
     let shared = Shared::default();
     let working = shared.working.clone();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Windows and Linux start a second copy for a link or a file: hand it to this one instead
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        let files: Vec<PathBuf> = argv.iter().skip(1).filter(|a| !a.starts_with("inky://") && !a.starts_with('-')).map(PathBuf::from).filter(|p| p.is_file()).collect();
+        if files.is_empty() {
+            show_main(app, None);
+        } else {
+            import_files(app, files);
+        }
+    }));
+    builder
         .manage(shared)
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
@@ -403,6 +435,13 @@ fn main() {
             *app.state::<Shared>().bar_key.lock().unwrap() = bar_key.to_string();
             let _ = gs.register(Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::KeyP));
             let _ = gs.register(Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::Escape));
+            #[cfg(any(windows, target_os = "linux"))]
+            let _ = app.deep_link().register_all();
+            let hl = handle.clone();
+            app.deep_link().on_open_url(move |ev| open_links(&hl, ev.urls().iter().map(|u| u.to_string()).collect()));
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                open_links(&handle, urls.iter().map(|u| u.to_string()).collect()); // Inky was started by a link
+            }
             animate_tray(handle.clone(), working.clone());
             std::thread::spawn(move || match start_engine(&handle) {
                 Ok(url) => {
@@ -413,11 +452,15 @@ fn main() {
                             js(&h2, &format!("window.showError && showError({})", serde_json::to_string(&e.to_string()).unwrap()));
                         }
                         let files: Vec<PathBuf> = std::mem::take(&mut *h2.state::<Shared>().pending_files.lock().unwrap());
-                        if !files.is_empty() {
+                        let links: Vec<String> = std::mem::take(&mut *h2.state::<Shared>().pending_links.lock().unwrap());
+                        if !files.is_empty() || !links.is_empty() {
                             let h3 = h2.clone();
                             std::thread::spawn(move || {
-                                std::thread::sleep(Duration::from_secs(3));
-                                import_files(&h3, files);
+                                std::thread::sleep(Duration::from_secs(3)); // the page loads first
+                                if !files.is_empty() {
+                                    import_files(&h3, files);
+                                }
+                                open_links(&h3, links);
                             });
                         }
                     });

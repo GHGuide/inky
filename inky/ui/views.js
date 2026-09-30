@@ -39,12 +39,8 @@ VIEWS.setup = {
         <div class="chk">${ok(true)}<span>Bots run as isolated browsers here<br><span class="small muted">no install needed</span></span></div>
         <div class="chk">${ok(true)}<span>${st.hardware.memory_gb || "?"} GB memory · ${esc(st.hardware.cpu || "")}<br><span class="small muted">room for about ${Math.max(1, Math.floor((st.hardware.memory_gb || 8) / 3))} bots</span></span></div></div>
       <div class="opt"><span class="row">${logo("linux", 30)}<b style="font-size:17px">A server too</b></span><span class="small muted">optional · always on · any Linux server or spare Mac</span>
-        <span class="small">1. On the server, run this once:</span>
-        <div class="row"><pre class="code grow" id="oneliner" style="margin:0">${esc(st.install)}</pre><button class="btn s" id="copyinst">Copy</button></div>
-        <span class="small">2. It prints an address and a pairing code. Put them here:</span>
-        <input class="f" id="pairurl" placeholder="http://192.168.1.20:8800" autocomplete="off" spellcheck="false" aria-label="Server address">
-        <div class="row"><input class="f grow" id="paircode" placeholder="Pairing code" autocomplete="off" spellcheck="false" aria-label="Pairing code"><button class="btn" id="pairgo">Pair</button></div>
-        <span class="small" id="pairmsg" role="status"></span></div></div>`;
+        <span class="small">Your bots keep working while this computer sleeps. You can also add one later in Computers.</span></div></div>
+      ${serverAdder(st.install)}`;
       foot = nav(1, 3);
     }
     if (n === 3) {
@@ -94,7 +90,7 @@ VIEWS.setup = {
     if ($("[data-back]")) $("[data-back]").onclick = () => { try { sessionStorage.setItem("wizDir", "back"); } catch (e) {} };
     if ($("#scr")) $("#scr").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); S.settings = await post("/api/settings", { screen_allowed: on }); };
     if ($("#tg")) $("#tg").onclick = async (e) => { const on = !e.target.classList.contains("on"); e.target.classList.toggle("on", on); e.target.setAttribute("aria-checked", on); await post("/api/settings", { telegram: { enabled: on } }); };
-    if (n === 2) this.bindPair();
+    if (n === 2) bindServerAdder(st.install);
     if (n === 3) { this.showUsing(models.roles.learn); $$("[data-prov]").forEach((b) => (b.onclick = () => this.openKey(b.dataset.prov))); this.renderLocal(); }
     if (n === 5) this.bindTelegram();
     if (n === 6) {
@@ -103,18 +99,6 @@ VIEWS.setup = {
     }
   },
   say(sel, text, good) { const m = $(sel); if (m) { m.textContent = text; m.className = "small " + (good === true ? "good" : good === false ? "bad" : "muted"); } },
-  bindPair() {
-    $("#copyinst").onclick = async () => { try { await navigator.clipboard.writeText(this.st.install); $("#copyinst").textContent = "Copied"; } catch (e) { toast("Select the line and copy it with ⌘C."); } };
-    const go = async () => {
-      const url = $("#pairurl").value.trim(), code = $("#paircode").value.trim();
-      if (!url || !code) return this.say("#pairmsg", "Put in the address and the code the server printed.", false);
-      this.say("#pairmsg", "Pairing…");
-      try { await post("/api/computers", { url, code }); this.say("#pairmsg", "✓ Paired. Its bots show up in Computers.", true); SOUND.play("chime"); }
-      catch (e) { this.say("#pairmsg", e.message, false); }
-    };
-    $("#pairgo").onclick = go;
-    $("#paircode").onkeydown = (e) => { if (e.key === "Enter") go(); };
-  },
   showUsing(r) {
     this.using = r; const u = $("#usingm"); if (!u) return;
     u.classList.toggle("ok", !!r);
@@ -194,8 +178,9 @@ VIEWS.setup = {
     $("#tgsave").onclick = save;
     $("#tgtoken").onkeydown = (e) => { if (e.key === "Enter") save(); };
   },
-  leave() { clearInterval(tgPoll); },
+  leave() { clearInterval(tgPoll); clearInterval(foundTimer); },
   onEvent(m) {
+    if (m.kind === "ssh") return sshLine(m);
     if (m.kind !== "pull" || this.n !== 3) return;
     const bar = $(`[data-prog="${m.name}"] i`);
     if (m.status === "success") { this.connect("ollama", m.name, "#lmsg").then(() => this.renderLocal()); return; }
@@ -744,10 +729,72 @@ VIEWS.activity = {
   },
 };
 
+// ================================================================ adding a server (Computers and setup share this)
+let foundTimer = null, onServerPaired = null;
+function serverAdder(install) {
+  return `<div class="col" style="gap:16px"><div id="found" class="col" style="gap:8px"></div>
+    <div class="col" style="gap:8px"><b>Set it up over SSH</b><span class="small muted">If you can ssh into it with a key, Inky installs itself there and pairs. Nothing to type on the server.</span>
+      <div class="row"><input class="f grow mono" id="sshtarget" placeholder="you@your-server" autocomplete="off" spellcheck="false" aria-label="SSH user and host"><button class="btn" id="sshgo">Set up</button></div><div class="col" id="sshprog" style="gap:4px" role="status"></div></div>
+    <div class="col" style="gap:8px"><b>Or run this once on the server</b>
+      <div class="row"><pre class="code grow" style="margin:0">${esc(install)}</pre><button class="btn s" id="copyinst">Copy</button></div>
+      <span class="small muted">It prints a pair link. Paste it here, or the address and code:</span>
+      <input class="f mono" id="pairurl" placeholder="inky://pair?…  or  http://192.168.1.20:8800" autocomplete="off" spellcheck="false" aria-label="Pair link or server address">
+      <div class="row"><input class="f grow mono" id="paircode" placeholder="Pairing code (not needed with a link)" autocomplete="off" spellcheck="false" aria-label="Pairing code"><button class="btn" id="pairgo">Pair</button></div>
+      <span class="small" id="pairmsg" role="status"></span></div></div>`;
+}
+function sayIn(sel, t, ok) { const m = $(sel); if (m) { m.textContent = t; m.className = "small " + (ok === true ? "good" : ok === false ? "bad" : "muted"); } }
+function sshLine(m) {  // SSE "ssh" progress from the engine
+  const box = $("#sshprog"); if (!box) return;
+  const bad = m.step === "failed", last = box.lastElementChild;
+  if (m.step === "installing" && last && last.dataset.step === "installing" && !/^Installing Inky/.test(m.text)) { $("span", last).textContent = m.text; return; }
+  box.insertAdjacentHTML("beforeend", `<div class="chk" data-step="${esc(m.step)}"><i class="${bad ? "bad" : "ok"}">${bad ? "!" : m.step === "done" ? "✓" : "·"}</i><span>${esc(m.text || m.step)}</span></div>${bad && m.fix ? `<div class="small" style="padding-left:28px"><b>${esc(m.fix)}</b></div>` : ""}`);
+  if (m.step === "done" || bad) $("#sshgo").disabled = false;
+  if (m.step === "done") { SOUND.play("chime"); confetti(); if (onServerPaired) onServerPaired(); }
+}
+function bindServerAdder(install, onPaired) {
+  onServerPaired = onPaired;
+  $("#copyinst").onclick = async () => { try { await navigator.clipboard.writeText(install); $("#copyinst").textContent = "Copied"; } catch (e) { toast("Select the line and copy it with ⌘C."); } };
+  const paired = () => { sayIn("#pairmsg", "✓ Paired. Its bots show up in Computers.", true); SOUND.play("chime"); if (onPaired) onPaired(); };
+  const pair = async () => {
+    const url = $("#pairurl").value.trim(), code = $("#paircode").value.trim();
+    if (!url) return sayIn("#pairmsg", "Paste the pair link, or the address and code.", false);
+    if (!url.startsWith("inky://") && !code) return sayIn("#pairmsg", "Put in the code it printed too.", false);
+    sayIn("#pairmsg", "Pairing…");
+    try { await post("/api/computers", { url, code }); paired(); } catch (e) { sayIn("#pairmsg", e.message, false); }
+  };
+  $("#pairgo").onclick = pair;
+  $("#paircode").onkeydown = (e) => { if (e.key === "Enter") pair(); };
+  $("#pairurl").onkeydown = (e) => { if (e.key === "Enter") pair(); };
+  const ssh = async () => {
+    const t = $("#sshtarget").value.trim(); if (!t) return;
+    $("#sshprog").innerHTML = ""; $("#sshgo").disabled = true;
+    try { await post("/api/computers/ssh", { target: t }); } catch (e) { sshLine({ step: "failed", text: e.message }); }
+  };
+  $("#sshgo").onclick = ssh;
+  $("#sshtarget").onkeydown = (e) => { if (e.key === "Enter") ssh(); };
+  let shown = "";
+  const drawFound = async () => {
+    const box = $("#found"); if (!box) return clearInterval(foundTimer);
+    let found = [];
+    try { ({ found } = await get("/api/computers/found")); } catch (e) { return; }
+    const key = found.map((f) => f.url).join();
+    if (key === shown) return;  // don't wipe a code you're typing
+    shown = key;
+    box.innerHTML = found.length ? `<b>Found ${found.some((f) => f.via === "tailscale") ? "on your network and tailnet" : "on your network"}</b>` + found.map((f) => `<div class="card lrow" style="padding:10px 12px">${logo(f.via === "tailscale" ? "tailscale" : "linux", 30)}<span class="grow"><b>${esc(f.name)}</b><br><span class="mono small muted">${esc(f.host || f.url)}${f.via === "tailscale" ? " · works away from home" : ""}</span></span><input class="f mono" data-fcode="${esc(f.url)}" placeholder="Its code" style="width:120px" aria-label="Pairing code for ${esc(f.name)}"><button class="btn s" data-fpair="${esc(f.url)}">Pair</button></div>`).join("") : "";
+    $$("[data-fpair]", box).forEach((b) => (b.onclick = async () => {
+      const code = $(`[data-fcode="${b.dataset.fpair}"]`).value.trim();
+      if (!code) return toast("Type the code that server printed when you installed it.");
+      try { await post("/api/computers", { url: b.dataset.fpair, code }); shown = ""; paired(); drawFound(); } catch (e) { toast(e.message); }
+    }));
+  };
+  clearInterval(foundTimer); drawFound(); foundTimer = setInterval(drawFound, 5000);
+}
+
 // ================================================================ computers
 VIEWS.computers = {
   async show(el) { this.el = el; await this.refresh(); },
-  onEvent(m) { if (m.kind === "move") this.progress(m); },
+  onEvent(m) { if (m.kind === "move") this.progress(m); if (m.kind === "ssh") sshLine(m); },
+  leave() { clearInterval(foundTimer); },
   progress(m) {
     const box = $("#moveprog"); if (!box) return;
     box.insertAdjacentHTML("beforeend", `<div class="chk"><i class="${m.step === "failed" || m.step === "check_failed" ? "bad" : "ok"}">${m.step === "failed" ? "!" : "✓"}</i><span>${esc(m.text || m.step)}</span></div>`);
@@ -755,18 +802,15 @@ VIEWS.computers = {
   },
   async refresh() {
     if ($("#moveprog")) return;
-    const { computers, pair_code } = await get("/api/computers");
+    const [{ computers, pair_code }, { install }] = await Promise.all([get("/api/computers"), get("/api/setup")]);
     this.el.innerHTML = `${mobileBar("Computers")}<div class="page"><div class="between"><div><h1>Computers</h1><p class="lede">Where your bots’ browsers run. Each bot gets its own sandbox, never your screen.</p></div><button class="btn" id="addsrv">Add a server</button></div>
       <div class="grid2">${computers.map((c) => `<div class="card"><div class="row">${logo({ Darwin: "apple", Windows: "windows" }[c.os] || "linux", 40)}<div class="grow"><b style="font-size:18px">${esc(c.name)}</b><div class="mono small muted">${c.kind === "local" ? `this computer${c.docker && c.docker.running ? ` · ${logo("docker", 18)} Docker ${esc(c.docker.version)}` : ""}` : esc(c.url)} · ${c.bots.length} bots</div></div><span class="pill ${c.ok ? "live" : "hot"}"><i style="background:${c.ok ? "var(--green)" : "var(--coral)"}"></i>${c.ok ? (c.kind === "local" ? "awake" : "reachable") : "can’t reach it"}</span></div>
         <div class="grid2">${c.bots.map((b) => `<a class="botcard" style="padding:10px;gap:8px" href="${c.kind === "local" ? `#/bot/${b.id}/computer` : "#/bots"}"><div class="thumb ${["working", "learning"].includes(b.status) ? "" : "idle"}" style="height:90px">${["working", "learning"].includes(b.status) && c.kind === "local" ? `<img src="${screenUrl(b.id)}" alt="">` : esc(b.status.replace("_", " "))}</div><span class="row small">${botCritter(b, 22)}<b class="grow">${esc(b.name)}</b>${c.kind === "local" && b.status !== "moved" && computers.length > 1 ? `<button class="btn s" data-move="${b.id}">Move</button>` : ""}</span></a>`).join("") || `<span class="small muted">No bots here</span>`}</div>
-        ${c.kind === "local" ? `<div class="card panel small">This computer’s pairing code: <b class="mono">${esc(pair_code)}</b>. Type it on another Inky to send bots here.</div>` : `<button class="btn s hot" data-unpair="${c.id}" style="align-self:flex-start">Unpair</button>`}</div>`).join("")}</div>
+        ${c.kind === "local" ? `<div class="card panel small"><span>This computer’s pairing code: <b class="mono">${esc(pair_code)}</b>. Type it on another Inky to send bots here.</span></div>` : `<button class="btn s hot" data-unpair="${c.id}" style="align-self:flex-start">Unpair</button>`}</div>`).join("")}</div>
       <div class="card panel"><div class="between"><span><b>Your own screen · ${S.settings.screen_allowed ? "allowed" : "off"}</b><br><span class="small muted">Let a bot use a visible browser window on your screen, with the coral frame and ask-first rules. Esc stops it any time.</span></span><a class="btn" href="#/setup/4">${S.settings.screen_allowed ? "Change" : "Allow"}</a></div></div>
-      <div class="col"><b>Add a server in 3 steps</b><div class="grid3"><div class="card"><span class="mono small muted">1</span><b>Any Linux server</b><span class="small muted">A small VPS or a box at home. 2 GB of memory runs about 3 bots.</span></div>
-      <div class="card"><span class="mono small muted">2</span><b>Run Inky there</b><pre class="code">python -m inky --host 0.0.0.0 --no-open</pre><span class="small muted">or with Docker, from the Inky folder:</span><pre class="code">docker build -t inky . && docker run -d -p 8800:8800 -v inky-data:/data inky</pre></div><div class="card"><span class="mono small muted">3</span><b>Pair it here</b><span class="small muted">Type its address and the 6-letter code it prints.</span></div></div></div></div>`;
-    $("#addsrv").onclick = () => modal(`<h2>Pair a server</h2><label class="l" for="purl">Its address</label><input class="f" id="purl" placeholder="http://192.168.1.20:8800"><label class="l" for="pname">Name</label><input class="f" id="pname" placeholder="Home server"><label class="l" for="pcode">Pairing code</label><input class="f mono" id="pcode" placeholder="ABC123" maxlength="6">
-      <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn p" id="pgo">Pair</button></div>`, () => {
-      $("#pgo").onclick = async () => { try { await post("/api/computers", { url: $("#purl").value.trim(), code: $("#pcode").value.trim(), name: $("#pname").value.trim() }); closeModal(); this.refresh(); } catch (e) { toast(e.message); } };
-    });
+      <section class="card" id="adder"><h2>Add a server</h2><span class="small muted">Any Linux server or spare Mac. 2 GB of memory runs about 3 bots, and they keep working while this computer sleeps.</span>${serverAdder(install)}</section></div>`;
+    $("#addsrv").onclick = () => { $("#adder").scrollIntoView({ behavior: "smooth", block: "start" }); $("#sshtarget").focus({ preventScroll: true }); };
+    bindServerAdder(install, () => setTimeout(() => this.refresh(), 600));
     $$("[data-unpair]").forEach((x) => (x.onclick = async (e) => { e.preventDefault(); await del(`/api/computers/${x.dataset.unpair}`); this.refresh(); }));
     $$("[data-move]").forEach((x) => (x.onclick = (e) => {
       e.preventDefault();

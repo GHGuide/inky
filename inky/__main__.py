@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import platform
 import _thread
 import signal
 import threading
@@ -46,6 +47,10 @@ def main():
     print(f"Inky is running at {url}")
     print(f"Pairing code for other computers: {pair_code(engine.token)}", flush=True)
     write_engine_file(home, url, os.getpid())
+    if a.host in ("0.0.0.0", "::", ""):  # reachable from your network: say so, so the app there finds it
+        from inky import __version__
+        from inky.connect import start_beacon
+        start_beacon(lambda: engine.store.setting("engine_name", platform.node()), srv.server_port, __version__)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # finally: below closes the engine and removes engine.json
     if a.stop_with_stdin:
         def watch():

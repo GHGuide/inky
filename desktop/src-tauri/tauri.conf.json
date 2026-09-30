@@ -22,5 +22,6 @@
       { "ext": ["inkyskill"], "name": "Inky skill", "description": "An Inky skill file", "role": "Viewer" }
     ],
     "macOS": { "minimumSystemVersion": "11.0" }
-  }
+  },
+  "plugins": { "deep-link": { "desktop": { "schemes": ["inky"] } } }
 }

@@ -347,6 +347,17 @@ function confirmBox(text, ok = "OK", danger = false, detail = "") {  // detail: 
     });
   });
 }
+window.handleLink = async (link) => {  // inky:// links the desktop app hands over (from install.sh, a browser, a friend)
+  let u; try { u = new URL(link); } catch (e) { return toast("Inky can’t open that link."); }
+  if (u.host === "pair") {
+    let host = "?"; try { host = new URL(u.searchParams.get("url")).host; } catch (e) {}
+    if (!(await confirmBox(`Pair with the Inky at ${host}?`, "Pair"))) return;
+    try { await post("/api/computers", { url: link }); SOUND.play("chime"); toast(`Paired with ${host}. Its bots show up in Computers.`); location.hash = "#/computers"; }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  toast("Inky can’t open that link yet.");
+};
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 
 function getBrowser() {  // first launch of the app: the bots' browser downloads once (~170 MB)
