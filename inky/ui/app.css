@@ -363,3 +363,7 @@ body.buddymode #view{display:flex;align-items:flex-end;justify-content:flex-end;
 .thinking{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .thinking .t{flex:1;min-width:0;line-height:1.3}
 .thinking .iconbtn{width:28px;height:28px;flex-shrink:0}
+/* simple by default: the basics in the sidebar, the rest under More */
+.navmore>summary{list-style:none;cursor:pointer;color:var(--muted)}.navmore>summary::-webkit-details-marker{display:none}
+.navmore[open]>summary{color:var(--ink)}
+.navmore>a{padding-left:16px}

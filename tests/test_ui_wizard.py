@@ -40,13 +40,13 @@ class WizardTest(unittest.TestCase):
         pg = self.page(w, h)
         pg.goto(self.url + "#/setup/1")
         self.on_step(pg, 1)
-        for n in range(1, 7):
+        for n in range(1, 4):  # Welcome, Model, Ready
             self.assertTrue(pg.evaluate("location.hash").startswith(f"#/setup/{n}"), f"step {n} at {w}x{h}")
             nxt = pg.locator("#wnext")
             nxt.scroll_into_view_if_needed()
             box = nxt.bounding_box()
             self.assertTrue(box and box["y"] >= 0 and box["y"] + box["height"] <= h, f"Continue out of view on step {n} at {w}x{h}: {box}")
-            if n < 6:
+            if n < 3:
                 nxt.click()
                 pg.wait_for_function(f"location.hash.startsWith('#/setup/{n + 1}')")
                 self.on_step(pg, n + 1)
@@ -59,17 +59,17 @@ class WizardTest(unittest.TestCase):
 
     def test_choices_stay_in_the_wizard(self):
         pg = self.page(1280, 820)
-        pg.goto(self.url + "#/setup/3")
+        pg.goto(self.url + "#/setup/2")  # the model step
         pg.wait_for_selector("[data-prov='openrouter']")
         self.assertGreater(pg.locator("[data-prov='openrouter'] .logo").count(), 0)
         pg.click("[data-prov='openrouter']")
         pg.wait_for_selector("#keyfield", state="visible")
-        self.assertTrue(pg.evaluate("location.hash").startswith("#/setup/3"))
-        pg.goto(self.url + "#/setup/2")
+        self.assertTrue(pg.evaluate("location.hash").startswith("#/setup/2"))
+        pg.goto(self.url + "#/setup/computers")  # optional pages, opened from Settings
         pg.wait_for_selector("#pairurl", state="visible")
-        pg.goto(self.url + "#/setup/5")
+        pg.goto(self.url + "#/setup/phone")
         pg.wait_for_selector("#tgtoken", state="visible")
-        self.assertTrue(pg.evaluate("location.hash").startswith("#/setup/5"))
+        self.assertTrue(pg.evaluate("location.hash").startswith("#/setup/phone"))
         self.assertEqual(self.errors, [])
         pg.close()
 
@@ -100,7 +100,7 @@ class WizardTest(unittest.TestCase):
         self.addCleanup(fake.shutdown)
         with mock.patch.dict(os.environ, {"TELEGRAM_API": f"http://127.0.0.1:{fake.server_port}"}):
             pg = self.page(1280, 820)
-            pg.goto(self.url + "#/setup/5")
+            pg.goto(self.url + "#/setup/phone")
             pg.fill("#tgtoken", "123456789:AAfakeTokenForTestsOnly_0123456")
             pg.click("#tgsave")
             pg.wait_for_function("document.querySelector('#tgmsg').textContent.includes('Found you')", timeout=15000)

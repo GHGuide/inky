@@ -455,13 +455,19 @@ class Engine:
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
-                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []),
+                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), **self._found(b["id"]),
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
                 "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
                 "skill_id": run.skill_id if run else None, "shown": len(getattr(run, "show", None) or []) if run else 0,
                 "remote_id": b.get("remote_id")}
+
+    def _found(self, bid):
+        """What it found, in a line: how many pass its rules, how many are new, the newest two."""
+        rows = [r for r in self.store.find("results", bot_id=bid, limit=400) if r.get("passed") is not False]
+        top = [{"title": str(r.get("title") or r.get("name") or "")[:80], "price": str(r.get("price") or "")[:24]} for r in rows if r.get("title") or r.get("name")][:2]
+        return {"found": len(rows), "fresh": sum(1 for r in rows if r.get("new")), "top": top}
 
     def bots(self):
         return [self.bot_view(b) for b in self.store.find("bots", desc=False)]

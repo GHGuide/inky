@@ -72,8 +72,8 @@ function botMeta(b) {
   if (b.status === "working" || b.status === "learning") meta = b.step ? `${t} · ${b.step}` : t;
   else if (b.status === "idle" && b.held) meta = "paused · runs when you ask";
   else if (b.status === "idle" && b.next_run) {
-    const d = new Date(b.next_run * 1000), today = new Date().toDateString() === d.toDateString();
-    meta = `next run ${today ? "" : d.toLocaleDateString(undefined, { weekday: "short" }) + " "}${d.toTimeString().slice(0, 5)}`;
+    const d = new Date(b.next_run * 1000), days = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString())) / 864e5);
+    meta = `next run ${days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, { weekday: "long" })} at ${d.toTimeString().slice(0, 5)}`;
   }
   else if (b.status === "idle" && !b.skills.length) meta = "hasn’t learned yet";
   else if (b.status === "moved") meta = b.needs ? `needs you · on ${b.remote || "another computer"}` : `on ${b.remote || "another computer"}`;
@@ -244,6 +244,7 @@ async function drawBuddy() {
 }
 
 // ---------------------------------------------------------------- sidebar
+const MORE = ["#/library", "#/models", "#/keys", "#/activity", "#/team", "#/computers", "#/connectors", "#/look", "#/settings"];  // everything past the basics, folded away
 function renderNav() {
   const r = location.hash;
   const on = (h) => (r.startsWith(h) ? " on" : ""), nav = $("#nav");
@@ -251,21 +252,21 @@ function renderNav() {
     <a class="brand" href="#/bots">${critter("octopus", "#E86F51", "none", 26)}<b>inky</b><span class="os">open source</span></a>
     <a class="newbot" href="#/new">${icon("plus", 16, 2.2)}New bot</a>
     <div class="navlabel">Bots</div>
-    <div class="navbots">${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/computer" data-bot="${b.id}">
+    <div class="navbots">${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/${b.skills.length ? "results" : "computer"}" data-bot="${b.id}">
       <span class="av">${botCritter(b, 26)}<i class="${["working", "learning"].includes(b.status) ? "live" : ""}" style="background:${m.color}"></i></span>
       <span class="t"><span title="${esc(b.name)}">${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}</div>
     <div class="navbottom">
       ${(S.thinking || []).length ? `<div class="thinking" role="status"><span class="livedot" aria-hidden="true"></span><span class="t small"><b class="mono">${esc(S.thinking[0].model)}</b> is thinking${S.thinking[0].name ? ` for ${esc(S.thinking[0].name)}` : ""} · <span data-since="${S.thinking[0].since}">${Math.round(Date.now() / 1000 - S.thinking[0].since)} s</span>${S.thinking.length > 1 ? ` · ${S.thinking.length - 1} more` : ""}</span><button class="iconbtn" id="stopmodel" aria-label="Stop the model" title="Stop the model">${icon("x", 14)}</button></div>` : ""}
       <a class="navlink needlink${S.needs ? "" : " calm"}${on("#/needs")}" href="#/needs"><i></i>${needsText()}</a>
-      <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
-      <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>
-      <a class="navlink${on("#/library")}" href="#/library">${icon("store")}Library</a>
-      <a class="navlink${on("#/computers")}" href="#/computers">${icon("monitor")}Computers</a>
-      <a class="navlink${r.startsWith("#/models") || r.startsWith("#/keys") ? " on" : ""}" href="#/models">${icon("models")}Models</a>
-      <a class="navlink${on("#/connectors")}" href="#/connectors">${icon("plug")}Connectors</a>
-      <a class="navlink${on("#/look")}" href="#/look">${icon("spark")}Make it yours</a>
-      <a class="navlink${on("#/settings")}" href="#/settings">${icon("gear")}Settings</a>
-      <a class="navfoot" href="#/connectors">${icon("plug", 14)}<span>Claude Code · Codex · MCP</span></a>
+      <details class="navmore"${MORE.some((h) => r.startsWith(h)) ? " open" : ""}><summary class="navlink">${icon("menu")}More</summary>
+        <a class="navlink${on("#/library")}" href="#/library">${icon("store")}Library: ready-made bots</a>
+        <a class="navlink${r.startsWith("#/models") || r.startsWith("#/keys") ? " on" : ""}" href="#/models">${icon("models")}Models and keys</a>
+        <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
+        <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>
+        <a class="navlink${on("#/computers")}" href="#/computers">${icon("monitor")}Computers</a>
+        <a class="navlink${on("#/connectors")}" href="#/connectors">${icon("plug")}Connectors</a>
+        <a class="navlink${on("#/look")}" href="#/look">${icon("spark")}Make it yours</a>
+        <a class="navlink${on("#/settings")}" href="#/settings">${icon("gear")}Settings</a></details>
     </div>`;
   if (html === nav._html) return;  // live events re-render a lot: an unchanged sidebar keeps its focus and scroll
   const f = nav.contains(document.activeElement) && document.activeElement.getAttribute("href"), top = $(".navbots") ? $(".navbots").scrollTop : 0;

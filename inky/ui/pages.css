@@ -82,3 +82,4 @@ a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
 .hrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
 .hrow:last-child{border-bottom:0}
 @media (max-width:640px){.need .opts{padding-left:0}}
+.cfound{gap:4px;padding:12px 14px;min-height:90px;justify-content:center}
