@@ -62,7 +62,7 @@ class Engine:
         t0 = time.time()
         while time.time() - t0 < limit:
             b = self.bot(bid)["bot"]
-            if b["status"] not in ("working", "learning") and not b.get("run_kind") and not b.get("site_batch"):
+            if b["status"] not in ("working", "learning") and not b.get("run_kind") and not b.get("sites_to_go"):
                 return round(time.time() - t0)
             time.sleep(3)
         return limit

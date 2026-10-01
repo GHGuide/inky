@@ -343,6 +343,17 @@ class Ctx:
         out, self.run.fixes = self.run.fixes, []
         return out
 
+    def _remember_always(self, step):
+        sid = getattr(self.run, "skill_id", None) if self.run else None
+        sk = self.e.store.get("skills", sid) if sid else None
+        if not sk:
+            return
+        same = lambda st: st.get("action") == step.get("action") and st.get("text") == step.get("text") and \
+            (st.get("target") or {}).get("name") == (step.get("target") or {}).get("name")
+        steps = [dict(st, approved_always=True) if same(st) else st for st in sk.get("steps") or []]
+        if steps != sk.get("steps"):
+            self.e.store.update("skills", sid, steps=steps)
+
     def gate(self, step, el, page):
         verdict, why = classify(step["action"], el, page)
         name = self.bot["name"]
@@ -380,6 +391,7 @@ class Ctx:
             raise skills.NeedsHelp("denied", f"Stopped before it could {what}", "You said no, so nothing was sent.", [])
         if decision == "Always for this step":
             step["approved_always"] = True
+            self._remember_always(step)  # saved now: a later step failing must never make it ask you again
 
 
 class Engine:
@@ -455,7 +467,7 @@ class Engine:
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
-                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), **self._found(b["id"]),
+                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), "sites_to_go": len(b.get("site_queue") or []) + (1 if b.get("site_batch") else 0), **self._found(b["id"]),
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),

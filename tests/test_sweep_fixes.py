@@ -38,6 +38,20 @@ class GateTest(unittest.TestCase):
         self.assertIsNone(rule_hit(rules, "ask", "Type Bari"))
 
 
+class AlwaysTest(unittest.TestCase):
+    def test_always_is_saved_the_moment_you_choose_it(self):
+        E = make_engine()
+        self.addCleanup(E.close)
+        b = E.create_bot({"name": "Sender", "goal": "send"})
+        step = {"action": "click", "text": "Click Invia", "target": {"role": "button", "name": "Invia"}}
+        sid = E.store.insert("skills", {"name": "Send", "steps": [dict(step)]}, bot_id=b["id"], status="ok")
+        c = Ctx.__new__(Ctx)
+        c.e, c.bot_id, c.bot = SimpleNamespace(store=E.store, ask=lambda *a, **k: "Always for this step"), b["id"], {"name": "Sender", "rules": []}
+        c.run, c.computer = SimpleNamespace(skill_id=sid, check=False), SimpleNamespace(call=lambda *a, **k: [])
+        c.gate(step, {"role": "button", "name": "Invia"}, {"url": "x"})
+        self.assertTrue(E.store.get("skills", sid)["steps"][0].get("approved_always"))  # even if a later step fails, it won't ask again
+
+
 class ActionsTest(unittest.TestCase):
     def setUp(self):
         self.E = make_engine()

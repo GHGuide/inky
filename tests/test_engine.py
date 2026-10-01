@@ -1,6 +1,8 @@
 """Engine end to end with a scripted model: draft, chat actions, learn → replay, new-only results,
 approval gate on a Send button, show-me-once, move between two engines, and MCP both ways."""
+import atexit
 import json
+import shutil
 import os
 import sys
 import tempfile
@@ -46,7 +48,8 @@ class FakeLLM(LLM):
 
 def make_engine():
     os.environ["INKY_KEYS"] = "file"  # tests never touch your real Keychain
-    e = Engine(tempfile.mkdtemp())
+    e = Engine(tempfile.mkdtemp(prefix="inky-test-"))
+    atexit.register(shutil.rmtree, str(e.home), True)  # test engines never pile up on the disk
     e.llm = FakeLLM(e.store, e.keys, on_usage=e._usage)
     return e
 
