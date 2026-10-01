@@ -292,7 +292,7 @@ VIEWS.bots = {
       <div class="composer"><label class="vh" for="job">Describe the job</label><textarea id="job" rows="2" placeholder="Describe a job, or @mention a bot"></textarea>
         <div class="between"><span class="mono small muted">${esc(shortcut())} · @ to talk to a bot</span><button class="btn p" id="go">Start</button></div></div>
       <div class="row wrap" style="justify-content:center">${["Find rental flats abroad under €150k", "Watch 5 webshops for price drops", "Every morning, check new books on books.toscrape.com"].map((t) => `<button class="btn" data-ex="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
-      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards" aria-pressed="false">Cards</button><button data-hv="office" aria-pressed="false">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".inky,.json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
+      <div class="page" style="padding-top:12px"><div id="betterm"></div><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards" aria-pressed="false">Cards</button><button data-hv="office" aria-pressed="false">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".inky,.json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
     const go = () => {
       const t = $("#job").value.trim();
       if (!t) { toast("Describe the job first"); return $("#job").focus(); }
@@ -322,8 +322,24 @@ VIEWS.bots = {
     $$("[data-hv]").forEach((x) => (x.onclick = () => { try { localStorage.setItem("inkyHome", x.dataset.hv); } catch (e) {} this.refresh(); }));
     this.refresh();
     this.recap();
+    this.better();
     try { if (sessionStorage.getItem("inkyTourNext") && !localStorage.getItem("inkyTour")) { sessionStorage.removeItem("inkyTourNext"); setTimeout(() => tour(0), 600); } } catch (e) {}
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
+  },
+  async better() {  // best results first: a small model learns sites poorly, so a bigger one you already have is offered once
+    try { if (localStorage.getItem("inkyBetterNo")) return; } catch (e) {}
+    const ch = await get("/api/models/choices").catch(() => null);
+    const u = ch && ch.using, cur = u && ch.choices.find((c) => c.provider === u.provider && c.model === u.model);
+    const rec = ch && ch.recommended && ch.choices.find((c) => c.provider === "ollama" && c.model === ch.recommended);
+    if (!cur || !cur.small || !rec || rec.small || !$("#betterm")) return;
+    $("#betterm").innerHTML = `<div class="card panel" style="margin-bottom:18px"><div class="between"><span><b>Your bots use ${esc(u.model)}, a small model.</b> <span class="small muted">It chats fine but learns sites poorly. ${esc(rec.model)} is on this computer and learns much better.</span></span>
+      <span class="row"><button class="btn s p" id="betteryes">Use ${esc(rec.model)}</button><button class="btn s" id="betterno">Not now</button></span></div><span class="small" id="bettermsg" role="status"></span></div>`;
+    $("#betterno").onclick = () => { try { localStorage.setItem("inkyBetterNo", "1"); } catch (e) {} $("#betterm").innerHTML = ""; };
+    $("#betteryes").onclick = async () => {
+      const b = $("#betteryes"); busyBtn(b, true, "Checking…");
+      const r = await post("/api/models/connect", { provider: "ollama", model: rec.model }).catch((e) => ({ ok: false, reply: e.message }));
+      if (r.ok) { $("#betterm").innerHTML = ""; toast(`All your bots use ${r.model} now`); } else { busyBtn(b, false); formSay("#bettermsg", r.reply || "It didn’t answer.", false); }
+    };
   },
   async recap() {  // "While you were away", when the app was closed or hidden for 2+ hours
     const since = awaySince();
