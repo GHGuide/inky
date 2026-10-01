@@ -1483,7 +1483,7 @@ VIEWS.connectors = {
       : !c.installed ? (c.fix_url ? `<a class="btn s" href="${esc(c.fix_url)}" target="_blank" rel="noopener">How to install ↗</a>` : "")
       : c.connected ? `<button class="btn s" data-test="${c.name}">Test</button><button class="btn s" data-off="${c.name}">Disconnect</button>` : `<button class="btn s p" data-on="${c.name}">Connect</button>`;
     const extra = c.kind === "mcp" && !c.preset ? `<button class="btn s hot" data-rm="${c.name}">Remove</button>`
-      : PRESET_CMD[c.name] && !PRESET_CMD[c.name].test((c.command || []).join(" ")) ? `<button class="btn s" data-reset="${c.name}">Reset</button>` : "";
+      : c.overridden || (c.overridden === undefined && PRESET_CMD[c.name] && !PRESET_CMD[c.name].test((c.command || []).join(" "))) ? `<button class="btn s" data-reset="${c.name}">Reset</button>` : "";
     const detail = ["Not set up yet.", "Connected."].includes(c.detail) ? "" : c.detail;  // the badge already says so
     const saved = B ? (c.fields || []).filter((f) => !f.secret && (c.values || {})[f.key]).map((f) => `${esc(f.label)}: <span class="mono">${esc(c.values[f.key])}</span>`).join(" · ") : "";
     return `<div class="card conn" data-c="${c.name}"><div class="row crow">${logo(c.logo, 44)}<div class="grow"><div class="row wrap" style="gap:8px"><b style="font-size:16px">${esc(c.label)}</b><span class="cstate ${cls}">${esc(txt)}</span></div><div class="small muted">${withCode(c.about || "")}</div></div>
@@ -1508,7 +1508,9 @@ VIEWS.connectors = {
       <div><button class="btn s" data-try="${n}">Run it</button></div></form><pre class="code tryout hidden" data-out="${n}" role="status"></pre></details>`;
   },
   toolParams(n) {  // each tool's parameters, for the arguments skeleton (Connect on a connected server only lists its tools)
-    return (this.params[n] = this.params[n] || post(`/api/mcp/${n}/connect`).then((r) => Object.fromEntries(r.tools.map((t) => [t.name, t.params])))
+    const blank = { string: "", number: 0, integer: 0, boolean: false, array: [], object: {} };  // required fields only, typed
+    return (this.params[n] = this.params[n] || post(`/api/mcp/${n}/connect`).then((r) => Object.fromEntries(r.tools.map((t) => [t.name,
+      Object.fromEntries((t.required && t.required.length ? t.required : t.params).map((p) => [p, blank[(t.types || {})[p]] ?? ""]))])))
       .catch(() => { delete this.params[n]; return {}; }));
   },
   render({ connectors: all, inky }) {
@@ -1582,8 +1584,8 @@ VIEWS.connectors = {
     });
     $$("details[data-keep^='try-']", this.el).forEach((d) => (d.ontoggle = () => { if (d.open) this.toolParams(d.dataset.keep.slice(4)); }));
     $$("[data-tool]", this.el).forEach((s) => (s.onchange = async () => {  // the arguments follow the tool
-      const n = s.dataset.tool, tool = s.value, ps = (await this.toolParams(n))[tool] || [], a = $(`#args-${n}`, this.el);
-      if (a && s.value === tool) { a.value = JSON.stringify(TRY_EXAMPLE[`${n}.${tool}`] || Object.fromEntries(ps.map((p) => [p, ""])), null, 2); a.rows = Math.min(8, a.value.split("\n").length); }
+      const n = s.dataset.tool, tool = s.value, ps = (await this.toolParams(n))[tool] || {}, a = $(`#args-${n}`, this.el);
+      if (a && s.value === tool) { a.value = JSON.stringify(TRY_EXAMPLE[`${n}.${tool}`] || ps, null, 2); a.rows = Math.min(8, a.value.split("\n").length); }
     }));
     $$("[data-tryf]", this.el).forEach((f) => (f.onsubmit = async (ev) => {
       ev.preventDefault();

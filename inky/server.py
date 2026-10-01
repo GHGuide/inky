@@ -406,7 +406,7 @@ def local(E, h, q, body):
                ("llama3.3:70b", 43.0, "Very capable, very large.", "")]
     have = {m["name"] for m in st["ollama"]["models"]}
     disk = st["hardware"].get("disk_free_gb")
-    fit = lambda gb: "not enough disk" if disk is not None and gb + 1 > disk else fits(gb * 2**30, mem, running)
+    fit = lambda gb: "not enough disk" if disk is not None and gb + 1 > disk else fits(gb * 1e9, mem, running)  # catalog sizes are decimal GB
     st["catalog"] = [{"name": n, "gb": gb, "about": a, "badge": b, "installed": n in have or any(x.startswith(n + ":") for x in have),
                       "fit": fit(gb)} for n, gb, a, b in catalog]
     st["pulls"] = E.store.setting("pulls", {})
@@ -583,7 +583,10 @@ def mcp_connect(E, h, q, body, name):
     E.mcp.save(name, enabled=True)
     tools = E.mcp.tools(name)
     return {"tools": [{"name": t["name"], "description": (t.get("description") or "")[:300],
-                       "params": list((t.get("inputSchema") or {}).get("properties", {}).keys())} for t in tools],
+                       "params": list((t.get("inputSchema") or {}).get("properties", {}).keys()),
+                       "required": (t.get("inputSchema") or {}).get("required", []),
+                       "types": {k: v.get("type") for k, v in (t.get("inputSchema") or {}).get("properties", {}).items() if isinstance(v, dict)}}
+                      for t in tools],
             "server": E.mcp.clients[name].server_info}
 
 
@@ -829,6 +832,7 @@ def settings_view(E):
     d["telegram"] = E.store.setting("telegram", {"enabled": False})
     d["n8n_connected"] = connectors.PROVIDERS["n8n"].configured(E)
     d["web_url"] = lan_url(E)
+    d["engine_name"] = E.store.setting("engine_name") or platform.node()  # the stored, trimmed name (not what was typed)
     return d
 
 

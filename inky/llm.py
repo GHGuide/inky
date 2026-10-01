@@ -343,7 +343,7 @@ def hardware():
             m = Mem(length=ctypes.sizeof(Mem))
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
             info["memory_gb"] = round(m.total / 2**30)
-        info["disk_free_gb"] = round(shutil.disk_usage(os.path.expanduser("~")).free / 2**30)
+        info["disk_free_gb"] = round(shutil.disk_usage(os.path.expanduser("~")).free / 1e9)  # decimal GB, like model sizes
     except Exception:
         pass
     return info

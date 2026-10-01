@@ -74,7 +74,9 @@ def signed_in(name):
 def status(E):
     out = []
     for s in E.mcp.servers():
+        from inky.mcp import PRESETS
         v = {"name": s["name"], "label": s["label"], "about": s["about"], "kind": "mcp", "preset": s["preset"],
+             "overridden": bool(s["preset"] and s["command"] != PRESETS[s["name"]]["command"]),
              "logo": {"claude-code": "claude", "codex": "codex"}.get(s["name"], "mcp"), "command": s["command"],
              "installed": s["installed"], "enabled": s["enabled"], "connected": s["connected"], "tools": s["tools"],
              "signed_in": None, "detail": "", "fix": "", "fix_url": ""}
@@ -135,7 +137,11 @@ class Provider:
         on = self.configured(E)
         return {"name": self.name, "label": self.label, "logo": self.logo, "about": self.about, "kind": "builtin",
                 "installed": True, "enabled": on, "connected": on, "signed_in": None, "fields": self.fields,
-                "tools": [t["name"] for t in self.tools()], "detail": self.detail(E), "fix": "", "fix_url": ""}
+                "tools": [t["name"] for t in self.tools()], "detail": self.detail(E), "fix": "", "fix_url": "", "values": self.values(E)}
+
+    def values(self, E):
+        """Non-secret settings you saved, so a form can show them again."""
+        return {}
 
     def detail(self, E):
         return "Connected." if self.configured(E) else "Not set up yet."
@@ -248,6 +254,9 @@ class N8n(Provider):
 
     def conf(self, E):
         return E.store.setting("n8n", {}).get("url"), E.keys.get("n8n")
+
+    def values(self, E):
+        return {"url": E.store.setting("n8n", {}).get("url") or ""}
 
     def configured(self, E):
         return all(self.conf(E))
