@@ -920,87 +920,236 @@ VIEWS.computers = {
   },
 };
 
+// ================================================================ form pages: models, keys, connectors, make it yours, settings
+// They are live:false, so a live event never redraws them under your hands. They redraw after their own actions
+// (through redraw, which keeps what you typed) and update single elements for the events they care about.
+function formSay(where, text, ok) {  // a status line: ok true = good, false = bad, "warn" = amber, else muted
+  const m = typeof where === "string" ? $(where) : where;
+  if (m) { m.textContent = text; m.className = "small " + (ok === true ? "good" : ok === false ? "bad" : ok === "warn" ? "warn" : "muted"); }
+}
+function busy(b, on) {  // a button that is working can't be pressed twice, and gets the focus back afterwards
+  if (!b) return;
+  const had = document.activeElement === b;
+  b.disabled = on;
+  if (!on && (had || document.activeElement === document.body) && document.contains(b)) b.focus();
+}
+function redraw(el, render) {  // draw a form page again, keeping what you typed or picked, open sections and the focus
+  const key = (x) => x.id || [...x.attributes].filter((a) => a.name.startsWith("data-")).map((a) => `${a.name}=${a.value}`).join("&");
+  const vals = $$("input,textarea,select", el).filter((i) => i.type !== "checkbox" && (i.tagName === "SELECT" || i.value)).map((i) => [key(i), i.value]);
+  const open = $$("details[open]", el).map(key), a = document.activeElement, focus = a && el.contains(a) ? key(a) : "";
+  render();
+  const find = (k) => k && $$("input,textarea,select,details,button,a", el).find((x) => key(x) === k);
+  vals.forEach(([k, v]) => { const i = find(k); if (i && i.tagName !== "BUTTON" && i.tagName !== "A" && i.tagName !== "DETAILS") i.value = v; });
+  open.forEach((k) => { const d = find(k); if (d && d.tagName === "DETAILS") d.open = true; });
+  const f = find(focus); if (f) f.focus();
+}
+const GB = (bytes) => (bytes / 1e9).toFixed(1);  // decimal GB, like ollama.com, `ollama list` and the local catalog
+const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this computer", env: "from your environment (.env)" };
+const keyErr = (status) => ([401, 403].includes(+status) ? `refused (${status})` : `error ${status}`);
+
 // ================================================================ models
+const ROLE_ABOUT = { learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule",
+  repair: "when a button moves and its name isn’t enough", smart: "when you choose “Try a smarter model”" };
 VIEWS.models = {
+  live: false,
   async show(el, [sub]) { this.el = el; this.sub = sub; await this.refresh(); },
-  onEvent(m) { if (m.kind === "pull" && this.sub === "local") this.refresh(); },
-  async refresh() { return this.sub === "local" ? this.local() : this.main(); },
-  async main() {
-    const m = await get("/api/models"), loc = await get("/api/models/local");
-    const provs = m.providers;
-    this.el.innerHTML = `${mobileBar("Models")}<div class="page"><div class="between"><div><h1>Models</h1><p class="lede">Bots only use a model to learn a job or understand you. Repeating a job uses none.</p></div><span class="row"><a class="btn" href="#/models/local">Add a local model</a><a class="btn p" href="#/keys">Add an API key</a></span></div>
-      <section class="card"><div class="list">${Object.entries(m.role_labels).map(([r, label]) => { const v = m.roles[r] || {}; return `<div class="row" style="padding:10px 0"><span class="col grow" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${{ learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule", repair: "when a button moves and its name isn’t enough", smart: "when you choose “Try a smarter model”" }[r]}</span></span>
-        <select class="f" style="width:180px" data-rp="${r}" aria-label="Provider for ${esc(label)}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
-        <input class="f mono" style="width:240px" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml" aria-label="Model for ${esc(label)}"><button class="btn s" data-save="${r}" aria-label="Save ${esc(label)}">Save</button><button class="btn s" data-test="${r}" aria-label="Test ${esc(label)}">Test</button></div>`; }).join("")}</div>
-        <datalist id="ml">${loc.ollama.models.map((x) => `<option value="${esc(x.name)}">`).join("")}<option value="z-ai/glm-5.3"><option value="claude-sonnet-5-5"></datalist><span class="small muted" id="testout"></span></section>
-      <div class="grid2"><section class="card"><div class="head"><b>On this computer</b><span class="small muted">free · private · works offline</span></div>
-        <div class="between"><span>Ollama</span><span class="small ${loc.ollama.running ? "" : "muted"}">${loc.ollama.running ? `running · ${loc.ollama.models.length} models` : loc.ollama.installed ? "installed, not running (ollama serve)" : "not installed"}</span></div>
-        <div class="row wrap">${loc.ollama.models.map((x) => `<span class="chip">${esc(x.name)} · ${(x.size / 2 ** 30).toFixed(1)} GB</span>`).join("")}</div>
-        <div class="between"><span>LM Studio</span><span class="small muted">${loc.lmstudio.installed ? "found" : "not found"}</span></div>
-        <div class="between"><span>OpenAI-compatible server</span><span class="small muted mono">${esc(loc.custom.base)} · ${loc.custom.reachable ? "reachable" : "not reachable"}</span></div><a class="small" href="#/models/local" style="font-weight:600">Add a local model</a></section>
-      <section class="card"><div class="head"><b>With your keys</b><span class="small muted">you pay the provider directly</span></div>${provs.filter((p) => !p.local).map((p) => `<div class="between"><span class="row">${providerLogo(p.name)}${esc(p.label)}</span>${p.key ? `<span class="small" style="color:var(--green-t)">● ${esc(p.key)}${m.errors[p.name] ? ` · error ${m.errors[p.name].status}` : ""}</span>` : `<a class="btn s" href="#/keys?p=${p.name}">Add key</a>`}</div>`).join("")}</section></div>
-      <span class="small muted">Local models never leave this computer. Cloud models only see the page text a bot sends while learning, never your passwords or files.</span></div>`;
-    $$("[data-save]").forEach((x) => (x.onclick = async () => { const r = x.dataset.save; await post("/api/models/role", { role: r, provider: $(`[data-rp="${r}"]`).value, model: $(`[data-rm="${r}"]`).value }); toast("Saved"); }));
-    $$("[data-test]").forEach((x) => (x.onclick = async () => { const r = x.dataset.test; $("#testout").textContent = "Testing…"; const t = await post("/api/models/test", { provider: $(`[data-rp="${r}"]`).value, model: $(`[data-rm="${r}"]`).value }); $("#testout").textContent = t.ok ? `Works · replied “${t.reply}” in ${t.seconds} s` : `Didn’t work: ${t.reply}`; }));
+  onEvent(m) { if (m.kind === "pull" && this.sub === "local") this.pulled(m); },
+  async refresh() {
+    if (this.sub === "local") { const loc = await get("/api/models/local"); return redraw(this.el, () => this.local(loc)); }
+    const [md, loc] = await Promise.all([get("/api/models"), get("/api/models/local")]);
+    redraw(this.el, () => this.main(md, loc));
   },
-  async local() {
-    const loc = await get("/api/models/local"), hw = loc.hardware;
+  main(md, loc) {
+    const provs = md.providers, o = loc.ollama, local = o.models.map((x) => x.name);
+    const suggest = (p) => (p === "ollama" ? local : [...new Set(Object.values(md.roles).filter((v) => v.provider === p && v.model).map((v) => v.model))]);
+    const opts = (p) => suggest(p).map((x) => `<option value="${esc(x)}">`).join("");
+    this.el.innerHTML = `${mobileBar("Models")}<div class="page"><div class="between"><div><h1>Models</h1><p class="lede">Bots only use a model to learn a job or understand you. Repeating a job uses none.</p></div><span class="row"><a class="btn" href="#/models/local">Add a local model</a><a class="btn p" href="#/keys">Add an API key</a></span></div>
+      <section class="card"><div class="list">${Object.entries(md.role_labels).map(([r, label]) => { const v = md.roles[r] || {}; return `<div class="mrole"><div class="row mrow"><span class="col mlabel" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${ROLE_ABOUT[r] || ""}</span></span>
+        <select class="f mprov" data-rp="${r}" aria-label="Provider for ${esc(label)}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
+        <input class="f mono mmodel" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml-${r}" aria-label="Model for ${esc(label)}" autocomplete="off" spellcheck="false"><datalist id="ml-${r}">${opts(v.provider)}</datalist>
+        <span class="row" style="gap:6px"><button class="btn s" data-save="${r}" aria-label="Save ${esc(label)}">Save</button><button class="btn s" data-test="${r}" aria-label="Test ${esc(label)}">Test</button></span></div>
+        <span class="small" data-out="${r}" role="status"></span></div>`; }).join("")}</div></section>
+      <div class="grid2"><section class="card"><div class="head"><b>On this computer</b><span class="small muted">free · private · works offline</span></div>
+        <div class="between"><span>Ollama</span>${o.running ? `<span class="small good">● running · ${o.models.length} model${o.models.length === 1 ? "" : "s"}</span>` : o.installed ? `<span class="row" style="gap:8px"><span class="small muted">installed, not running</span><button class="btn s" data-ostart>Start Ollama</button></span>` : `<a class="small" href="https://ollama.com/download" target="_blank" rel="noopener">Install Ollama ↗</a>`}</div>
+        ${o.models.length ? `<div class="row wrap">${o.models.map((x) => `<span class="chip">${esc(x.name)} · ${GB(x.size)} GB</span>`).join("")}</div>` : ""}
+        <div class="between"><span>LM Studio</span><span class="small muted">${loc.lmstudio.installed ? "found" : "not found"}</span></div>
+        <div class="between"><span>OpenAI-compatible server</span><span class="small mono addr ${loc.custom.reachable ? "good" : "muted"}">${esc(loc.custom.base)} · ${loc.custom.reachable ? "reachable" : "not reachable"}</span></div><a class="small" href="#/models/local" style="font-weight:600">Add a local model</a></section>
+      <section class="card"><div class="head"><b>With your keys</b><span class="small muted">you pay the provider directly</span></div>${provs.filter((p) => !p.local).map((p) => { const e = md.errors[p.name]; return `<div class="between"><span class="row">${providerLogo(p.name)}${esc(p.label)}</span>${p.key ? `<a class="small ${e ? "warn" : "good"}" href="#/keys?p=${p.name}">● ${esc(KEY_SOURCE[p.key] || p.key)}${e ? ` · ${keyErr(e.status)}` : ""}</a>` : `<a class="btn s" href="#/keys?p=${p.name}">Add key</a>`}</div>`; }).join("")}</section></div>
+      <span class="small muted">Local models never leave this computer. Cloud models only see the page text a bot sends while learning, never your passwords or files.</span></div>`;
+    const row = (r) => ({ p: $(`[data-rp="${r}"]`, this.el), m: $(`[data-rm="${r}"]`, this.el), out: $(`[data-out="${r}"]`, this.el), label: md.role_labels[r] });
+    $$("[data-rp]", this.el).forEach((s) => (s.onchange = () => {  // suggestions follow the provider; a model from another provider is cleared
+      const r = s.dataset.rp, list = suggest(s.value), i = row(r).m;
+      $(`#ml-${r}`, this.el).innerHTML = opts(s.value);
+      if (!list.includes(i.value)) i.value = list[0] || "";
+      i.placeholder = list.length ? "model name" : "type the model name";
+    }));
+    $$("[data-save]", this.el).forEach((b) => (b.onclick = async () => {
+      const r = b.dataset.save, x = row(r), model = x.m.value.trim();
+      if (!model) { formSay(x.out, "Pick or type a model name first.", false); return x.m.focus(); }
+      busy(b, true); formSay(x.out, "Saving…");
+      try {
+        const res = await post("/api/models/role", { role: r, provider: x.p.value, model });
+        formSay(x.out, res.warning || `✓ Saved. ${x.label} uses ${model}.`, res.warning ? "warn" : true);
+        toast(`Saved: ${x.label} uses ${model}`);
+      } catch (e) { formSay(x.out, e.message, false); }
+      busy(b, false);
+    }));
+    $$("[data-test]", this.el).forEach((b) => (b.onclick = async () => {
+      const r = b.dataset.test, x = row(r);
+      busy(b, true); formSay(x.out, "Testing…");
+      try {
+        const t = await post("/api/models/test", { provider: x.p.value, model: x.m.value.trim() });
+        formSay(x.out, t.ok ? `✓ Works. Replied “${t.reply}” in ${t.seconds} s.` : t.seconds != null ? `It answered, but not with OK: “${t.reply}”` : t.reply, !!t.ok);
+      } catch (e) { formSay(x.out, e.message, false); }
+      busy(b, false);
+    }));
+    this.bindStart();
+  },
+  bindStart() {
+    $$("[data-ostart]", this.el).forEach((b) => (b.onclick = async () => {
+      busy(b, true); b.textContent = "Starting…";
+      const r = await post("/api/models/local/start").catch(() => ({}));
+      if (r.running) { toast("Ollama is running"); return this.refresh(); }
+      b.textContent = "Start Ollama"; busy(b, false);
+      toast("Ollama didn’t start. Open the Ollama app once, then try again.");
+    }));
+  },
+  pullCard(c) {
+    const p = this.loc.pulls[c.name], big = ["too big", "not enough disk"].includes(c.fit);
+    const pct = p && p.total ? Math.round(p.completed / p.total * 100) : null, failed = p && String(p.status).startsWith("failed");
+    return `<div class="card" style="padding:12px 16px" data-pc="${esc(c.name)}"><div class="row"><span class="grow"><span class="row wrap"><b class="mono">${esc(c.name)}</b><span class="small muted">${c.gb} GB</span>${c.badge ? `<span class="badge good">${esc(c.badge)}</span>` : ""}<span class="badge ${big ? "hot" : c.fit === "fits well" ? "good" : ""}">${esc(c.fit)}</span></span><span class="small muted">${esc(c.about)}</span></span>
+      ${c.installed ? `<span class="small good">● installed</span>` : `<button class="btn s" data-pull="${esc(c.name)}" ${!this.loc.ollama.running || big ? "disabled" : ""}>Download</button>`}</div>
+      ${p && !c.installed ? `<div class="small mono ${failed ? "bad" : "muted"}" role="status">${esc(p.status || "")}${pct !== null && !failed ? ` · ${pct}%` : ""}</div>` : ""}</div>`;
+  },
+  local(loc) {
+    this.loc = loc; loc.pulls = loc.pulls || {};
+    const hw = loc.hardware, o = loc.ollama;
+    const ostate = o.running ? `<span>Ollama is running <span class="okdot">●</span></span>`
+      : o.installed ? `<span class="row" style="gap:8px"><span>Ollama is installed, not running</span><button class="btn s" data-ostart>Start Ollama</button></span>`
+      : `<a href="https://ollama.com/download" target="_blank" rel="noopener">Install Ollama from ollama.com ↗</a>`;
     this.el.innerHTML = `${mobileBar("Local model")}<div class="page"><div class="row small"><a href="#/models" class="muted">Models</a><span class="muted">/</span><b>Add a local model</b></div>
       <div><h1>Add a local model</h1><p class="lede">Runs on this computer. Free, private, and it works offline.</p></div>
-      <div class="card panel row">${icon("monitor", 18)}<span><b>${esc(hw.cpu || "This computer")}</b> · ${hw.memory_gb || "?"} GB memory · ${hw.disk_free_gb || "?"} GB free</span><span class="grow"></span><span>${loc.ollama.running ? "Ollama is running ●" : loc.ollama.installed ? "Ollama installed, not running: run “ollama serve”" : "Install Ollama from ollama.com"}</span></div>
-      <div class="row" style="align-items:flex-start;gap:18px"><section class="col grow"><b>What fits, next to your running bots</b>${loc.catalog.map((c) => { const p = loc.pulls[c.name]; const pct = p && p.total ? Math.round(p.completed / p.total * 100) : null; return `<div class="card" style="padding:12px 16px"><div class="row"><span class="grow"><span class="row"><b class="mono">${c.name}</b><span class="small muted">${c.gb} GB</span>${c.badge ? `<span class="badge good">${c.badge}</span>` : ""}<span class="badge ${["too big", "not enough disk"].includes(c.fit) ? "hot" : c.fit === "fits well" ? "good" : ""}">${c.fit}</span></span><span class="small muted">${esc(c.about)}</span></span>
-        ${c.installed ? `<span class="small" style="color:var(--green-t)">● installed</span>` : `<button class="btn s" data-pull="${c.name}" ${!loc.ollama.running || ["too big", "not enough disk"].includes(c.fit) ? "disabled" : ""}>Download</button>`}</div>${p && !c.installed ? `<div class="small mono muted">${esc(p.status || "")}${pct !== null ? ` · ${pct}%` : ""}</div>` : ""}</div>`; }).join("")}</section>
-      <aside class="col" style="width:380px;flex-shrink:0"><div class="card"><b>Another runtime</b><span class="small muted">LM Studio, llama.cpp, vLLM or anything with an OpenAI-compatible address.</span><div class="row"><label class="vh" for="cb">Server address</label><input class="f mono" id="cb" value="${esc(loc.custom.base)}"><button class="btn s" id="cbs">Connect</button></div><span class="small muted">${loc.custom.reachable ? "● reachable" : "not reachable yet"}</span></div>
+      <div class="card panel hw">${icon("monitor", 18)}<span><b>${esc(hw.cpu || "This computer")}</b> · ${hw.memory_gb || "?"} GB memory · ${hw.disk_free_gb || "?"} GB free</span><span class="grow"></span>${ostate}</div>
+      <div class="row lmwrap"><section class="col lmlist"><b>What fits, next to your running bots</b>${loc.catalog.map((c) => this.pullCard(c)).join("")}</section>
+      <aside class="col lmside"><form class="card" id="cbf" novalidate><b>Another runtime</b><span class="small muted">LM Studio, llama.cpp, vLLM or anything with an OpenAI-compatible address.</span>
+        <div class="row"><label class="vh" for="cb">Server address</label><input class="f mono" id="cb" value="${esc(loc.custom.base)}" placeholder="http://127.0.0.1:1234/v1" autocomplete="off" spellcheck="false"><button class="btn s" id="cbs">Connect</button></div>
+        <span class="small ${loc.custom.reachable ? "good" : "muted"}" id="cbmsg" role="status">${loc.custom.reachable ? "● reachable" : "not reachable yet"}</span></form>
       <div class="card small"><b>Tip</b><span>Use a local model for chat and a cloud model for learning new sites, in Models.</span></div></aside></div></div>`;
-    $$("[data-pull]").forEach((x) => (x.onclick = async () => { if (await confirmBox(`Download ${x.dataset.pull} (${loc.catalog.find((c) => c.name === x.dataset.pull).gb} GB) from ollama.com?`, "Download")) { await post("/api/models/pull", { name: x.dataset.pull }); toast("Downloading…"); } }));
-    $("#cbs").onclick = async () => { await post("/api/models/custom", { base: $("#cb").value }); this.refresh(); };
+    this.el.onclick = async (e) => {  // on the page, not the button: a download's card is redrawn as it goes
+      const b = e.target.closest("[data-pull]"); if (!b || b.disabled) return;
+      const c = this.loc.catalog.find((x) => x.name === b.dataset.pull);
+      if (!(await confirmBox(`Download ${c.name} (${c.gb} GB) from ollama.com?`, "Download"))) return;
+      try { await post("/api/models/pull", { name: c.name }); toast(`Downloading ${c.name}…`); } catch (err) { toast(err.message); }
+    };
+    $("#cbf").onsubmit = async (e) => {
+      e.preventDefault();
+      const b = $("#cbs"), i = $("#cb");
+      busy(b, true); formSay("#cbmsg", "Checking the server…");
+      try {
+        const r = await post("/api/models/custom", { base: i.value });
+        i.value = r.base; loc.custom = { base: r.base, reachable: r.reachable };
+        formSay("#cbmsg", r.reachable ? `Saved ${r.base} · reachable ✓` : `Saved ${r.base} · not reachable yet. Is the server running?`, r.reachable ? true : "warn");
+      } catch (err) { formSay("#cbmsg", err.message, false); }
+      busy(b, false);
+    };
+    this.bindStart();
+  },
+  pulled(m) {  // a download's progress redraws only its own card
+    const c = this.loc && this.loc.catalog.find((x) => x.name === m.name), card = c && $(`[data-pc="${CSS.escape(m.name)}"]`, this.el);
+    if (!card) return;
+    this.loc.pulls[m.name] = m;
+    if (m.status === "success") { c.installed = true; toast(`${m.name} is ready. Pick it in Models.`); }
+    card.outerHTML = this.pullCard(c);
   },
 };
 
 // ================================================================ API keys
+const LIMIT_URL = { anthropic: "https://console.anthropic.com/settings/limits", openai: "https://platform.openai.com/settings/organization/limits" };
+const spentLine = (k) => `Spent $${(+k.spent || 0).toFixed(2)}${k.limit != null ? ` of $${(+k.limit).toFixed(2)}` : ""} this month.${k.limit != null ? " Bots stop using OpenRouter at the limit." : " No limit."}`;
 VIEWS.keys = {
-  async show(el, _, qs) { this.el = el; this.sel = qs.get("p") || this.sel || "anthropic"; await this.refresh(); },
-  async refresh() {
-    const { keys, backend } = await get("/api/keys");
-    const cur = keys.find((k) => k.provider === this.sel) || keys[0];
-    const where = { keychain: "this Mac’s Keychain", file: "a private file only you can read" }[backend];
-    const hint = { openrouter: "openrouter.ai/settings/keys", anthropic: "console.anthropic.com → API keys", openai: "platform.openai.com/api-keys", gemini: "aistudio.google.com/apikey",
-      groq: "console.groq.com/keys", xai: "console.x.ai", mistral: "console.mistral.ai/api-keys", custom: "your server’s settings", telegram: "Telegram → @BotFather → /newbot" }[cur.provider];
+  live: false,
+  async show(el, _, qs) { this.el = el; this.sel = qs.get("p") || this.sel || "anthropic"; this.msg = null; await this.refresh(); },
+  async refresh() { const d = await get("/api/keys"); redraw(this.el, () => this.render(d)); },
+  render({ keys, backend }) {
+    const cur = keys.find((k) => k.provider === this.sel) || keys[0], P = cur.provider, L = esc(cur.label), what = P === "telegram" ? "token" : "key";
+    const where = { keychain: "this Mac’s Keychain", file: "a private file only you can read" }[backend] || "this computer";
+    const src = (k) => (k.source ? `<span class="small ${k.error ? "warn" : "good"}">● ${esc(KEY_SOURCE[k.source] || k.source)}${k.error ? ` · ${keyErr(k.error)}` : ""}</span>` : `<span class="small muted">not set</span>`);
+    const step1 = CLOUD.includes(P) ? `Make a key at <a href="${KEY_URL[P]}" target="_blank" rel="noopener">${esc(KEY_URL[P].replace("https://", ""))} ↗</a>.`
+      : P === "telegram" ? `In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather ↗</a>, send /newbot and copy the token it sends you.`
+      : "Only if your server needs a key. You find it in your server’s settings.";
+    const limit = P === "openrouter" ? `<form class="row" id="limf" style="align-items:flex-start" novalidate><span class="mono small muted">3</span><div class="col grow"><label for="lim" class="small">Monthly limit in dollars (optional)</label>
+        <div class="row wrap"><input class="f" id="lim" type="number" min="0" step="any" inputmode="decimal" style="width:140px" value="${cur.limit ?? ""}" placeholder="no limit"><button class="btn s" id="limsave">Save limit</button></div>
+        <span class="small muted" id="lspent">${spentLine(cur)}</span><span class="small" id="lstat" role="status"></span></div></form>`
+      : CLOUD.includes(P) ? `<div class="row small"><span class="mono muted">3</span><span>Set a spending limit in <a href="${LIMIT_URL[P] || new URL(KEY_URL[P]).origin}" target="_blank" rel="noopener">${L}’s console ↗</a>. Inky can’t see what ${L} charges.</span></div>` : "";
+    const msg = this.msg || {};
     this.el.innerHTML = `${mobileBar("API keys")}<div class="page"><div class="row small"><a href="#/models" class="muted">Models</a><span class="muted">/</span><b>API keys</b></div>
       <div><h1>API keys</h1><p class="lede">Paste a key once. It stays in ${where} and only goes to that provider. There is no Inky server.</p></div>
-      <div class="row" style="align-items:flex-start;gap:22px"><section class="card panel" style="width:360px;flex-shrink:0;gap:2px;padding:10px">${keys.map((k) => `<a href="#/keys?p=${k.provider}" aria-label="${esc(k.label)}: ${k.source ? esc(k.source) : "not set"}" class="navlink ${k.provider === cur.provider ? "on" : ""}" style="min-height:48px">${providerLogo(k.provider)}<span class="grow">${esc(k.label)}</span><span class="small ${k.source ? "" : "muted"}" style="${k.source ? "color:var(--green-t)" : ""}">${k.source ? "● " + esc(k.source) : "not set"}</span></a>`).join("")}</section>
-      <section class="card grow" style="padding:22px 26px;gap:16px"><h2 style="font-size:20px">${cur.source ? "Replace" : "Add"} your ${esc(cur.label)} key</h2>
-        <div class="row small"><span class="mono muted">1</span><span>Make a key at <b>${esc(hint)}</b>.</span></div>
-        <div class="row" style="align-items:flex-start"><span class="mono small muted">2</span><div class="col grow"><label for="key" class="small">Paste it here</label><div class="row"><input class="f" id="key" type="password" autocomplete="off" placeholder="${cur.source ? "A key is saved. Paste a new one to replace it." : "Paste the key"}"><button class="btn s" id="paste">Paste</button></div><span class="small" id="kstat"></span></div></div>
-        ${cur.provider !== "telegram" ? `<div class="row" style="align-items:flex-start"><span class="mono small muted">3</span><div class="col grow"><label for="lim" class="small">Monthly limit (USD)</label><input class="f" id="lim" type="number" min="0" style="width:140px" value="${cur.limit ?? ""}" placeholder="none"></div></div>` : ""}
-        <div class="between" style="border-top:1px solid var(--line);padding-top:14px"><span class="small muted row">${icon("lock", 15)}Never shown again. To change it, paste a new one.</span><span class="row">${cur.source === "keychain" || cur.source === "file" ? `<button class="btn hot" id="rm">Remove key</button>` : ""}<button class="btn p" id="save">Save key</button></span></div></section></div></div>`;
-    $("#paste").onclick = async () => { try { $("#key").value = await navigator.clipboard.readText(); } catch (e) { toast("Your browser didn’t allow reading the clipboard. Paste with ⌘V."); } };
-    $("#save").onclick = async () => {
-      const v = $("#key").value.trim(); if (!v) return toast("Paste a key first");
-      try {
-        await post("/api/keys", { provider: cur.provider, key: v, limit: $("#lim") && $("#lim").value !== "" ? +$("#lim").value : null }); $("#key").value = "";
-        if (CLOUD.includes(cur.provider)) {  // find a model this key really has and check it answers
-          $("#kstat").textContent = "Saved. Checking which models it has…";
-          const r = await post("/api/models/connect", { provider: cur.provider });
-          toast(r.ok ? `Saved. Your bots now use ${r.model}.` : `Saved, but the test failed: ${r.reply}`);
-        } else toast(`Saved your ${cur.label} key`);
-        this.refresh();
-      }
-      catch (e) { $("#kstat").textContent = e.message; }
+      <div class="row kwrap"><nav class="card panel klist" aria-label="Providers">${keys.map((k) => `<a href="#/keys?p=${k.provider}" data-kp="${k.provider}" class="navlink ${k.provider === P ? "on" : ""}" ${k.provider === P ? 'aria-current="page"' : ""}>${providerLogo(k.provider)}<span class="grow col" style="gap:1px">${esc(k.label)}${src(k)}</span></a>`).join("")}</nav>
+      <section class="card grow kform" id="kform"><h2 style="font-size:20px">${cur.source ? "Replace" : "Add"} your ${L} ${what}</h2>
+        ${cur.error ? `<div class="small warn">${[401, 403].includes(+cur.error) ? `${L} refused this key last time (${cur.error}). Paste a new one.` : `${L} answered with an error last time (${cur.error}).`}</div>` : ""}
+        <div class="row small"><span class="mono muted">1</span><span>${step1}</span></div>
+        <form class="row" id="kf" style="align-items:flex-start" novalidate><span class="mono small muted">2</span><div class="col grow"><label for="key" class="small">Paste it here</label><div class="row"><input class="f" id="key" type="password" autocomplete="off" spellcheck="false" placeholder="${cur.source ? `A ${what} is saved. Paste a new one to replace it.` : `Paste the ${what}`}"><button type="button" class="btn s" id="paste">Paste</button></div>
+          <span class="small ${msg.ok === true ? "good" : msg.ok === false ? "bad" : msg.ok === "warn" ? "warn" : "muted"}" id="kstat" role="status">${esc(msg.text || "")}${msg.link ? ` <a href="#/connectors">Open Connectors</a>` : ""}</span></div></form>
+        ${limit}
+        <div class="between" style="border-top:1px solid var(--line);padding-top:14px"><span class="small muted row">${icon("lock", 15)}Never shown again. To change it, paste a new one.</span><span class="row">${cur.source === "keychain" || cur.source === "file" ? `<button class="btn hot" id="rm">Remove ${what}</button>` : ""}<button class="btn p" id="save" form="kf">Save ${what}</button></span></div></section></div></div>`;
+    $$("[data-kp]", this.el).forEach((a) => (a.onclick = () => (this.jump = true)));
+    $("#paste").onclick = async () => {
+      try { $("#key").value = await navigator.clipboard.readText(); $("#key").focus(); }
+      catch (e) { formSay("#kstat", `Your browser didn’t allow reading the clipboard. Click the field and press ${MAC ? "⌘V" : "Ctrl+V"}.`); }
     };
-    if ($("#rm")) $("#rm").onclick = async () => { if (await confirmBox(`Remove your ${cur.label} key?`, "Remove", true)) { await del(`/api/keys/${cur.provider}`); this.refresh(); } };
+    $("#kf").onsubmit = async (e) => {
+      e.preventDefault();
+      const b = $("#save"), say = (text, ok, link) => { this.msg = { text, ok, link }; formSay("#kstat", text, ok); };
+      busy(b, true); say("Checking…");
+      try {
+        await post("/api/keys", { provider: P, key: $("#key").value.trim() });  // the engine checks it (an empty one, a Telegram token)
+        $("#key").value = "";
+        if (CLOUD.includes(P)) {  // find a model this key really has and check it answers
+          say("Saved. Checking which models it has…");
+          const r = await post("/api/models/connect", { provider: P });
+          say(r.ok ? `✓ Works. Your bots now use ${r.model}.` : r.reply, !!r.ok);
+        } else if (P === "telegram") {
+          await loadState();
+          const bot = (S.settings.telegram || {}).bot;
+          say(`✓ Saved. Now send /start to ${bot ? "@" + bot : "your bot"} in Telegram, then press Test in Connectors.`, true, true);
+        } else say(`✓ Saved your ${cur.label} key.`, true);
+        await this.refresh();
+      } catch (err) { say(err.message, false); busy(b, false); }
+    };
+    if ($("#limf")) $("#limf").onsubmit = async (e) => {
+      e.preventDefault();
+      const i = $("#lim"), b = $("#limsave"), raw = i.value.trim();
+      if (i.validity.badInput) return formSay("#lstat", "Type a number of dollars, like 5, or leave it empty for no limit.", false);
+      busy(b, true);
+      try {
+        await post("/api/keys", { provider: P, limit: raw === "" ? null : +raw });
+        cur.limit = raw === "" ? null : +raw;
+        $("#lspent").textContent = spentLine(cur);
+        formSay("#lstat", raw === "" ? "✓ Saved. No limit now." : `✓ Saved. The limit is $${(+raw).toFixed(2)} a month.`, true);
+      } catch (err) { formSay("#lstat", err.message, false); }
+      busy(b, false);
+    };
+    if ($("#rm")) $("#rm").onclick = async () => {
+      if (!(await confirmBox(`Remove your ${cur.label} ${what}?`, "Remove", true))) return;
+      try { await del(`/api/keys/${P}`); toast(`Removed your ${cur.label} ${what}`); this.msg = null; await this.refresh(); }
+      catch (err) { formSay("#kstat", err.message, false); }
+    };
+    if (this.jump) {  // on a phone or a narrow window the form is below the list: choosing a provider goes to it
+      this.jump = false;
+      if (matchMedia("(max-width:1100px)").matches) requestAnimationFrame(() => $("#kform", this.el).scrollIntoView({ block: "start", behavior: calmMotion() ? "auto" : "smooth" }));
+    }
   },
 };
 
 // ================================================================ connectors
 let tgPoll = null;
-function waitForTelegram(bot, say) {  // after the token: poll until you send /start, then say hello. say(text, good)
+function waitForTelegram(bot, say, retryWord = "press Test") {  // after the token: poll until you send /start, then say hello. say(text, good); false after 2 min
   clearInterval(tgPoll);
   say(`Now open Telegram and send /start to @${bot}. Waiting…`);
   const t0 = Date.now();
   return new Promise((done) => {
     tgPoll = setInterval(async () => {
-      if (Date.now() - t0 > 120e3) { clearInterval(tgPoll); say(`Didn’t hear from you yet. Send /start to @${bot}, then press Test.`, false); return done(false); }
+      if (Date.now() - t0 > 120e3) { clearInterval(tgPoll); say(`Didn’t hear from you yet. Send /start to @${bot}, then ${retryWord}.`, false); return done(false); }
       const { chat_id } = await post("/api/connectors/telegram/find-chat");
       if (!chat_id) return;
       clearInterval(tgPoll);
@@ -1013,9 +1162,22 @@ function waitForTelegram(bot, say) {  // after the token: poll until you send /s
 }
 const MCP_PRESETS = [["github", "GitHub", "github", "npx -y @modelcontextprotocol/server-github", "GITHUB_PERSONAL_ACCESS_TOKEN="],
   ["filesystem", "Files", "mcp", "npx -y @modelcontextprotocol/server-filesystem ~/Documents", ""], ["fetch", "Fetch", "mcp", "uvx mcp-server-fetch", ""]];
+// ponytail: how the built-in agents start by default; the engine could send `overridden` instead of the UI knowing this
+const PRESET_CMD = { "claude-code": /^claude mcp serve$/, codex: /(inky\.codex_mcp|codex-mcp)$/ };
+const TRY_EXAMPLE = { "claude-code.Read": { file_path: "/etc/hosts" } };
+const withCode = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");  // `codex exec` in a description reads as code
+const pretty = (t) => { try { return JSON.stringify(JSON.parse(t), null, 2); } catch (e) { return t; } };
 VIEWS.connectors = {
-  async show(el) { this.el = el; this.open = null; await this.refresh(); },
+  live: false,
+  async show(el) {
+    this.el = el; this.open = new Set(); this.params = {};
+    el.innerHTML = `${mobileBar("Connectors")}<div class="page"><div><h1>Connectors</h1><p class="lede">All optional. Each one shows whether it works, with a real test and a fix when it doesn’t. Handing work to any of them asks you first.</p></div>
+      <div class="row" role="status"><span class="typing"><i></i><i></i><i></i></span><span class="muted">Checking your tools…</span></div></div>`;
+    await this.refresh();
+  },
   leave() { clearInterval(tgPoll); },
+  async refresh() { const d = await get("/api/connectors"); redraw(this.el, () => this.render(d)); },
+  res(n, t, ok) { formSay($(`[data-res="${n}"]`, this.el), t, ok); },
   state(c) {
     if (c.kind === "builtin") return c.connected ? ["ok", "set up"] : c.name === "telegram" && /\/start/.test(c.detail) ? ["warn", "almost there"] : ["off", "not set up"];
     if (!c.installed) return ["off", "not installed"];
@@ -1024,171 +1186,312 @@ VIEWS.connectors = {
     return ["", "ready to connect"];
   },
   card(c) {
-    const [cls, txt] = this.state(c), editing = this.open === c.name || (c.kind === "builtin" && !c.connected && this.open === c.name);
-    const btns = c.kind === "builtin"
-      ? `${c.connected || c.detail.includes("/start") ? `<button class="btn s" data-test="${c.name}">Test</button>` : ""}<button class="btn s ${c.connected ? "" : "p"}" data-edit="${c.name}">${c.connected ? "Change" : "Set up"}</button>`
+    const [cls, txt] = this.state(c), B = c.kind === "builtin", setUp = B && (c.connected || /\/start/.test(c.detail));
+    const btns = B
+      ? `${setUp ? `<button class="btn s" data-test="${c.name}">Test</button>` : ""}<button class="btn s ${setUp ? "" : "p"}" data-edit="${c.name}" aria-expanded="${this.open.has(c.name)}">${setUp ? "Change" : "Set up"}</button>${setUp ? `<button class="btn s hot" data-forget="${c.name}">Disconnect</button>` : ""}`
       : !c.installed ? (c.fix_url ? `<a class="btn s" href="${esc(c.fix_url)}" target="_blank" rel="noopener">How to install ↗</a>` : "")
       : c.connected ? `<button class="btn s" data-test="${c.name}">Test</button><button class="btn s" data-off="${c.name}">Disconnect</button>` : `<button class="btn s p" data-on="${c.name}">Connect</button>`;
-    return `<div class="card conn" data-c="${c.name}"><div class="row">${logo(c.logo, 44)}<div class="grow"><div class="row" style="gap:8px"><b style="font-size:16px">${esc(c.label)}</b><span class="cstate ${cls}">${esc(txt)}</span></div><div class="small muted">${esc(c.about || "")}</div></div>
-      <span class="row">${btns}${c.kind === "mcp" && !c.preset ? `<button class="btn s hot" data-rm="${c.name}">Remove</button>` : ""}</span></div>
-      ${c.detail && !(c.kind === "builtin" && c.connected && !editing) ? `<div class="small ${cls === "warn" || cls === "off" ? "" : "muted"}">${esc(c.detail)}${c.fix ? ` <b>${esc(c.fix)}</b>` : ""}</div>` : ""}
-      ${c.kind === "builtin" && editing ? `<div class="keyfield" data-form="${c.name}">${c.fields.map((f) => `<label class="small" for="f-${c.name}-${f.key}">${esc(f.label)}</label><input class="f ${f.secret ? "" : "mono"}" id="f-${c.name}-${f.key}" data-field="${f.key}" ${f.secret ? `type="password" placeholder="${c.connected ? "Saved. Paste a new one to replace it." : esc(f.placeholder)}"` : `placeholder="${esc(f.placeholder)}"`} autocomplete="off" spellcheck="false">`).join("")}
-        <div class="row"><button class="btn p s" data-save="${c.name}">Save & check</button>${c.name === "telegram" ? `<a class="small" href="https://t.me/BotFather" target="_blank" rel="noopener">Open @BotFather ↗</a>` : c.name === "apify" ? `<a class="small" href="https://console.apify.com/settings/integrations" target="_blank" rel="noopener">Get your token ↗</a>` : ""}</div></div>` : ""}
-      ${c.tools.length && (c.connected || c.kind === "builtin") ? `<div class="row wrap" style="gap:6px">${c.tools.slice(0, 10).map((t) => `<span class="chip mono">${esc(t)}</span>`).join("")}${c.tools.length > 10 ? `<span class="chip">+${c.tools.length - 10} more</span>` : ""}</div>` : ""}
-      ${c.kind === "mcp" && c.connected ? `<details><summary class="small">Try a tool</summary><div class="grid3" style="margin-top:8px"><select class="f" data-tool="${c.name}">${c.tools.map((t) => `<option ${t === ({ "claude-code": "Read", codex: "codex" }[c.name]) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select><input class="f mono" data-args="${c.name}" value='${esc(JSON.stringify(c.name === "claude-code" ? { file_path: "/etc/hosts" } : c.name === "codex" ? { prompt: "Reply with the single word OK. Do not run commands." } : {}))}'><button class="btn s" data-try="${c.name}">Run it</button></div><pre class="code hidden" data-out="${c.name}"></pre></details>` : ""}
+    const extra = c.kind === "mcp" && !c.preset ? `<button class="btn s hot" data-rm="${c.name}">Remove</button>`
+      : PRESET_CMD[c.name] && !PRESET_CMD[c.name].test((c.command || []).join(" ")) ? `<button class="btn s" data-reset="${c.name}">Reset</button>` : "";
+    const detail = ["Not set up yet.", "Connected."].includes(c.detail) ? "" : c.detail;  // the badge already says so
+    const saved = B ? (c.fields || []).filter((f) => !f.secret && (c.values || {})[f.key]).map((f) => `${esc(f.label)}: <span class="mono">${esc(c.values[f.key])}</span>`).join(" · ") : "";
+    return `<div class="card conn" data-c="${c.name}"><div class="row crow">${logo(c.logo, 44)}<div class="grow"><div class="row wrap" style="gap:8px"><b style="font-size:16px">${esc(c.label)}</b><span class="cstate ${cls}">${esc(txt)}</span></div><div class="small muted">${withCode(c.about || "")}</div></div>
+      <span class="row cbtns">${btns}${extra}</span></div>
+      ${detail ? `<div class="small ${cls === "warn" || cls === "off" ? "" : "muted"}">${withCode(detail)}${c.fix ? ` <b>${withCode(c.fix)}</b>` : ""}</div>` : ""}
+      ${saved ? `<div class="small muted">${saved}</div>` : ""}
+      ${B ? this.form(c, setUp) : ""}
+      ${c.tools.length && c.connected ? `<div class="row wrap" style="gap:6px">${c.tools.slice(0, 10).map((t) => `<span class="chip mono">${esc(t)}</span>`).join("")}${c.tools.length > 10 ? `<span class="chip">+${c.tools.length - 10} more</span>` : ""}</div>` : ""}
+      ${c.kind === "mcp" && c.connected ? this.tryTool(c) : ""}
       <div class="small" data-res="${c.name}" role="status"></div></div>`;
   },
-  async refresh() {
-    const { connectors: all, inky } = await get("/api/connectors");
+  form(c, setUp) {  // always in the page, hidden until you open it, so another form's typing is never lost
+    const help = { telegram: ["https://t.me/BotFather", "Open @BotFather ↗"], apify: ["https://console.apify.com/settings/integrations", "Get your token ↗"] }[c.name];
+    return `<form class="keyfield ${this.open.has(c.name) ? "" : "hidden"}" data-form="${c.name}" novalidate>${c.fields.map((f) => `<label class="small" for="f-${c.name}-${f.key}">${esc(f.label)}</label><input class="f ${f.secret ? "" : "mono"}" id="f-${c.name}-${f.key}" data-field="${f.key}" ${f.secret ? `type="password" placeholder="${setUp ? "Saved. Paste a new one to replace it." : esc(f.placeholder)}"` : `value="${esc((c.values || {})[f.key] || "")}" placeholder="${esc(f.placeholder)}"`} autocomplete="off" spellcheck="false">`).join("")}
+      <div class="row wrap"><button class="btn p s" data-setup="${c.name}">Save & check</button><button type="button" class="btn s" data-cancel="${c.name}">Cancel</button>${help ? `<a class="small" href="${help[0]}" target="_blank" rel="noopener">${help[1]}</a>` : ""}</div></form>`;
+  },
+  tryTool(c) {
+    const n = c.name, def = n === "claude-code" && c.tools.includes("Read") ? "Read" : "";  // never a default that spends anything (Codex)
+    return `<details data-keep="try-${n}"><summary class="small">Try a tool</summary><form class="trytool" data-tryf="${n}" novalidate>
+      <div class="col" style="gap:4px"><label class="small" for="tool-${n}">Tool</label><select class="f" id="tool-${n}" data-tool="${n}">${def ? "" : `<option value="" selected disabled>Pick a tool…</option>`}${c.tools.map((t) => `<option ${t === def ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
+      <div class="col" style="gap:4px"><label class="small" for="args-${n}">Arguments (JSON)</label><textarea class="f mono" id="args-${n}" rows="${def ? 3 : 1}" spellcheck="false">${esc(JSON.stringify(TRY_EXAMPLE[`${n}.${def}`] || {}, null, 2))}</textarea></div>
+      <div><button class="btn s" data-try="${n}">Run it</button></div></form><pre class="code tryout hidden" data-out="${n}" role="status"></pre></details>`;
+  },
+  toolParams(n) {  // each tool's parameters, for the arguments skeleton (Connect on a connected server only lists its tools)
+    return (this.params[n] = this.params[n] || post(`/api/mcp/${n}/connect`).then((r) => Object.fromEntries(r.tools.map((t) => [t.name, t.params])))
+      .catch(() => { delete this.params[n]; return {}; }));
+  },
+  render({ connectors: all, inky }) {
     this.inky = inky;
     const agents = all.filter((c) => c.kind === "mcp" && c.preset), services = all.filter((c) => c.kind === "builtin"), others = all.filter((c) => c.kind === "mcp" && !c.preset);
+    const label = (n) => (all.find((c) => c.name === n) || {}).label || n;
     this.el.innerHTML = `${mobileBar("Connectors")}<div class="page"><div><h1>Connectors</h1><p class="lede">All optional. Each one shows whether it works, with a real test and a fix when it doesn’t. Handing work to any of them asks you first.</p></div>
       <section class="col"><h2>Agents</h2>${agents.map((c) => this.card(c)).join("")}</section>
       <section class="col"><h2>Services</h2>${services.map((c) => this.card(c)).join("")}</section>
       <section class="col"><h2>Other MCP servers</h2>${others.map((c) => this.card(c)).join("")}
-        <div class="card"><b>Add an MCP server</b><div class="row wrap" style="gap:8px">${MCP_PRESETS.map(([n, l, lg]) => `<button class="chip" data-preset="${n}">${logo(lg, 18)}${esc(l)}</button>`).join("")}</div>
-        <div class="grid3"><input class="f" id="mn" placeholder="Name, e.g. github" aria-label="Name"><input class="f mono" id="mc" placeholder="Command, e.g. npx -y @modelcontextprotocol/server-github" style="grid-column:span 2" aria-label="Command"></div>
-        <input class="f mono" id="me" placeholder="Settings it needs, e.g. GITHUB_PERSONAL_ACCESS_TOKEN=… (one per line, optional)" aria-label="Environment">
-        <div><button class="btn s" id="madd">Add and connect</button></div><span class="small" id="mres" role="status"></span></div></section>
+        <form class="card" id="maddf" novalidate><b>Add an MCP server</b><div class="row wrap" style="gap:8px">${MCP_PRESETS.map(([n, l, lg]) => `<button type="button" class="chip" data-preset="${n}">${logo(lg, 18)}${esc(l)}</button>`).join("")}</div>
+        <div class="mcpgrid"><div class="col" style="gap:4px"><label class="small" for="mn">Name</label><input class="f" id="mn" placeholder="e.g. github" autocomplete="off" spellcheck="false"></div>
+          <div class="col" style="gap:4px"><label class="small" for="mc">Command that starts it</label><input class="f mono" id="mc" placeholder="npx -y @modelcontextprotocol/server-github" autocomplete="off" spellcheck="false"></div></div>
+        <div class="col" style="gap:4px"><label class="small" for="me">Settings it needs (optional, one per line)</label><textarea class="f mono" id="me" rows="2" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=…" autocomplete="off" spellcheck="false"></textarea></div>
+        <div><button class="btn s" id="madd">Add and connect</button></div><span class="small" id="mres" role="status"></span></form></section>
       <section class="card"><b>Let Claude Code and Codex use your bots</b><span class="small muted">Inky is an MCP server too. They can list your bots, message them, run their skills and read what they found. Approving Needs-you items stays in this app.</span>
         <div class="row wrap">${agents.map((c) => `<button class="btn" data-addinky="${c.name}" ${c.installed ? "" : "disabled"}>${logo(c.logo, 20)}Add Inky to ${esc(c.label)}</button>`).join("")}</div><span class="small" id="addres" role="status"></span>
-        <details><summary class="small">Or do it yourself</summary><label class="l">Claude Code</label><pre class="code">${esc(inky.claude_cli)}</pre><label class="l">Codex (~/.codex/config.toml)</label><pre class="code">${esc(inky.codex_toml)}</pre></details></section></div>`;
-    const res = (n, t, ok) => { const r = $(`[data-res="${n}"]`); if (r) { r.textContent = t; r.className = "small " + (ok === true ? "good" : ok === false ? "bad" : "muted"); } };
-    $$("[data-on]").forEach((x) => (x.onclick = async () => { x.disabled = true; x.textContent = "Connecting…"; try { await post(`/api/mcp/${x.dataset.on}/connect`); await this.refresh(); SOUND.play("chime"); } catch (e) { res(x.dataset.on, e.message, false); x.disabled = false; x.textContent = "Connect"; } }));
-    $$("[data-off]").forEach((x) => (x.onclick = async () => { await post(`/api/mcp/${x.dataset.off}/disconnect`); this.refresh(); }));
-    $$("[data-rm]").forEach((x) => (x.onclick = async () => { if (await confirmBox(`Remove ${x.dataset.rm}?`, "Remove", true)) { await del(`/api/mcp/${x.dataset.rm}`); this.refresh(); } }));
-    $$("[data-edit]").forEach((x) => (x.onclick = () => { this.open = this.open === x.dataset.edit ? null : x.dataset.edit; this.refresh().then(() => { const f = $(`[data-form="${x.dataset.edit}"] input`); if (f) f.focus(); }); }));
-    $$("[data-test]").forEach((x) => (x.onclick = async () => { const n = x.dataset.test; res(n, "Testing…"); const r = await post(`/api/connectors/${n}/test`); res(n, (r.ok ? "✓ " : "") + r.text, r.ok); if (r.ok) SOUND.play("chime"); }));
-    $$("[data-save]").forEach((x) => (x.onclick = async () => {
-      const n = x.dataset.save, values = {};
-      $$(`[data-form="${n}"] [data-field]`).forEach((i) => { if (i.value.trim()) values[i.dataset.field] = i.value.trim(); });
-      res(n, "Checking…");
-      const r = await post(`/api/connectors/${n}/setup`, { values });
-      if (!r.ok) return res(n, r.text, false);
-      this.open = null;
-      await this.refresh(); res(n, "✓ " + r.text, true); SOUND.play("chime");
+        <details data-keep="diy"><summary class="small">Or do it yourself</summary><div class="between"><label class="l">Claude Code</label><button type="button" class="btn s" data-copy="claude_cli">Copy</button></div><pre class="code">${esc(inky.claude_cli)}</pre>
+          <div class="between"><label class="l">Codex (~/.codex/config.toml)</label><button type="button" class="btn s" data-copy="codex_toml">Copy</button></div><pre class="code">${esc(inky.codex_toml)}</pre></details></section></div>`;
+    const on = (sel, fn) => $$(sel, this.el).forEach((x) => (x.onclick = () => fn(x)));
+    on("[data-on]", async (x) => {
+      const n = x.dataset.on; busy(x, true); x.textContent = "Connecting…";
+      try { await post(`/api/mcp/${n}/connect`); await this.refresh(); this.res(n, "✓ Connected.", true); SOUND.play("chime"); const t = $(`[data-test="${n}"]`, this.el); if (t) t.focus(); }
+      catch (e) { x.textContent = "Connect"; busy(x, false); this.res(n, e.message, false); }
+    });
+    on("[data-off]", async (x) => {
+      const n = x.dataset.off; busy(x, true);
+      try { await post(`/api/mcp/${n}/disconnect`); await this.refresh(); const b = $(`[data-on="${n}"]`, this.el); if (b) b.focus(); } catch (e) { busy(x, false); this.res(n, e.message, false); }
+    });
+    on("[data-rm]", async (x) => {
+      const n = x.dataset.rm;
+      if (!(await confirmBox(`Remove ${label(n)}?`, "Remove", true))) return;
+      try { await del(`/api/mcp/${n}`); toast(`Removed ${label(n)}`); await this.refresh(); } catch (e) { this.res(n, e.message, false); }
+    });
+    on("[data-reset]", async (x) => {
+      const n = x.dataset.reset;
+      if (!(await confirmBox(`Reset ${label(n)} to how it came with Inky?`, "Reset", true))) return;
+      try { await del(`/api/mcp/${n}`); await this.refresh(); this.res(n, `${label(n)} is back to how it came.`); } catch (e) { this.res(n, e.message, false); }
+    });
+    on("[data-test]", async (x) => {
+      const n = x.dataset.test; busy(x, true); this.res(n, "Testing…");
+      try { const r = await post(`/api/connectors/${n}/test`); this.res(n, (r.ok ? "✓ " : "") + r.text, r.ok); if (r.ok) SOUND.play("chime"); } catch (e) { this.res(n, e.message, false); }
+      busy(x, false);
+    });
+    on("[data-edit]", (x) => {  // opens or closes in place: what you typed stays
+      const n = x.dataset.edit, f = $(`[data-form="${n}"]`, this.el), open = f.classList.contains("hidden");
+      f.classList.toggle("hidden", !open); x.setAttribute("aria-expanded", open);
+      if (open) { this.open.add(n); $("input", f).focus(); } else this.open.delete(n);
+    });
+    on("[data-cancel]", (x) => {
+      const n = x.dataset.cancel, f = $(`[data-form="${n}"]`, this.el);
+      f.reset(); f.classList.add("hidden"); this.open.delete(n); this.res(n, "");
+      const e = $(`[data-edit="${n}"]`, this.el); e.setAttribute("aria-expanded", false); e.focus();
+    });
+    $$("[data-form]", this.el).forEach((f) => (f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const n = f.dataset.form, b = $("[data-setup]", f), values = Object.fromEntries($$("[data-field]", f).map((i) => [i.dataset.field, i.value.trim()]));
+      busy(b, true); this.res(n, "Checking…");
+      let r; try { r = await post(`/api/connectors/${n}/setup`, { values }); } catch (e) { r = { ok: false, text: e.message }; }
+      if (!r.ok) { busy(b, false); return this.res(n, r.text, false); }  // the engine says what's missing or wrong
+      $$("[data-field]", f).forEach((i) => (i.value = "")); this.open.delete(n);
+      await this.refresh(); this.res(n, "✓ " + r.text, true); SOUND.play("chime");
       if (n === "telegram") this.waitForStart(r.bot);
     }));
-    $$("[data-try]").forEach((x) => (x.onclick = async () => {
-      const n = x.dataset.try, out = $(`[data-out="${n}"]`);
-      out.classList.remove("hidden"); out.textContent = "Running…";
-      try { const r = await post(`/api/mcp/${n}/call`, { tool: $(`[data-tool="${n}"]`).value, args: JSON.parse($(`[data-args="${n}"]`).value || "{}") }); out.textContent = (r.error ? "Error: " : "") + r.text.slice(0, 3000); }
-      catch (e) { out.textContent = e.message; }
+    on("[data-forget]", async (x) => {
+      const n = x.dataset.forget;
+      const what = { telegram: "Its token is removed from this computer and alerts stop.", n8n: "Its address and API key are removed from this computer.", apify: "Its token is removed from this computer." }[n];
+      if (!(await confirmBox(`Disconnect ${label(n)}? ${what}`, "Disconnect", true))) return;
+      try { await del(`/api/connectors/${n}`); if (n === "telegram") clearInterval(tgPoll); this.open.delete(n); await this.refresh(); this.res(n, `Disconnected ${label(n)}.`); }
+      catch (e) { this.res(n, e.message, false); }
+    });
+    $$("details[data-keep^='try-']", this.el).forEach((d) => (d.ontoggle = () => { if (d.open) this.toolParams(d.dataset.keep.slice(4)); }));
+    $$("[data-tool]", this.el).forEach((s) => (s.onchange = async () => {  // the arguments follow the tool
+      const n = s.dataset.tool, tool = s.value, ps = (await this.toolParams(n))[tool] || [], a = $(`#args-${n}`, this.el);
+      if (a && s.value === tool) { a.value = JSON.stringify(TRY_EXAMPLE[`${n}.${tool}`] || Object.fromEntries(ps.map((p) => [p, ""])), null, 2); a.rows = Math.min(8, a.value.split("\n").length); }
     }));
-    $$("[data-preset]").forEach((x) => (x.onclick = () => { const p = MCP_PRESETS.find((m) => m[0] === x.dataset.preset); $("#mn").value = p[0]; $("#mc").value = p[3]; $("#me").value = p[4]; (p[4] ? $("#me") : $("#mc")).focus(); }));
-    $("#madd").onclick = async () => {
-      const name = $("#mn").value.trim(), command = $("#mc").value.trim();
-      if (!name || !command) return this.say("#mres", "Put in a name and the command that starts it.", false);
-      const env = Object.fromEntries($("#me").value.split(/\n|\s+(?=[A-Z_]+=)/).map((l) => l.trim()).filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
-      try { await post("/api/mcp", { name, command, label: name, env }); } catch (e) { return this.say("#mres", e.message, false); }
-      this.say("#mres", "Connecting…");
-      const r = await post(`/api/connectors/${name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}/test`);
-      await this.refresh(); this.say("#mres", (r.ok ? "✓ " : "") + r.text, r.ok);
+    $$("[data-tryf]", this.el).forEach((f) => (f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const n = f.dataset.tryf, tool = $(`#tool-${n}`, this.el).value, out = $(`[data-out="${n}"]`, this.el), b = $(`[data-try="${n}"]`, this.el);
+      const show = (t, bad) => { out.classList.remove("hidden"); out.classList.toggle("bad", !!bad); out.textContent = t; };
+      if (!tool) return show("Pick a tool first.", true);
+      let args;
+      try { args = JSON.parse($(`#args-${n}`, this.el).value.trim() || "{}"); if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("not an object"); }
+      catch (e) { return show("Arguments must be JSON, like {\"name\": \"value\"}.", true); }
+      if (n === "codex" && !(await confirmBox(`Run ${tool} in Codex now? It uses your ChatGPT plan’s Codex quota.`, "Run it"))) return;
+      busy(b, true); show("Running…");
+      try { const r = await post(`/api/mcp/${n}/call`, { tool, args }); show((r.error ? "Error: " : "") + pretty(r.text || ""), r.error); }
+      catch (e) { show(e.message, true); }
+      busy(b, false);
+    }));
+    on("[data-preset]", (x) => { const p = MCP_PRESETS.find((m) => m[0] === x.dataset.preset); $("#mn").value = p[0]; $("#mc").value = p[3]; $("#me").value = p[4]; (p[4] ? $("#me") : $("#mc")).focus(); });
+    $("#maddf").onsubmit = async (ev) => {
+      ev.preventDefault();
+      const b = $("#madd"), given = $("#mn").value.trim(), command = $("#mc").value.trim();
+      const env = Object.fromEntries($("#me").value.split(/\n|\s+(?=[A-Z_][A-Z0-9_]*=)/).map((l) => l.trim()).filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+      busy(b, true); formSay("#mres", "Adding…");
+      try {
+        const { name } = await post("/api/mcp", { name: given, command, label: given, env });  // the engine checks the name and command, and says why
+        formSay("#mres", "Connecting…");
+        const r = await post(`/api/connectors/${name}/test`);
+        $("#mn").value = $("#mc").value = $("#me").value = "";
+        await this.refresh();
+        if (r.ok) this.res(name, "✓ " + r.text, true);  // a failed try shows on the card as “Last try: …”
+        formSay("#mres", r.ok ? `✓ Added ${given}.` : `Added ${given}, but it didn’t connect yet. Its card says why.`, r.ok ? true : "warn");
+        const card = $(`[data-c="${CSS.escape(name)}"]`, this.el); if (card) card.scrollIntoView({ block: "nearest" });
+      } catch (e) { formSay("#mres", e.message, false); busy(b, false); }
     };
-    $$("[data-addinky]").forEach((x) => (x.onclick = async () => {
+    on("[data-addinky]", async (x) => {
       const n = x.dataset.addinky, cc = n === "claude-code";
       const ok = await confirmBox(cc ? "Add Inky to Claude Code? This runs:" : "Add Inky to Codex? This adds to ~/.codex/config.toml:", "Add it", false, cc ? inky.claude_cli : inky.codex_toml);
       if (!ok) return;
-      try { const r = await post(`/api/connectors/${n}/add-inky`); this.say("#addres", (r.ok ? "✓ " : "") + (r.text || "Done."), r.ok); } catch (e) { this.say("#addres", e.message, false); }
-    }));
+      try { const r = await post(`/api/connectors/${n}/add-inky`); formSay("#addres", (r.ok ? "✓ " : "") + (r.text || "Done."), r.ok); } catch (e) { formSay("#addres", e.message, false); }
+    });
+    on("[data-copy]", async (x) => {
+      try { await navigator.clipboard.writeText(inky[x.dataset.copy]); x.textContent = "Copied ✓"; setTimeout(() => (x.textContent = "Copy"), 2000); }
+      catch (e) { toast(`Couldn’t copy. Select the text and press ${MAC ? "⌘C" : "Ctrl+C"}.`); }
+    });
   },
-  say(sel, text, good) { const m = $(sel); if (m) { m.textContent = text; m.className = "small " + (good === true ? "good" : good === false ? "bad" : "muted"); } },
   async waitForStart(bot) {
-    const say = (t, ok) => { const r = $('[data-res="telegram"]'); if (r) { r.textContent = t; r.className = "small " + (ok === true ? "good" : ok === false ? "bad" : "muted"); } };
+    const say = (t, ok) => this.res("telegram", t, ok);
     if (await waitForTelegram(bot, say)) { await this.refresh(); say("✓ Found you and sent a hello. Alerts go to Telegram now.", true); }
   },
-
 };
 
 // ================================================================ make it yours
+const clip = (s, n) => {  // at most n characters, cut at a word, with …
+  s = String(s || "").trim();
+  if (s.length <= n) return s;
+  const c = s.slice(0, n + 1), i = c.lastIndexOf(" ");
+  return (i > n / 2 ? c.slice(0, i) : s.slice(0, n)).replace(/[\s,.;:!?–—-]+$/, "") + "…";
+};
 VIEWS.look = {
+  live: false,
   async show(el, [id]) {
     this.el = el;
-    if (!S.bots.length) { el.innerHTML = `<div class="page"><h1>Make it yours</h1><p class="lede">Make a bot first.</p></div>`; return; }
-    this.bot = S.bots.find((b) => b.id === +id) || S.bots.find((b) => b.id === this.botId) || S.bots[0];
-    this.botId = this.bot.id;
-    this.draft = { ...this.bot.look, name: this.bot.name };
-    this.persona = { ...(this.bot.persona || {}) };
+    const none = (text, link) => { el.innerHTML = `${mobileBar("Make it yours")}<div class="page"><div><h1>Make it yours</h1><p class="lede">${text}</p></div><div>${link}</div></div>`; };
+    if (!S.bots.length) return none("Each bot gets its own look, voice and personality. Make your first bot, then come back here.", `<a class="btn p" href="#/new">${icon("plus", 16, 2.2)}Make a bot</a>`);
+    const b = id !== undefined ? S.bots.find((x) => String(x.id) === id) : S.bots.find((x) => x.id === this.botId) || S.bots[0];
+    if (!b) return none(`There’s no bot ${esc(id)}. It may have been deleted.`, `<a class="btn" href="#/look">Pick one of your bots</a>`);
+    this.load(b);
     this.render();
   },
-  render() {
-    const d = this.draft, b = this.bot;
-    const frame = d.frame === "bot" ? d.color : "#E86F51";
-    const chips = (key, opts) => `<div class="chips">${opts.map(([v, t]) => `<button data-k="${key}" data-v="${v}" class="${String(d[key]) === String(v) ? "on" : ""}">${t}</button>`).join("")}</div>`;
+  load(b) { this.bot = b; this.botId = b.id; this.draft = { ...b.look, name: b.name }; this.persona = { ...(b.persona || {}) }; this.saved = this.snap(); },
+  snap() { return JSON.stringify([this.draft, this.persona]); },
+  dirty() { return this.snap() !== this.saved; },
+  preview() {
+    const d = this.draft, b = this.bot, frame = d.frame === "bot" ? d.color : "#E86F51";
     const sample = { cheerful: `Found one! It passes all your rules. Want me to draft a message?`, calm: `One new result passes your rules. Shall I draft a message?`, direct: `1 new match. Draft message? Yes or no.` }[d.tone || "cheerful"];
-    this.el.innerHTML = `${mobileBar("Make it yours")}<div class="page" style="max-width:none"><div class="row" style="align-items:flex-start;gap:36px;flex-wrap:wrap">
-      <section class="card panel" style="width:400px;flex-shrink:0;gap:16px;padding:24px"><div class="row">${critter(d.kind, d.color, d.acc, 96)}<div><b style="font-size:28px;letter-spacing:-.03em">${esc(d.name)}</b><div class="small muted">${esc((b.summary || b.job || "").slice(0, 60))}</div></div></div>
+    return `<div class="row lphead">${critter(d.kind, d.color, d.acc, 96)}<div class="grow"><b class="lpname">${esc(d.name)}</b><div class="small muted">${esc(clip(b.summary || b.job, 60))}</div></div></div>
         <span class="small muted" style="font-weight:600">While it drives</span>
-        <div style="position:relative;height:210px;border-radius:14px;background:#111110;padding:6px"><div style="height:100%;border-radius:9px;background:#ECEAE5;box-shadow:inset 0 0 0 3px ${frame};padding:12px"><div style="height:100%;border-radius:8px;background:#fff;padding:14px;display:flex;flex-direction:column;gap:8px">
+        <div class="ldrive"><div style="height:100%;border-radius:9px;background:#ECEAE5;box-shadow:inset 0 0 0 3px ${frame};padding:12px"><div style="height:100%;border-radius:8px;background:#fff;padding:14px;display:flex;flex-direction:column;gap:8px">
           <span style="width:55%;height:8px;border-radius:4px;background:#E8E6E1"></span><span style="width:35%;height:8px;border-radius:4px;background:#E8E6E1"></span>
           <div style="margin-top:auto;margin-bottom:14px;position:relative;align-self:flex-start">${d.labels ? `<span style="position:absolute;left:0;top:-30px;padding:3px 8px;border-radius:7px;background:#111110;color:#fff;font-size:11.5px;white-space:nowrap">4 · Click “Search”</span>` : ""}
           <span style="padding:8px 16px;border-radius:6px;background:#1F6F78;color:#fff;font-size:13px;font-weight:600;outline:2px solid ${frame};outline-offset:3px">Search</span>
-          <svg width="22" height="22" viewBox="0 0 24 24" style="position:absolute;right:-13px;bottom:-14px"><path d="M4 3 L20 11 L12.5 13 L9.5 20 Z" fill="${frame}" stroke="#fff" stroke-width="1.5"/></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" style="position:absolute;right:-13px;bottom:-14px" aria-hidden="true"><path d="M4 3 L20 11 L12.5 13 L9.5 20 Z" fill="${frame}" stroke="#fff" stroke-width="1.5"/></svg>
           ${d.cursor === "name" ? `<span style="position:absolute;left:calc(100% + 12px);top:26px;padding:3px 8px;border-radius:7px;background:${frame};color:#fff;font-size:11.5px;white-space:nowrap">${esc(d.name)}</span>` : d.cursor === "critter" ? `<span style="position:absolute;left:calc(100% + 10px);top:12px">${critter(d.kind, d.color, d.acc, 34)}</span>` : ""}</div></div></div></div>
-        <div class="row" style="align-items:flex-start;margin-top:auto">${critter(d.kind, d.color, d.acc, 30)}<div class="card" style="padding:12px 14px;border-radius:16px 16px 16px 4px">${sample}</div></div><span class="mono small muted">voice: ${esc(d.voice || "soft")} · speed ${esc(d.speed || "normal")}</span></section>
-      <section class="col grow" style="gap:18px;min-width:320px"><div><h1>Make it yours</h1><p class="lede">Each bot gets its own look, voice and way of showing it’s driving. It shows in the app, on its computer and on your phone.</p></div>
-        <div class="row wrap">${S.bots.map((x) => `<button class="btn ${x.id === b.id ? "p" : ""}" data-bot="${x.id}">${botCritter(x, 24)}${esc(x.name)}</button>`).join("")}</div>
+        <div class="row" style="align-items:flex-start;margin-top:auto">${critter(d.kind, d.color, d.acc, 30)}<div class="card" style="padding:12px 14px;border-radius:16px 16px 16px 4px">${sample}</div></div><span class="mono small muted">voice: ${esc(d.voice || "soft")} · speed ${esc(d.speed || "normal")}</span>`;
+  },
+  render() {
+    const d = this.draft, b = this.bot, p = this.persona;
+    const on = (k, v) => String(d[k]) === String(v);
+    const chips = (key, label, opts) => `<div class="col"><b class="small">${label}</b><div class="chips" role="group" aria-label="${label}">${opts.map(([v, t]) => `<button type="button" data-k="${key}" data-v="${v}" class="${on(key, v) ? "on" : ""}" aria-pressed="${on(key, v)}">${t}</button>`).join("")}</div></div>`;
+    this.el.innerHTML = `${mobileBar("Make it yours")}<div class="page" style="max-width:none"><div class="lookwrap">
+      <section class="card panel lookprev" id="lprev" aria-label="Preview">${this.preview()}</section>
+      <section class="col lookctl"><div><h1>Make it yours</h1><p class="lede">Each bot gets its own look, voice and way of showing it’s driving. It shows in the app, on its computer and on your phone.</p></div>
+        <div class="row wrap" role="group" aria-label="Bot">${S.bots.map((x) => `<button class="btn ${x.id === b.id ? "p" : ""}" data-bot="${x.id}" aria-pressed="${x.id === b.id}">${botCritter(x, 24)}${esc(x.name)}</button>`).join("")}</div>
         <div class="grid2" style="gap:28px"><div class="col" style="gap:18px">
-          <div class="col"><b class="small">Animal</b><div class="row">${LOOKS.kinds.map((k) => `<button class="animal ${d.kind === k ? "on" : ""}" data-k="kind" data-v="${k}">${critter(k, d.color, "none", 44)}${cap(k)}</button>`).join("")}</div></div>
-          <div class="col"><b class="small">Color</b><div class="row">${LOOKS.colors.map(([c, n]) => `<button class="swatch ${d.color === c ? "on" : ""}" style="background:${c}" data-k="color" data-v="${c}" aria-label="${n}"></button>`).join("")}</div></div>
-          <div class="col"><b class="small">Accessory</b>${chips("acc", LOOKS.accs.map((a) => [a, a === "none" ? "Nothing" : cap(a)]))}
-            <div class="chips">${LOOKS.earned.map(([at, a]) => (b.unlocked || []).includes(a) ? `<button data-k="acc" data-v="${a}" class="${d.acc === a ? "on" : ""}">${cap(a === "party" ? "party hat" : a)}</button>` : `<button disabled title="Unlocks at ${at} runs">🔒 ${cap(a === "party" ? "party hat" : a)} · ${at} runs</button>`).join("")}</div></div>
-          <div class="col"><label class="small" for="lname"><b>Name</b></label><input class="f" id="lname" value="${esc(d.name)}"></div>
-          <div class="col"><b class="small">Voice on calls</b>${chips("voice", [["soft", "Soft"], ["bright", "Bright"], ["off", "Off, text only"]])}</div></div>
-        <div class="col" style="gap:18px"><div class="col"><b class="small">How it talks</b>${chips("tone", [["cheerful", "Cheerful"], ["calm", "Calm"], ["direct", "Straight to the point"]])}</div>
-          <div class="col"><b class="small">Screen frame</b>${chips("frame", [["coral", "Coral, same for every bot"], ["bot", "This bot’s color"]])}</div>
-          <div class="col"><b class="small">Cursor</b>${chips("cursor", [["name", "Arrow with its name"], ["critter", "Its critter follows"], ["plain", "Just an arrow"]])}</div>
-          <div class="col"><b class="small">Step labels</b>${chips("labels", [[true, "Show each step"], [false, "Hide steps"]])}</div>
-          <div class="col"><b class="small">Default speed</b>${chips("speed", [["slow", "Slow"], ["normal", "Normal"], ["turbo", "Turbo"]])}</div>
+          <div class="col"><b class="small">Animal</b><div class="row wrap" role="group" aria-label="Animal">${LOOKS.kinds.map((k) => `<button type="button" class="animal ${on("kind", k) ? "on" : ""}" data-k="kind" data-v="${k}" aria-pressed="${on("kind", k)}">${critter(k, d.color, "none", 44)}${cap(k)}</button>`).join("")}</div></div>
+          <div class="col"><b class="small">Color</b><div class="row wrap" role="group" aria-label="Color">${LOOKS.colors.map(([c, n]) => `<button type="button" class="swatch ${on("color", c) ? "on" : ""}" style="background:${c}" data-k="color" data-v="${c}" aria-label="${n}" aria-pressed="${on("color", c)}"></button>`).join("")}</div></div>
+          <div class="col"><b class="small">Accessory</b><div class="chips" role="group" aria-label="Accessory">${LOOKS.accs.map((a) => `<button type="button" data-k="acc" data-v="${a}" class="${on("acc", a) ? "on" : ""}" aria-pressed="${on("acc", a)}">${a === "none" ? "Nothing" : cap(a)}</button>`).join("")}</div>
+            <div class="chips">${LOOKS.earned.map(([at, a]) => (b.unlocked || []).includes(a) ? `<button type="button" data-k="acc" data-v="${a}" class="${on("acc", a) ? "on" : ""}" aria-pressed="${on("acc", a)}">${cap(a === "party" ? "party hat" : a)}</button>` : `<button type="button" disabled title="Unlocks at ${at} runs">🔒 ${cap(a === "party" ? "party hat" : a)} · ${at} runs</button>`).join("")}</div></div>
+          <div class="col"><label class="small" for="lname"><b>Name</b></label><input class="f" id="lname" maxlength="40" value="${esc(d.name)}"></div>
+          ${chips("voice", "Voice on calls", [["soft", "Soft"], ["bright", "Bright"], ["off", "Off, text only"]])}</div>
+        <div class="col" style="gap:18px">${chips("tone", "How it talks", [["cheerful", "Cheerful"], ["calm", "Calm"], ["direct", "Straight to the point"]])}
+          ${chips("frame", "Screen frame", [["coral", "Coral, same for every bot"], ["bot", "This bot’s color"]])}
+          ${chips("cursor", "Cursor", [["name", "Arrow with its name"], ["critter", "Its critter follows"], ["plain", "Just an arrow"]])}
+          ${chips("labels", "Step labels", [[true, "Show each step"], [false, "Hide steps"]])}
+          ${chips("speed", "Default speed", [["slow", "Slow"], ["normal", "Normal"], ["turbo", "Turbo"]])}
           <span class="small muted">A frame always shows while a bot uses a screen, and you can take over at any moment.</span></div></div>
         <div class="card" style="gap:14px"><div class="head"><b>Personality</b><span class="small muted">how it talks, never what it’s allowed to do</span></div>
           <div class="grid2" style="gap:18px"><div class="col">
-            <label class="small" for="pc"><b>Chatty ↔ quiet</b></label><input type="range" id="pc" min="0" max="1" step="0.1" value="${1 - (this.persona.chatty ?? 0.5)}" aria-label="Chatty to quiet">
-            <label class="small" for="pp"><b>Playful ↔ serious</b></label><input type="range" id="pp" min="0" max="1" step="0.1" value="${1 - (this.persona.playful ?? 0.5)}" aria-label="Playful to serious">
-            <div class="col"><b class="small">Emoji</b>${`<div class="chips"><button data-pe="1" class="${this.persona.emoji ? "on" : ""}">Sometimes</button><button data-pe="0" class="${this.persona.emoji ? "" : "on"}">Never</button></div>`}</div></div>
-          <div class="col"><label class="small" for="pcat"><b>Catchphrase</b></label><input class="f" id="pcat" maxlength="80" value="${esc(this.persona.catchphrase || "")}">
-            <label class="small" for="pq"><b>Quirk</b></label><input class="f" id="pq" maxlength="120" value="${esc(this.persona.quirk || "")}">
-            <label class="small" for="pb"><b>In its own words</b></label><input class="f" id="pb" maxlength="160" placeholder="I hunt flats in Bari so you don’t have to." value="${esc(this.persona.bio || "")}"></div></div></div>
-        <div class="row"><button class="btn p" id="lsave">Save</button><button class="btn" id="lreset">Reset</button><span class="mono small muted">click to try · nothing saves until you press Save</span></div></section></div></div>`;
-    $$("[data-k]", this.el).forEach((x) => (x.onclick = () => { this.draft[x.dataset.k] = x.dataset.v === "true" ? true : x.dataset.v === "false" ? false : x.dataset.v; this.render(); }));
-    $$("[data-bot]", this.el).forEach((x) => (x.onclick = () => { location.hash = `#/look/${x.dataset.bot}`; }));
-    $("#lname").oninput = (e) => (this.draft.name = e.target.value);
-    $("#pc").oninput = (e) => (this.persona.chatty = +(1 - e.target.value).toFixed(1));
-    $("#pp").oninput = (e) => (this.persona.playful = +(1 - e.target.value).toFixed(1));
-    $$("[data-pe]", this.el).forEach((x) => (x.onclick = () => { this.persona.emoji = x.dataset.pe === "1"; this.render(); }));
-    for (const [id, k] of [["pcat", "catchphrase"], ["pq", "quirk"], ["pb", "bio"]]) $("#" + id).oninput = (e) => (this.persona[k] = e.target.value);
-    $("#lreset").onclick = () => { this.draft = { ...b.look, name: b.name }; this.persona = { ...(b.persona || {}) }; this.render(); };
-    $("#lsave").onclick = async () => { const { name, ...look } = this.draft; await patch(`/api/bots/${b.id}`, { name, look, persona: this.persona }); await loadState(); this.bot = S.bots.find((x) => x.id === b.id); toast("Saved", this.bot); };
+            <label class="small" for="pc"><b>Chatty ↔ quiet</b></label><input type="range" id="pc" min="0" max="1" step="0.1" value="${1 - (p.chatty ?? 0.5)}">
+            <label class="small" for="pp"><b>Playful ↔ serious</b></label><input type="range" id="pp" min="0" max="1" step="0.1" value="${1 - (p.playful ?? 0.5)}">
+            <div class="col"><b class="small">Emoji</b><div class="chips" role="group" aria-label="Emoji"><button type="button" data-pe="1" class="${p.emoji ? "on" : ""}" aria-pressed="${!!p.emoji}">Sometimes</button><button type="button" data-pe="0" class="${p.emoji ? "" : "on"}" aria-pressed="${!p.emoji}">Never</button></div></div></div>
+          <div class="col"><label class="small" for="pcat"><b>Catchphrase</b></label><input class="f" id="pcat" maxlength="80" value="${esc(p.catchphrase || "")}">
+            <label class="small" for="pq"><b>Quirk</b></label><input class="f" id="pq" maxlength="120" value="${esc(p.quirk || "")}">
+            <label class="small" for="pb"><b>In its own words</b></label><input class="f" id="pb" maxlength="160" placeholder="I hunt flats in Bari so you don’t have to." value="${esc(p.bio || "")}"></div></div></div>
+        <div class="row wrap"><button class="btn p" id="lsave">Save</button><button class="btn" id="lreset">Reset</button><span class="mono small muted" id="lhint" role="status"></span></div></section></div></div>`;
+    this.hint();
+    $$("[data-k]", this.el).forEach((x) => (x.onclick = () => { const v = x.dataset.v; this.draft[x.dataset.k] = v === "true" ? true : v === "false" ? false : v; this.paint(); }));
+    $$("[data-pe]", this.el).forEach((x) => (x.onclick = () => { this.persona.emoji = x.dataset.pe === "1"; this.paint(); }));
+    $("#lname").oninput = (e) => { this.draft.name = e.target.value; this.paint(); };
+    $("#pc").oninput = (e) => { this.persona.chatty = +(1 - e.target.value).toFixed(1); this.hint(); };
+    $("#pp").oninput = (e) => { this.persona.playful = +(1 - e.target.value).toFixed(1); this.hint(); };
+    for (const [id, k] of [["pcat", "catchphrase"], ["pq", "quirk"], ["pb", "bio"]]) $("#" + id).oninput = (e) => { this.persona[k] = e.target.value; this.hint(); };
+    $$("[data-bot]", this.el).forEach((x) => (x.onclick = async () => {
+      if (+x.dataset.bot === this.bot.id) return;
+      if (this.dirty() && !(await confirmBox(`Discard your changes to ${this.bot.name}?`, "Discard", true))) return;
+      location.hash = `#/look/${x.dataset.bot}`;
+    }));
+    $("#lreset").onclick = () => { this.load(this.bot); this.render(); $("#lreset", this.el).focus(); };
+    $("#lsave").onclick = async () => {
+      const { name, ...look } = this.draft, btn = $("#lsave");
+      if (!String(name || "").trim()) { toast("Give it a name first."); return $("#lname").focus(); }
+      busy(btn, true);
+      try {
+        await patch(`/api/bots/${this.bot.id}`, { name: name.trim(), look, persona: this.persona });
+        await loadState();
+        const nb = S.bots.find((x) => x.id === this.bot.id);
+        if (nb) this.load(nb);
+        this.render(); $("#lsave", this.el).focus();
+        toast("Saved", nb || this.bot);
+      } catch (e) { toast(e.message); busy(btn, false); }
+    };
   },
+  paint() {  // the preview and the pressed buttons change in place, so the focus stays on what you pressed
+    const d = this.draft;
+    $("#lprev", this.el).innerHTML = this.preview();
+    $$("[data-k]", this.el).forEach((x) => { const on = String(d[x.dataset.k]) === x.dataset.v; x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
+    $$("[data-pe]", this.el).forEach((x) => { const on = (x.dataset.pe === "1") === !!this.persona.emoji; x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
+    $$(".animal", this.el).forEach((x) => { x.firstElementChild.outerHTML = critter(x.dataset.v, d.color, "none", 44); });
+    this.hint();
+  },
+  hint() { const h = $("#lhint", this.el); if (h) h.textContent = this.dirty() ? "not saved yet · press Save to keep it" : "click to try · nothing saves until you press Save"; },
 };
 
 // ================================================================ settings
 VIEWS.settings = {
+  live: false,
   async show(el) { this.el = el; await this.refresh(); },
   async refresh() {
     const s = await get("/api/settings");
-    const tog = (k, on, label) => `<div class="between"><span>${label}</span><button class="toggle ${on ? "on" : ""}" data-t="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}"></button></div>`;
+    const tog = (k, on, label) => `<div class="between tgl"><span>${label}</span><button class="toggle ${on ? "on" : ""}" data-t="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}"></button></div>`;
     const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid #F0EEE9"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x}</kbd>`).join("")}</span></div>`;
+    const field = (id, label, value, extra = "") => `<div class="between fld"><label for="${id}">${label}</label><span class="row sfw"><span class="small good" data-saved="${id}" aria-live="polite"></span><input class="f sf" id="${id}" value="${esc(value)}" ${extra}></span></div>`;
+    const lan = (st) => (!st.lan ? "Only this computer can open Inky." : st.web_url ? `On your phone, open <b class="mono">${esc(st.web_url)}</b> and sign in with the pairing code <b class="mono">${esc(S.pair || "")}</b>.` : "On, but this computer isn’t on a Wi-Fi network right now.");
     this.el.innerHTML = `${mobileBar("Settings")}<div class="page"><div><h1>Settings</h1><p class="lede">For the whole app. Each bot has its own settings on its page.</p></div>
-      <div class="grid2"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}
+      <div class="grid2 sets"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}
         <span class="small muted" style="margin-top:8px">Anywhere on your computer, in the Inky app:</span><span id="barkey">${kb("Command bar over any app", "⌥ Space")}</span>${kb("Pause all bots", "⌃ ⌥ P")}${kb("Stop everything on my screen", "⌃ ⌥ Esc")}</div>
         <div class="card"><b>Privacy and data</b><div class="between"><span>Never record password fields</span><span class="small muted row">${icon("lock", 13)}always</span></div><div class="between"><span>Bots never type your passwords</span><span class="small muted row">${icon("lock", 13)}always</span></div>
+          ${tog("lan", s.lan, "Let my phone open Inky (on this Wi-Fi)")}<span class="small muted" id="lanline" role="status">${lan(s)}</span>
           <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
-        <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("sounds", s.sounds !== false, "Sounds (each bot has its own)")}${APP ? tog("buddy", s.buddy !== false, "Desktop buddy: a critter peeks in when a bot needs you") + `<div class="between"><span>Open Inky when you log in</span><button class="toggle" id="autost" role="switch" aria-checked="false" aria-label="Open Inky when you log in"></button></div>` : ""}${tog("telegram", s.telegram.enabled, "On Telegram")}<div class="between"><label for="chat">Telegram chat id</label><input class="f" id="chat" style="width:180px;height:36px" value="${esc(s.telegram.chat_id || "")}"></div>
+        <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("sounds", s.sounds !== false, "Sounds (each bot has its own)")}${APP ? tog("buddy", s.buddy !== false, "Desktop buddy: a critter peeks in when a bot needs you") + `<div class="between"><span>Open Inky when you log in</span><button class="toggle" id="autost" role="switch" aria-checked="false" aria-label="Open Inky when you log in"></button></div>` : ""}${tog("telegram", s.telegram.enabled, "On Telegram")}${field("chat", "Telegram chat id", s.telegram.chat_id || "", 'inputmode="numeric"')}
           <div class="between"><span>Bots on your screen</span><button class="toggle ${s.screen_allowed ? "on" : ""}" data-t="screen_allowed" role="switch" aria-checked="${!!s.screen_allowed}" aria-label="Bots on your screen"></button></div></div>
-        <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div><div class="between"><label for="en">This computer’s name</label><input class="f" id="en" style="width:200px;height:36px" value="${esc(s.engine_name)}"></div><div class="between"><label for="un">What should bots call you?</label><input class="f" id="un" style="width:200px;height:36px" placeholder="your name" value="${esc(s.user_name || "")}"></div>
-          <div class="row"><a class="btn s" href="https://github.com/GHGuide/inky" target="_blank" rel="noopener">Read the code ↗</a><a class="btn s" href="#/setup/1">Run setup again</a></div></div></div></div>`;
-    $$("[data-t]", this.el).forEach((x) => (x.onclick = async () => {
-      const on = !x.classList.contains("on"); x.classList.toggle("on", on); x.setAttribute("aria-checked", on);
-      S.settings = await post("/api/settings", x.dataset.t === "telegram" ? { telegram: { enabled: on } } : { [x.dataset.t]: on });
+        <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div>${field("en", "This computer’s name", String(s.engine_name || "").trim() || S.engine || "", 'maxlength="40"')}${field("un", "What should bots call you?", s.user_name || "", 'maxlength="40" placeholder="your name"')}
+          <div class="row wrap"><a class="btn s" href="https://github.com/GHGuide/inky" target="_blank" rel="noopener">Read the code ↗</a><a class="btn s" href="#/setup/1">Run setup again</a></div></div></div></div>`;
+    $$("[data-t]", this.el).forEach((x) => (x.onclick = async () => {  // shows the new state at once, and goes back if the engine says no
+      if (x.dataset.busy) return;
+      const k = x.dataset.t, on = !x.classList.contains("on"), set = (v) => { x.classList.toggle("on", v); x.setAttribute("aria-checked", v); };
+      set(on); x.dataset.busy = "1";
+      try {
+        S.settings = await post("/api/settings", k === "telegram" ? { telegram: { enabled: on } } : { [k]: on });
+        if (k === "lan") $("#lanline", this.el).innerHTML = lan(S.settings);
+      } catch (e) { set(!on); toast(e.message); }
+      delete x.dataset.busy;
     }));
-    $("#chat").onchange = () => post("/api/settings", { telegram: { chat_id: $("#chat").value.trim() } });
-    $("#en").onchange = () => post("/api/settings", { engine_name: $("#en").value.trim() }).then(loadState);
+    const saveField = (id, body, after) => {
+      const i = $("#" + id, this.el); let last = i.value;
+      i.onchange = async () => {
+        try {
+          S.settings = await post("/api/settings", body(i.value.trim()));
+          if (after) await after(S.settings, i);
+          last = i.value;
+          const m = $(`[data-saved="${id}"]`, this.el); m.textContent = "Saved"; clearTimeout(m._t); m._t = setTimeout(() => (m.textContent = ""), 2500);
+        } catch (e) { toast(e.message); i.value = last; }
+      };
+    };
+    saveField("chat", (v) => ({ telegram: { chat_id: v } }));
+    saveField("en", (v) => ({ engine_name: v }), (r, i) => loadState().then(() => { i.value = String(r.engine_name || "").trim() || S.engine || i.value.trim(); }));  // blank: the computer’s own name
+    saveField("un", (v) => ({ user_name: v }), (r, i) => { i.value = r.user_name || ""; toast(r.user_name ? `Bots will call you ${r.user_name}` : "Bots won’t use a name"); });
     if (APP) invoke("app_info").then((i) => { if (i && $("#barkey")) $("#barkey").innerHTML = i.bar_key === "none" ? kb("Command bar over any app", "taken by another app") : kb("Command bar over any app", i.bar_key.replaceAll("⌃⌥", "⌃ ⌥").replaceAll("⌥Space", "⌥ Space").replace(" or ", " or ")); });
     if ($("#autost")) {
       invoke("autostart", {}).then((on) => { $("#autost").classList.toggle("on", !!on); $("#autost").setAttribute("aria-checked", !!on); });
       $("#autost").onclick = async (e) => { const on = await invoke("autostart", { on: !e.currentTarget.classList.contains("on") }); $("#autost").classList.toggle("on", !!on); $("#autost").setAttribute("aria-checked", !!on); };
     }
-    $("#un").onchange = () => post("/api/settings", { user_name: $("#un").value.trim().slice(0, 40) }).then(() => toast(`Bots will call you ${$("#un").value.trim() || "nothing special"}`));
   },
 };
