@@ -57,7 +57,11 @@ def best_match(target, items, key=lambda x: x):
 
 
 class Guard(ValueError):
-    """The model proposed something you didn't ask for: dropped quietly."""
+    """The model proposed something you didn't ask for: not done. offer=True: it's offered as a button instead."""
+
+    def __init__(self, msg="", offer=False):
+        super().__init__(msg)
+        self.offer = offer
 
 
 RULE_STOP = {"before", "first", "always", "never", "ask", "asks", "with", "that", "this", "from", "what", "when", "your", "them",
@@ -92,8 +96,17 @@ def rule_hit(rules, kind, text):
     return None
 
 
+FILLER = re.compile(r"^(so|and|ok|okay|well|hey|then|but|um|uh|hmm)\b[,!.\s]*", re.I)
+RECAP = re.compile(r"\b(what (did|have) you (do|done|been doing|find|found|get|got)|what you (did|found)|what happened|what'?s new|anything new|"
+                   r"how did (it|that|the run|your run) go|any (news|results|luck))\b", re.I)
+AFFIRM = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok(ay)?|please( do)?|do it|go ahead|go for it|i want (that|it)|that'?s (fine|good)|"
+                    r"sounds good|let'?s do (it|that)|yes please|please go ahead)\b[\s!.,]*(please|thanks)?[\s!.]*$", re.I)
+
+
 def is_question(t):
     t = (t or "").strip().lower()
+    while FILLER.match(t) and FILLER.sub("", t, 1) != t:
+        t = FILLER.sub("", t, 1)
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
 
 
@@ -114,6 +127,14 @@ def limit_filter(text):
     op = {"under": "<", "below": "<", "less than": "<", "<": "<", "at most": "<=", "<=": "<=",
           "over": ">", "above": ">", "more than": ">", ">": ">", "at least": ">=", ">=": ">="}[m.group(2).lower()]
     return {"field": m.group(1).lower(), "op": op, "value": float(m.group(3).replace(",", "."))}
+
+
+def when_words(ts, future=False):
+    """“Today at 12:51”, “Yesterday at 09:00”, “Fri at 12:51” (or “at 12:51” mid-sentence)."""
+    d, now = datetime.fromtimestamp(ts), datetime.now()
+    days = (d.date() - now.date()).days
+    day = "Today" if days == 0 else ("Tomorrow" if days == 1 else "Yesterday" if days == -1 else d.strftime("%a"))
+    return f"{day.lower() if future else day} at {d.strftime('%H:%M')}"
 
 
 def every_words(m):
@@ -622,6 +643,12 @@ class Engine:
         correcting = bool(run and run.kind == "learn" and run.thread and run.thread.is_alive())
         if correcting:  # while it learns, what you say steers the learner
             run.fixes.append(text)
+        if not sender and not correcting:
+            last = next((m for m in self.store.find("messages", bot_id=bid, limit=6) if m["role"] == "bot"), None)
+            if last and last.get("offers") and not last.get("chips_used") and AFFIRM.match(text):  # “yes” to the button it offered
+                return self._say(bid, self.take_offer(bid, last["id"], 0, said_yes=True))
+            if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
+                return self._say(bid, self.recap(bid))
         results = [r for r in self.store.find("results", bot_id=bid, limit=10) if r.get("passed") is not False][:3]
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
         sk = self.store.find("skills", bot_id=bid)
@@ -671,7 +698,7 @@ class Engine:
             prov = (self.llm.roles().get("chat") or {}).get("provider")
             why = llm_plain(e, PROVIDERS.get(prov, {}).get("label", "my model"))
             d = {"reply": f"{why[:1].upper()}{why[1:]} Check Models.", "actions": []}
-        done, held, failed = [], False, False
+        done, held, failed, offers = [], False, False, []
         new_rule = not sender and text.lower().startswith("new rule:")
         pre = self.store.get("bots", bid)  # the rules before the model touched them
         for a in d.get("actions") or []:
@@ -682,8 +709,10 @@ class Engine:
                 continue
             try:
                 done.append(self.apply_action(bid, a, said=text))
-            except Guard:
+            except Guard as g:
                 held = True
+                if g.offer and not sender and a.get("type") not in ("delegate", "ask_bot"):
+                    offers.append(a)
             except Exception as e:
                 failed = True
                 done.append(f"Couldn’t do that: {e}")
@@ -713,11 +742,21 @@ class Engine:
                                       filters=[f for f in bb.get("filters", []) if f.get("text") != rules[-1].get("text")])
         reply = re.sub(r"\s*/no_think\b", "", d.get("reply") or "").strip() or "OK."
         did = [x for x in done if not str(x).startswith(("Couldn’t", "already a rule"))]
-        if (held or failed) and not did and not sender and not correcting:  # it talked about doing something that didn't happen
-            promise = re.search(r"\b(I'?ll|I will|I’ll|I've|I’ve|I have|done|handled|consider it|updated|changed|set|added|removed|scheduled)\b", reply, re.I)
-            note = "That didn’t work, so nothing changed." if failed else "I haven’t changed anything. Ask me straight out if you want that."
-            reply = note if promise else f"{reply} ({note})"
-        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
+        chips, kept = [], []
+        for a in offers:  # what it wanted to do but you didn't ask for: one tap away, never done on its own
+            a = self._offerable(bid, a, text)
+            if a and not any(x["type"] == a["type"] for x in kept):
+                kept.append(a)
+                chips.append({"label": self._offer_label(a), "offer": len(kept) - 1})
+        promise = re.search(r"\b(I'?ll|I will|I’ll|I've|I’ve|I have|let me|done|handled|consider it|updated|changed|set|added|removed|scheduled)\b", reply, re.I)
+        if failed and not did and not sender and not correcting and promise:
+            reply = "That didn’t work, so nothing changed."
+        elif held and not did and not chips and not sender and not correcting and promise:  # it talked about doing something that didn't happen
+            reply = "I haven’t changed anything."
+        elif chips:
+            reply = f"{reply} Want me to?" if promise and not reply.rstrip().endswith("?") else reply
+        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender),
+                           **({"chips": chips, "offers": kept} if chips else {}))
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
 
@@ -728,7 +767,7 @@ class Engine:
         if t not in ACTIONS:
             raise Guard(f"unknown action {t}")
         if said is not None and t in CHANGES and is_question(said) and not POLITE.match(said):
-            raise Guard("a question isn't a request")  # “Should you run every 5 minutes?” changes nothing
+            raise Guard("a question isn't a request", offer=True)  # “Should you run every 5 minutes?” changes nothing
         if t == "add_rule":
             kind = "filter" if a.get("filter") else (a.get("kind") if a.get("kind") in ("own", "ask", "never") else "own")
             if not (a.get("text") or "").strip():
@@ -739,7 +778,7 @@ class Engine:
             return f"rule: {a['text']}"
         if t == "remove_rule":
             if said is not None and (said.lower().startswith("new rule:") or not REMOVING.search(said)):
-                raise Guard("you didn’t ask me to remove a rule")
+                raise Guard("you didn’t ask me to remove a rule", offer=True)
             rules = b.get("rules", [])
             i = best_match(a.get("text"), rules, key=lambda r: r["text"])
             if i is None:
@@ -749,7 +788,7 @@ class Engine:
             return f"removed rule: {gone}"
         if t == "remember":
             if said is not None and is_question(said) and not re.search(r"\bremember\b", said, re.I):
-                raise Guard("a question isn't something to remember")
+                raise Guard("a question isn't something to remember", offer=True)
             if best_match(a.get("text"), b.get("memory", []), key=lambda m: m["text"]) is not None:
                 raise Guard("already remembered")
             self.store.update("bots", bid, memory=b.get("memory", []) + [{"text": a["text"], "ts": time.time()}])
@@ -765,7 +804,7 @@ class Engine:
             url = skills.web_address(a.get("url") or b.get("start_url"), "")
             if said is not None and (is_question(said) or not re.search(r"\b(learn|teach|check|watch|look at|search|go to|try)\b", said, re.I)
                                      or not (re.search(r"https?://|\b[\w-]+\.[a-z]{2,}\b", said, re.I) or re.search(r"\b(new|another|this) (site|website|page)\b", said, re.I))):
-                raise Guard("you didn’t ask me to learn a site")  # a question is never a reason to go learning
+                raise Guard("you didn’t ask me to learn a site", offer=True)  # a question is never a reason to go learning
             if b.get("allowed_domains") and url and skills.site_of(urlparse(url).hostname) not in {skills.site_of(d) for d in b["allowed_domains"]}:
                 raise ValueError(f"I only work on {', '.join(b['allowed_domains'])}")
             self.learn(bid, a.get("goal") or b.get("goal"), url)
@@ -803,6 +842,98 @@ class Engine:
             self.store.update("bots", bid, automations=b.get("automations", []) + [auto])
             return f"automation: {a.get('label')}"
         raise Guard(f"unknown action {t}")
+
+    def _say(self, bid, text):
+        self.store.message(bid, "bot", text)
+        self.bus.publish("messages", bot=bid)
+        return {"reply": text, "actions": [], "done": []}
+
+    def _offerable(self, bid, a, said=""):
+        """An action worth offering as a button, or None: it must change something, and match what you said.
+        “Learn the site again” on a bot that already knows it means: run it."""
+        b = self.store.get("bots", bid)
+        if a.get("type") == "speed":
+            v = a.get("value") if a.get("value") in ("slow", "normal", "turbo") else None
+            v = v or ("turbo" if re.search(r"\b(fast|faster|quick|quicker|turbo|speed up)\b", said, re.I) else
+                      "slow" if re.search(r"\b(slow|slower|careful)\b", said, re.I) else None)
+            return {**a, "value": v} if v and v != (b.get("look") or {}).get("speed", "normal") else None
+        if a.get("type") == "schedule":
+            m = minutes(a.get("every_minutes")) if a.get("every_minutes") is not None else None
+            return a if m is not None and m != minutes((b.get("schedule") or {}).get("every_minutes")) else None
+        if a.get("type") == "learn":
+            url = skills.web_address(a.get("url") or b.get("start_url"), "")
+            site = url and skills.site_of(urlparse(url).hostname)
+            if not url:
+                return None
+            if any(skills.site_of(urlparse(sk.get("start_url") or "").hostname or "") == site for sk in self.store.find("skills", bot_id=bid)):
+                return {"type": "run"}
+            return {**a, "url": url}
+        if a.get("type") == "remember" and not (a.get("text") or "").strip():
+            return None
+        return a
+
+    def _offer_label(self, a):
+        t, txt = a["type"], skills.short(str(a.get("text") or ""), 40)
+        if t == "schedule":
+            m = minutes(a.get("every_minutes"))
+            return f"Yes, check every {every_words(m)}" if m else "Yes, only run when I ask"
+        return {"run": "Yes, run it now", "pause": "Yes, pause it", "resume": "Yes, resume it", "stop": "Yes, stop it",
+                "speed": f"Yes, go {a.get('value') or 'normal'}", "remember": f"Yes, remember “{txt}”", "forget": f"Yes, forget “{txt}”",
+                "add_rule": f"Yes, add “{txt}”", "remove_rule": f"Yes, remove “{txt}”", "add_automation": "Yes, add that automation",
+                "learn": f"Yes, learn {urlparse(a.get('url') or '').hostname or 'that site'}"}.get(t, "Yes, do it")
+
+    def take_offer(self, bid, msg_id, i, said_yes=False):
+        """You tapped (or said yes to) what the bot offered. Only what that very message offered, once."""
+        m = self.store.get("messages", int(msg_id))
+        if not m or m.get("bot_id") != bid or not m.get("offers") or m.get("chips_used"):
+            raise ValueError("That was already done, or it’s gone.")
+        offers = m["offers"]
+        if not 0 <= int(i) < len(offers):
+            raise ValueError("That isn’t one of its offers.")
+        a, label = offers[int(i)], next((c["label"] for c in m.get("chips") or [] if c.get("offer") == int(i)), "it")
+        self.store.update("messages", m["id"], chips_used=True)
+        try:
+            out = self.apply_action(bid, a)  # you asked for it: no question guard
+        except Exception as e:
+            return f"I couldn’t: {e}."
+        self.bus.publish("messages", bot=bid)
+        return {"run": "Running now.", "learning": "Learning it now."}.get(out, f"Done: {label.removeprefix('Yes, ')}.") if said_yes else out
+
+    def recap(self, bid):
+        """What it did, from its own records: the last run, what's next, what waits for you."""
+        b = self.store.get("bots", bid)
+        v = self.bot_view(b)
+        runs = [r for r in self.store.find("runs", bot_id=bid, limit=20) if r.get("status") != "running"]
+        busy = self.busy(bid)
+        if not runs:
+            s = "I haven’t run yet. " + ("I’m working on it right now." if busy else "Press Run now and I’ll start." if v["skills"] or b.get("start_url")
+                                         else "Tell me a site and what to look for, and I’ll learn it.")
+            return s
+        r, when = runs[0], when_words(runs[0]["ts"])
+        if r.get("kind") == "learn":
+            s = f"{when}, I learned {b.get('start_url') or 'the site'}" + ("." if r.get("status") == "ok" else f", but it stopped: {r.get('note') or r.get('status')}.")
+        elif r.get("status") == "ok":
+            pages = f" over {r['pages']} pages" if (r.get("pages") or 0) > 1 else ""
+            reads = r.get("items") is not None and r.get("matched") is not None
+            ai = r.get("ai_calls") or 0
+            s = (f"{when}, I ran “{r.get('skill') or 'my skill'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} pass your rules, "
+                 f"{r.get('new') or 0} new" if reads else f"{when}, I ran “{r.get('skill') or 'my skill'}”") + \
+                (f", with {ai} AI call{'s' if ai != 1 else ''} to fix a step." if ai else ", no AI needed.")
+            fresh = [x for x in self.store.find("results", bot_id=bid, limit=200) if x.get("new") and x.get("passed") is not False][:3]
+            if fresh:
+                s += " Newest: " + "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in fresh) + "."
+        else:
+            s = f"{when}, my run {'stopped' if r.get('status') == 'stopped' else 'needed you' if r.get('status') == 'needs_you' else 'failed'}" + \
+                (f": {r['note']}." if r.get("note") else ".")
+        if busy:
+            s += " I’m working again right now."
+        elif b.get("held"):
+            s += " My schedule is paused."
+        elif v.get("next_run"):
+            s += f" Next run {when_words(v['next_run'], future=True)}."
+        if v.get("needs"):
+            s += f" {v['needs']} thing{'s' if v['needs'] != 1 else ''} need{'s' if v['needs'] == 1 else ''} you in Needs you."
+        return s
 
     # ---------------------------------------------------------- MCP delegation
     def delegate(self, bid, a, context=None, run=None):

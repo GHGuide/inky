@@ -752,7 +752,8 @@ VIEWS.bot = {
       const m = this.data.messages.find((y) => y.id === +x.dataset.chip), c = m && m.chips[+x.dataset.ci];
       if (!c) return;
       x.disabled = true;
-      try { await post(`/api/bots/${this.id}/apply`, { apply: c.apply, message: m.id }); toast(c.label, b); this.refresh(true); } catch (e) { x.disabled = false; toast(e.message); }
+      const body = c.offer != null ? { offer: c.offer, message: m.id } : { apply: c.apply, message: m.id };  // an offer is something it wanted to do: you said yes
+      try { await post(`/api/bots/${this.id}/apply`, body); if (c.offer == null) toast(c.label, b); this.refresh(true); } catch (e) { x.disabled = false; toast(e.message); this.refresh(true); }
     }));
     if (force || atEnd) box.scrollTop = 1e9;
   },
@@ -1824,6 +1825,7 @@ const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this co
 const keyErr = (status) => ([401, 403].includes(+status) ? `refused (${status})` : `error ${status}`);
 
 // ================================================================ models
+const PROVIDER_NAMES = { ollama: "Ollama", custom: "Your own server", openrouter: "OpenRouter", anthropic: "Anthropic", openai: "OpenAI", gemini: "Google Gemini", groq: "Groq", xai: "xAI", mistral: "Mistral" };
 const provLabel = (p) => (p.name === "custom" ? "Your own server" : p.label);
 const ROLE_ABOUT = { learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule",
   repair: "when a button moves and its name isn’t enough", smart: "when you choose “Try a smarter model”" };
@@ -1833,19 +1835,49 @@ VIEWS.models = {
   onEvent(m) { if (m.kind === "pull" && this.sub === "local") this.pulled(m); },
   async refresh() {
     if (this.sub === "local") { const loc = await get("/api/models/local"); return redraw(this.el, () => this.local(loc)); }
-    const [md, loc] = await Promise.all([get("/api/models"), get("/api/models/local")]);
-    redraw(this.el, () => this.main(md, loc));
+    const [md, loc, ch] = await Promise.all([get("/api/models"), get("/api/models/local"), get("/api/models/choices")]);
+    redraw(this.el, () => this.main(md, loc, ch));
   },
-  main(md, loc) {
+  picker(ch) {  // the one choice most people need: which model every bot uses
+    const val = (c) => `${c.provider}|${c.model || ""}`, u = ch.using;
+    const cur = u ? ch.choices.find((c) => c.provider === u.provider && (!c.model || c.model === u.model)) : null;
+    const extra = u && !cur ? [{ provider: u.provider, model: u.model, group: "Using now", label: `${u.model} · ${(PROVIDER_NAMES[u.provider] || u.provider)}` }] : [];
+    const all = [...extra, ...ch.choices], groups = [...new Set(all.map((c) => c.group))];
+    const options = groups.map((g) => `<optgroup label="${esc(g)}">${all.filter((c) => c.group === g).map((c) => `<option value="${esc(val(c))}" ${c === cur || extra.includes(c) ? "selected" : ""}>${esc(c.label)}${ch.recommended && c.model === ch.recommended ? " · recommended" : ""}</option>`).join("")}</optgroup>`).join("");
+    const now = u ? `Your bots use <b>${esc(u.model)}</b>${u.provider === "ollama" ? " on this computer" : ` from ${esc(PROVIDER_NAMES[u.provider] || u.provider)}`}.` : ch.mixed ? "Your bots use different models for different jobs (below)." : "No model yet.";
+    return `<section class="card mpick"><div class="col" style="gap:2px"><b style="font-size:17px">The model your bots use</b><span class="small muted">One model for everything. Pick it, press Use it, and Inky checks it works.</span></div>
+      ${all.length ? `<div class="row wrap"><label class="vh" for="mpick">Model</label><select class="f grow" id="mpick" style="min-width:240px">${options}</select><button class="btn p" id="muse">Use it</button></div>`
+        : `<span>There’s no model to pick yet. Start or install Ollama on this computer, or add an API key.</span>`}
+      <span class="small" id="mpickmsg" role="status">${now}</span><span class="small warn hidden" id="msmall">Small models chat fine but learn new sites poorly. For learning, pick a bigger one or add an API key.</span></section>`;
+  },
+  bindPicker(ch) {
+    const sel = $("#mpick", this.el); if (!sel) return;
+    const pick = () => { const [p, m] = sel.value.split("|"); return { provider: p, model: m || null, c: ch.choices.find((c) => c.provider === p && (c.model || "") === m) }; };
+    const small = () => $("#msmall", this.el).classList.toggle("hidden", !(pick().c && pick().c.small));
+    sel.onchange = small; small();
+    $("#muse", this.el).onclick = async () => {
+      const b = $("#muse", this.el), { provider, model } = pick();
+      busy(b, true); formSay("#mpickmsg", "Checking it works…");
+      try {
+        const r = await post("/api/models/connect", { provider, model });
+        if (!r.ok) { formSay("#mpickmsg", r.reply || "It didn’t answer.", false); return busy(b, false); }
+        toast(`All your bots use ${r.model} now`);
+        await this.refresh();
+        formSay("#mpickmsg", `✓ Works: it answered in ${r.seconds} s. All your bots use ${r.model} now.`, true);
+      } catch (e) { formSay("#mpickmsg", e.message, false); busy(b, false); }
+    };
+  },
+  main(md, loc, ch) {
     const provs = md.providers, o = loc.ollama, local = o.models.map((x) => x.name);
     const suggest = (p) => (p === "ollama" ? local : [...new Set(Object.values(md.roles).filter((v) => v.provider === p && v.model).map((v) => v.model))]);
     const opts = (p) => suggest(p).map((x) => `<option value="${esc(x)}">`).join("");
     this.el.innerHTML = `${mobileBar("Models")}<div class="page"><div class="between"><div><h1>Models</h1><p class="lede">Bots only use a model to learn a job or understand you. Repeating a job uses none.</p></div><span class="row"><a class="btn" href="#/models/local">Add a local model</a><a class="btn p" href="#/keys">Add an API key</a></span></div>
-      <section class="card"><div class="list">${Object.entries(md.role_labels).map(([r, label]) => { const v = md.roles[r] || {}; return `<div class="mrole"><div class="row mrow"><span class="col mlabel" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${ROLE_ABOUT[r] || ""}</span></span>
+      ${this.picker(ch)}
+      <details class="card mjobs" data-keep="mjobs"${ch.mixed ? " open" : ""}><summary><b>Different models for different jobs</b> <span class="small muted">optional, for when one model isn’t enough</span></summary><div class="list">${Object.entries(md.role_labels).map(([r, label]) => { const v = md.roles[r] || {}; return `<div class="mrole"><div class="row mrow"><span class="col mlabel" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${ROLE_ABOUT[r] || ""}</span></span>
         <select class="f mprov" data-rp="${r}" aria-label="Provider for ${esc(label)}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(provLabel(p))}</option>`).join("")}</select>
         <input class="f mono mmodel" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml-${r}" aria-label="Model for ${esc(label)}" autocomplete="off" spellcheck="false"><datalist id="ml-${r}">${opts(v.provider)}</datalist>
         <span class="row" style="gap:6px"><button class="btn s" data-save="${r}" aria-label="Save ${esc(label)}">Save</button><button class="btn s" data-test="${r}" aria-label="Test ${esc(label)}">Test</button></span></div>
-        <span class="small" data-out="${r}" role="status"></span></div>`; }).join("")}</div></section>
+        <span class="small" data-out="${r}" role="status"></span></div>`; }).join("")}</div></details>
       <div class="grid2"><section class="card"><div class="head"><b>On this computer</b><span class="small muted">free · private · works offline</span></div>
         <div class="between"><span>Ollama</span>${o.running ? `<span class="small good">● running · ${o.models.length} model${o.models.length === 1 ? "" : "s"}</span>` : o.installed ? `<span class="row" style="gap:8px"><span class="small muted">installed, not running</span><button class="btn s" data-ostart>Start Ollama</button></span>` : `<a class="small" href="https://ollama.com/download" target="_blank" rel="noopener">Install Ollama ↗</a>`}</div>
         ${o.models.length ? `<div class="row wrap">${o.models.map((x) => `<span class="chip">${esc(x.name)} · ${GB(x.size)} GB</span>`).join("")}</div>` : ""}
@@ -1884,6 +1916,7 @@ VIEWS.models = {
       } catch (e) { formSay(x.out, e.message, false); }
       busy(b, false);
     }));
+    this.bindPicker(ch);
     this.bindStart();
   },
   bindStart() {

@@ -210,6 +210,10 @@ def results(E, h, q, body, bid):
 @route("POST", r"/api/bots/(\d+)/apply")
 def apply_chip(E, h, q, body, bid):
     bot_or_404(E, bid)
+    if "offer" in body:  # a button the bot offered in chat: what that very message offered, once
+        text = E.take_offer(int(bid), body.get("message"), body.get("offer"))
+        E._say(int(bid), text if isinstance(text, str) and text[:1].isupper() else f"Done: {text}.")
+        return {"bot": E.bot_view(E.store.get("bots", int(bid)))}
     return {"bot": E.apply_chip(int(bid), body.get("apply"), body.get("message"))}
 
 
@@ -482,6 +486,31 @@ def activity(E, h, q, body):
 def models(E, h, q, body):
     return {"roles": E.llm.roles(), "role_labels": ROLES, "providers": E.llm.providers(),
             "usage": E.store.setting("usage", {}), "errors": E.store.setting("provider_errors", {})}
+
+
+@route("GET", "/api/models/choices")
+def model_choices(E, h, q, body):
+    """Every model you can use right now, for the one picker: what's on this computer, then each provider you have a key for."""
+    from inky.llm import NOT_CHAT, fits
+    st = E.llm.local_status()
+    mem = st["hardware"].get("memory_gb")
+    rows = []
+    if st["ollama"]["running"]:
+        for m in sorted(st["ollama"]["models"], key=lambda m: -(m.get("size") or 0)):
+            if NOT_CHAT.search(m["name"]):
+                continue
+            gb, fit = round((m.get("size") or 0) / 1e9, 1), fits(m.get("size") or 0, mem)
+            rows.append({"provider": "ollama", "model": m["name"], "group": "On this computer", "small": gb < 3,
+                         "label": f"{m['name']} · {gb} GB" + (" · too big for this computer’s memory" if fit == "too big" else "")})
+    if st["custom"]["reachable"]:
+        rows.append({"provider": "custom", "model": None, "group": "On this computer", "label": f"Your own server · {st['custom']['base']}"})
+    for p in E.llm.providers():
+        if not p["local"] and p["key"]:
+            rows.append({"provider": p["name"], "model": None, "group": "With your keys", "label": f"{p['label']} · Inky picks its best model"})
+    roles = E.llm.roles()
+    same = {(v.get("provider"), v.get("model")) for v in roles.values() if v}
+    using = dict(zip(("provider", "model"), next(iter(same)))) if len(same) == 1 else None
+    return {"choices": rows, "using": using, "mixed": len(same) > 1, "recommended": E.llm.pick_model("ollama") if st["ollama"]["running"] else None}
 
 
 @route("POST", "/api/models/role")

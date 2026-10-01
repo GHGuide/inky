@@ -124,10 +124,9 @@ class LLM:
         d = self.store.setting("default_model") or {}
         if d.get("provider") in PROVIDERS and (PROVIDERS[d["provider"]].get("local") or self.keys.get(d["provider"])):
             return {r: {"provider": d["provider"], "model": d["model"]} for r in ROLES}
-        local = sorted((m["name"] for m in self.local_models()),
-                       key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))
+        local = self.pick_model("ollama")
         if local:  # free and private; a key only takes over once you connect it (Models, API keys or setup)
-            return {r: {"provider": "ollama", "model": local[0]} for r in ROLES}
+            return {r: {"provider": "ollama", "model": local} for r in ROLES}
         if self.keys.get("openrouter"):
             m = os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
             roles = {r: {"provider": "openrouter", "model": m} for r in ROLES}
@@ -163,9 +162,12 @@ class LLM:
         """A good everyday model for this provider, chosen from what it actually offers."""
         if provider == "openrouter":  # hundreds of models; this one is cheap and good at tools
             return os.environ.get("OPENROUTER_MODEL") or "z-ai/glm-4.6"
-        if provider == "ollama":
-            local = [m["name"] for m in self.local_models()]
-            return sorted(local, key=lambda n: next((i for i, f in enumerate(LOCAL_PREFS) if n.startswith(f)), 99))[0] if local else None
+        if provider == "ollama":  # a known family first, then the biggest that fits in memory: small ones learn sites poorly
+            local = [m for m in self.local_models() if not NOT_CHAT.search(m["name"])]
+            mem = hardware().get("memory_gb")
+            ok = [m for m in local if fits(m.get("size") or 0, mem) != "too big"] or local
+            known = lambda n: any(n.startswith(f) for f in LOCAL_PREFS)
+            return sorted(ok, key=lambda m: (not known(m["name"]), -(m.get("size") or 0)))[0]["name"] if ok else None
         ids = [i for i in self.list_models(provider) if not NOT_CHAT.search(i)]
         prefs = PICK.get(provider, []) + [""]
 

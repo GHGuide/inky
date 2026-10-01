@@ -94,6 +94,31 @@ class ActionsTest(unittest.TestCase):
         self.assertIn("already a rule: price under 15", r["done"])
 
 
+    def test_what_did_you_do_offers_and_yes(self):
+        bid = self.b["id"]
+        def no_model(*a, **k):
+            raise AssertionError("the recap never asks the model")
+        self.E.llm.chat = no_model
+        r = self.E.chat(bid, "so what did you do")
+        self.assertIn("haven’t run yet", r["reply"])
+        self.E.store.insert("runs", {"kind": "replay", "skill": "Cheap books", "items": 60, "matched": 14, "new": 14, "pages": 3, "ai_calls": 0}, bot_id=bid, status="ok")
+        r = self.E.chat(bid, "So what did you do?")
+        self.assertIn("“Cheap books”: read 60 results over 3 pages, 14 pass your rules, 14 new, no AI needed.", r["reply"])
+        # a question the model answers with a change: nothing changes, it offers a button, and “yes” does it
+        self.E.llm.chat = lambda *a, **k: ('{"reply": "I’ll check every hour.", "actions": [{"type": "schedule", "every_minutes": 60}]}', {})
+        self.E.chat(bid, "Should you check every hour?")
+        m = self.E.store.find("messages", bot_id=bid, limit=1)[0]
+        self.assertEqual(m["chips"], [{"label": "Yes, check every hour", "offer": 0}])
+        self.assertNotIn("haven’t changed", m["text"])
+        self.assertNotEqual(self.E.store.get("bots", bid)["schedule"]["every_minutes"], 60)
+        self.E.llm.chat = no_model
+        r = self.E.chat(bid, "i want that")
+        self.assertEqual(self.E.store.get("bots", bid)["schedule"]["every_minutes"], 60)
+        self.assertIn("check every hour", r["reply"])
+        with self.assertRaises(ValueError):  # once only
+            self.E.take_offer(bid, m["id"], 0)
+
+
 class ResultsAndScheduleTest(unittest.TestCase):
     def test_new_only_once_and_next_run(self):
         E = make_engine()
