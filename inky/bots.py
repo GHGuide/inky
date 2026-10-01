@@ -288,8 +288,14 @@ class Engine:
         live = bool(run and run.thread and run.thread.is_alive())
         if live and run.need:  # it's waiting on your yes
             status = "needs_you"
+        elif live and run.kind == "show":
+            status = "showing"
+        elif live and run.takeover:
+            status = "takeover"
         elif live:
             status = "paused" if run.paused.is_set() else ("learning" if run.kind == "learn" else "working")
+        elif run and run.takeover:  # you have its computer between runs
+            status = "takeover"
         elif needs:
             status = "needs_you"
         sched = b.get("schedule") or {}

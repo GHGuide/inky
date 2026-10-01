@@ -58,12 +58,13 @@ PAIR_TRIES = []
 
 @route("POST", "/api/pair")
 def pair_route(E, h, q, body):
-    now = time.time()
-    PAIR_TRIES[:] = [t for t in PAIR_TRIES if now - t < 60]
-    if len(PAIR_TRIES) >= 5:
+    """Wrong codes are limited per address (5 a minute) and overall (60 a minute), so one device can't lock out the rest."""
+    now, ip = time.time(), h.client_address[0] if h else "?"
+    PAIR_TRIES[:] = [(t, a) for t, a in PAIR_TRIES if now - t < 60]
+    if sum(1 for _, a in PAIR_TRIES if a == ip) >= 5 or len(PAIR_TRIES) >= 60:
         raise HTTPError(429, "too many tries, wait a minute")
-    PAIR_TRIES.append(now)
     if (body.get("code") or "").upper() != transfer.pair_code(E.token):
+        PAIR_TRIES.append((now, ip))
         raise HTTPError(403, "wrong code")
     return {"token": E.token, "name": E.store.setting("engine_name", platform.node())}
 

@@ -61,7 +61,7 @@ const providerLogo = (name, size) => logo(PROVIDER_LOGO[name] || name, size);
 
 const icon = (n, s = 17, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
 const STATUS = { working: ["working", "#2F9E5B"], learning: ["learning", "#E86F51"], paused: ["paused", "#8E8A83"], needs_you: ["needs you", "#E86F51"],
-  idle: ["idle", "#C9C5BD"], moved: ["on another computer", "#3B5BDB"] };
+  idle: ["idle", "#C9C5BD"], moved: ["on another computer", "#3B5BDB"], takeover: ["you have control", "#B5482A"], showing: ["showing it once", "#B5482A"] };
 function botMeta(b) {
   const [t, c] = STATUS[b.status] || [b.status, "#C9C5BD"];
   let meta = t;
@@ -285,6 +285,7 @@ async function route() {
   $("#app").classList.toggle("bare", !!v.bare);
   $("#nav").style.display = v.bare ? "none" : "";
   closeNav(); renderNav();
+  const cur = $("#nav .navbot.on"); if (cur) cur.scrollIntoView({ block: "nearest" });  // the bot you opened is in view in the list
   const el = $("#view").cloneNode(false);  // fresh node per route: a slow render of the last view lands on a detached one
   let shown;
   const swap = () => {
