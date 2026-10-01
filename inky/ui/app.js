@@ -488,7 +488,7 @@ window.handleLink = async (link) => {  // inky:// links the desktop app hands ov
     let host = ""; try { const t = new URL(u.searchParams.get("url")); if (/^https?:$/.test(t.protocol)) host = t.host; } catch (e) {}
     if (!host || !/^[a-z0-9]{4,12}$/i.test((u.searchParams.get("code") || "").trim())) return toast("That pair link is incomplete.");
     if (!(await confirmBox(`Pair with the Inky at ${host}?`, "Pair"))) return;
-    try { await post("/api/computers", { url: link }); SOUND.play("chime"); toast(`Paired with ${host}. Its bots show up in Computers.`); location.hash = "#/computers"; }
+    try { const r = await post("/api/computers", { url: link }); SOUND.play("chime"); toast(`Paired with ${r.name || host}. Its bots show up in Computers.`); location.hash = "#/computers"; }
     catch (e) { toast(e.message); }
     return;
   }
@@ -540,6 +540,7 @@ function signIn(why) {
 window.addEventListener("load", async () => {
   LIFE.start();
   if (!TOKEN) return signIn();
+  get("/api/ping").then((p) => { S.engineId = p.id; }).catch(() => {});  // this engine's id: which bots on a server moved there from here
   try { await loadState(); } catch (e) {
     if (String(e.message).includes("401") || String(e.message).includes("token")) { try { localStorage.removeItem("inkyToken"); } catch (err) {} return signIn(); }
     throw e;

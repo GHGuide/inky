@@ -1379,20 +1379,20 @@ async function getAgent(url) {  // a permission preview, then install (from the 
   const L = p.listing, c = p.check, look = L.look || {}, have = p.have || [];
   modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span></div></div>
     <p class="small">${esc(L.summary || "")}</p>
-    ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes a second copy with its own computer.</span></span></div>` : ""}
+    ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes ${have.length > 1 ? "another" : "a second"} copy with its own computer.</span></span></div>` : ""}
     ${c.ok ? `<div class="col" style="gap:8px">
       <div class="chk"><i class="ok">✓</i><span><b>Only visits</b> ${esc(c.domains.join(", ") || "no sites")}<br><span class="small muted">If a step leads anywhere else, it stops.</span></span></div>
       <div class="chk"><i class="${c.irreversible.length ? "bad" : "ok"}">${c.irreversible.length ? "!" : "✓"}</i><span><b>${c.irreversible.length ? "May do, and asks you first each time:" : "Nothing it can’t undo"}</b>${c.irreversible.length ? `<br><span class="small">${c.irreversible.map(esc).join("<br>")}</span>` : ""}</span></div>
       <div class="chk"><i class="ok">✓</i><span><b>Brings no one’s data</b><br><span class="small muted">No sign-ins, memory, results or chat. It starts fresh, in its own browser.</span></span></div></div>`
       : `<div class="chk"><i class="bad">!</i><span><b>This file didn’t pass Inky’s checks</b><br><span class="small">${c.problems.map(esc).join("<br>")}</span></span></div>`}
     <span class="small bad hidden" id="getmsg" role="status" style="background:none"></span>
-    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Cancel</button>${c.ok ? `<button class="btn p" id="getit">${have.length ? "Get a second copy" : `Get ${esc(L.title)}`}</button>` : ""}</div>`, () => {
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Cancel</button>${c.ok ? `<button class="btn p" id="getit">${have.length ? `Get ${have.length > 1 ? "another" : "a second"} copy` : `Get ${esc(L.title)}`}</button>` : ""}</div>`, () => {
     if ($("#gethave")) $("#gethave").onclick = () => closeModal();
     if (!$("#getit")) return;
     $("#getit").onclick = async () => {
       const b = $("#getit");
       if (have.length && !b.dataset.sure) {  // asked once more: two copies of the same agent is rarely what you want
-        b.dataset.sure = "1"; b.textContent = `Yes, make a second ${L.title}`;
+        b.dataset.sure = "1"; b.textContent = `Yes, make ${have.length > 1 ? "another" : "a second"} ${L.title}`;
         $("#getmsg").textContent = `You’ll have ${have.length + 1} copies. Each runs on its own.`; $("#getmsg").className = "small"; return;
       }
       busyBtn(b, true, "Getting…");
@@ -1428,7 +1428,7 @@ VIEWS.library = {
         <span class="small ${a.may && a.may.length ? "" : "muted"}">${a.may && a.may.length ? `May: ${esc(a.may.join(", "))} (asks you)` : "Nothing it can’t undo"}</span>
         <div class="between"><span class="row wrap" style="gap:6px">${a.reviewed ? `<span class="badge good">Reviewed</span>` : ""}${a.starter ? `<span class="badge">Starter</span>` : ""}${mine ? `<a class="small" href="#/bot/${mine.id}/computer" style="font-weight:600">You have it · Open</a>` : ""}</span><button class="btn s ${mine ? "" : "p"}" data-get="${esc(a.url)}">${mine ? "Get again" : "Get"}</button></div></div>`;
     }).join("") || `<p class="muted">No agents match${this.q ? ` “${esc(this.q)}”` : ""}${this.tag ? ` in ${esc(this.tag)}` : ""}.</p>`;
-    $$("[data-tag]", el).forEach((b) => (b.onclick = () => { this.tag = b.dataset.tag; this.draw(); }));
+    $$("[data-tag]", el).forEach((b) => (b.onclick = () => { this.tag = b.dataset.tag; this.draw(); $(`[data-tag="${CSS.escape(this.tag)}"]`, el).focus(); }));  // redrawn: the chip you pressed keeps the focus
     $$("[data-get]", el).forEach((b) => (b.onclick = () => getAgent(b.dataset.get)));
   },
 };
@@ -1561,7 +1561,7 @@ function bindServerAdder(install, onPaired) {
     }
     const rows = found.filter((f) => !done.has(f.url));
     box.innerHTML = (rows.length || done.size ? `<b>Found ${found.some((f) => f.via === "tailscale") ? "on your network and tailnet" : "on your network"}</b>` : "")
-      + [...done.values()].map((n) => `<div class="card" style="padding:10px 12px"><span class="small good">✓ Paired with ${esc(n)}. Its bots show up in Computers.</span></div>`).join("")
+      + [...done].map(([u, n]) => `<div class="card" data-done="${esc(u)}" tabindex="-1" style="padding:10px 12px"><span class="small good">✓ Paired with ${esc(n)}. Its bots show up in Computers.</span></div>`).join("")
       + rows.map((f) => `<div class="card" data-frow style="padding:10px 12px;gap:6px"><div class="lrow frow2">${logo(OS_LOGO[f.os] || (f.via === "tailscale" ? "tailscale" : "server"), 30)}<span class="grow"><b>${esc(f.name)}</b><br><span class="mono small muted">${esc(f.host || f.url)}${f.via === "tailscale" ? " · works away from home" : ""}</span></span><input class="f mono" data-fcode placeholder="Its code" style="width:120px" aria-label="Pairing code for ${esc(f.name)}"><button class="btn s" data-fpair="${esc(f.url)}" data-fname="${esc(f.name)}">Pair</button></div><span class="small" data-fmsg role="status"></span></div>`).join("");
     $$("[data-fpair]", box).forEach((b) => {
       const row = b.closest("[data-frow]"), inp = $("[data-fcode]", row), msg = $("[data-fmsg]", row);
@@ -1570,8 +1570,12 @@ function bindServerAdder(install, onPaired) {
         if (!code) { sayIn(msg, "Type the code that server printed when you installed it.", false); return inp.focus(); }
         busyBtn(b, true, "Pairing…"); sayIn(msg, "Pairing…");
         try { await post("/api/computers", { url: b.dataset.fpair, code }); } catch (e) { busyBtn(b, false); sayIn(msg, e.message, false); return inp.focus(); }
-        SOUND.play("chime"); done.set(b.dataset.fpair, b.dataset.fname); busyBtn(b, false); shown = ""; drawFound();
+        SOUND.play("chime"); done.set(b.dataset.fpair, b.dataset.fname); busyBtn(b, false); shown = "";
+        const i = $$("[data-frow]", box).indexOf(row);
         if (onPaired) onPaired();
+        await drawFound();  // its row leaves the list: the focus goes to the next one, or to its ✓
+        const a = document.activeElement, next = $$("[data-fcode]", box)[i] || $(`[data-done="${CSS.escape(b.dataset.fpair)}"]`, box);
+        if (next && (!a || a === document.body || !a.isConnected)) next.focus();
       };
       b.onclick = go;
       inp.onkeydown = (e) => { if (e.key === "Enter") go(); };
@@ -1598,6 +1602,11 @@ VIEWS.computers = {
       catch (err) { set(!on); toast(err.message); }
     };
     bindServerAdder(install, () => this.cardsSoon(300));
+    clearInterval(this.poll);
+    this.poll = setInterval(() => {  // servers come and go: check again, but never under a dialog or your typing
+      const a = document.activeElement;
+      if (!document.hidden && $("#modal").classList.contains("hidden") && !(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) this.cards();
+    }, 15e3);
     await this.cards();
   },
   onEvent(m) {
@@ -1606,7 +1615,7 @@ VIEWS.computers = {
     if (m.kind === "bots") this.cardsSoon();
   },
   cardsSoon(ms = 600) { clearTimeout(this.t); this.t = setTimeout(() => this.cards(), ms); },
-  leave() { clearInterval(foundTimer); clearTimeout(this.t); this.moving = null; },
+  leave() { clearInterval(foundTimer); clearInterval(this.poll); clearTimeout(this.t); this.moving = null; },
   progress(m) {
     if (this.moving && m.bot !== this.moving) return;
     const box = $("#moveprog"); if (!box) return;
@@ -1638,7 +1647,8 @@ VIEWS.computers = {
     if (!box.isConnected) return;
     this.computers = computers;
     const reach = computers.filter((c) => c.kind === "remote" && c.ok);
-    const mineOf = (c, rb) => S.bots.find((b) => b.status === "moved" && b.remote_id === rb.id && String(b.computer) === String(c.id));  // it moved there from here
+    const mineOf = (c, rb) => S.bots.find((b) => b.status === "moved" && String(b.computer) === String(c.id)  // it moved there from here
+      && (rb.home && S.engineId ? rb.home.engine === S.engineId && rb.home.bot === b.id : b.remote_id === rb.id));
     const movedTo = (c) => S.bots.filter((b) => b.status === "moved" && String(b.computer) === String(c.id));
     const running = (b) => ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
     const botCard = (c, b, away) => {  // away: your bot on a server that isn't answering, greyed, as this computer last knew it
@@ -1654,13 +1664,14 @@ VIEWS.computers = {
       const away = c.kind === "remote" && !c.ok ? movedTo(c) : [];
       const count = (c.ok ? ` · ${plural(c.bots.length, "bot")}` : away.length ? ` · ${plural(away.length, "bot")} of yours` : "").replace(/ (?=bots?)/, "\u00a0");  // "3 bots" never splits
       const where = c.kind === "local" ? `this computer${c.docker && c.docker.running ? ` · ${logo("docker", 18)} Docker ${esc(c.docker.version)}` : ""}` : esc(c.url);
-      return `<div class="card"><div class="row">${logo(OS_LOGO[c.os] || "server", 40)}<div class="grow"><b class="cname" style="font-size:18px">${esc(c.name)}</b><div class="mono small muted cname">${where}${count}</div></div><span class="pill ${c.ok ? "live" : "hot"}"><i style="background:${c.ok ? "var(--green)" : "var(--coral)"}"></i>${c.ok ? (c.kind === "local" ? "awake" : "reachable") : "can’t reach it"}</span></div>
+      return `<div class="card" data-comp="${esc(c.id)}" tabindex="-1"><div class="row">${logo(OS_LOGO[c.os] || "server", 40)}<div class="grow"><b class="cname" style="font-size:18px">${esc(c.name)}</b><div class="mono small muted cname">${where}${count}</div></div><span class="pill ${c.ok ? "live" : "hot"}"><i style="background:${c.ok ? "var(--green)" : "var(--coral)"}"></i>${c.ok ? (c.kind === "local" ? "awake" : "reachable") : "can’t reach it"}</span></div>
         <div class="grid2">${c.bots.map((b) => botCard(c, b)).join("") + away.map((b) => botCard(c, b, true)).join("") || `<span class="small muted">${c.ok ? "No bots here" : "It isn’t answering, so Inky can’t see its bots."}</span>`}</div>
         ${c.kind === "local" ? `<div class="card panel small"><span>This computer’s pairing code: <b class="mono">${esc(pair_code)}</b>. Type it on another Inky to send bots here.</span></div>` : `<button class="btn s hot" data-unpair="${c.id}" style="align-self:flex-start">Unpair</button>`}</div>`;
     }).join("")));  // a redraw (every "bots" event) keeps the focus on the same card's button or link
-    const back = this.focusBot && $(`[data-move="${this.focusBot}"],[data-back="${this.focusBot}"],[data-open="${this.focusBot}"]`, box);
+    const back = this.focusBot && ($(`[data-move="${this.focusBot}"],[data-back="${this.focusBot}"],[data-open="${this.focusBot}"]`, box)
+      || $(`[data-comp="${CSS.escape(String(this.focusComp))}"]`, box) || $("#addsrv", this.el));  // a bot that went home is gone from here: its computer
     if (back && (!document.activeElement || document.activeElement === document.body)) back.focus();  // after its dialog: back to that bot
-    this.focusBot = null;
+    this.focusBot = this.focusComp = null;
     $$("[data-unpair]", box).forEach((x) => (x.onclick = () => this.unpair(computers.find((c) => String(c.id) === x.dataset.unpair))));
     $$("[data-back]", box).forEach((x) => (x.onclick = () => this.bringBack(S.bots.find((b) => b.id === +x.dataset.back))));
     $$("[data-move]", box).forEach((x) => (x.onclick = () => {
@@ -1670,11 +1681,11 @@ VIEWS.computers = {
         <div class="row" style="justify-content:flex-end"><button class="btn" id="mcancel">Cancel</button><button class="btn p" id="mgo" ${targets.length ? "" : "disabled"}>Move it</button><button class="btn p hidden" id="moveclose">Done</button></div>`, () => {
         $("#mcancel").onclick = closeModal;
         $("#mgo").onclick = () => this.starting(async () => {
-          this.moving = b.id; $("#mt").disabled = true;
+          this.moving = b.id; this.moveTo = $("#mt").value; $("#mt").disabled = true;
           $("#mgo").classList.remove("hidden"); busyBtn($("#mgo"), true, "Moving…");
           try { await post(`/api/bots/${b.id}/move`, { computer: +$("#mt").value }); } catch (err) { this.progress({ bot: b.id, step: "failed", text: err.message }); }
         });
-      }, () => { this.moving = null; this.waiting = null; this.focusBot = b.id; this.cardsSoon(50); });
+      }, () => { this.moving = null; this.waiting = null; this.focusBot = b.id; this.focusComp = this.moveTo; this.cardsSoon(50); });
     }));
   },
   bringBack(b) {  // one bot that moved away comes home, with progress
@@ -1682,7 +1693,7 @@ VIEWS.computers = {
       <div class="col" id="moveprog" role="status"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="mcancel">Close</button><button class="btn p hidden" id="moveclose">Done</button></div>`, () => {
       $("#mcancel").onclick = closeModal;
       this.starting(() => { this.moving = b.id; post(`/api/bots/${b.id}/bring-back`, {}).catch((e) => this.progress({ bot: b.id, step: "failed", text: e.message })); });
-    }, () => { this.moving = null; this.waiting = null; this.focusBot = b.id; this.cardsSoon(50); });
+    }, () => { this.moving = null; this.waiting = null; this.focusBot = b.id; this.focusComp = "local"; this.cardsSoon(50); });
   },
   unpair(c) {  // asks first, and offers to bring your bots home before the link to them goes
     const mine = S.bots.filter((b) => b.status === "moved" && String(b.computer) === String(c.id)), them = (one, many) => (mine.length === 1 ? one : many);
@@ -1692,9 +1703,9 @@ VIEWS.computers = {
       : "No bots live there. You can pair it again any time with its code.";
     modal(`<h2 class="cname">Unpair ${esc(c.name)}?</h2>
       <span class="small">${there}</span>
-      ${mine.length ? `<span class="small"><b>${mine.map((b) => esc(b.name)).join(", ")}</b> moved there from here. Unpairing forgets ${them("it", "them")} here; ${them("it keeps", "they keep")} running there. Bring ${them("it", "them")} back first to keep ${them("it", "them")} on this computer${c.ok ? "" : ` (that works once ${esc(c.name)} answers)`}.</span>` : ""}
+      ${mine.length ? `<span class="small"><b>${mine.map((b) => esc(b.name)).join(", ")}</b> moved there from here. Unpairing forgets ${them("it", "them")} here; ${them("it keeps", "they keep")} running there. Bring ${them("it", "them")} back first to keep ${them("it", "them")} on this computer.${c.ok ? "" : ` <b id="ubackwhy">That works once ${esc(c.name)} answers.</b>`}</span>` : ""}
       <div class="col" id="moveprog" role="status"></div><span class="small" id="umsg" role="status"></span>
-      <div class="row wrap" style="justify-content:flex-end"><button class="btn" id="uno">Cancel</button>${mine.length ? `<button class="btn p" id="uback">Bring ${them("it", "them")} back, then unpair</button>` : ""}<button class="btn hot" id="uyes">Unpair</button></div>`, () => {
+      <div class="row wrap" style="justify-content:flex-end"><button class="btn" id="uno">Cancel</button>${mine.length ? `<button class="btn p" id="uback" ${c.ok ? "" : 'disabled aria-describedby="ubackwhy"'}>Bring ${them("it", "them")} back, then unpair</button>` : ""}<button class="btn hot" id="uyes">Unpair</button></div>`, () => {
       const unpair = async () => {
         busyBtn($("#uyes"), true, "Unpairing…");
         try { await del(`/api/computers/${c.id}`); closeModal(); toast(`Unpaired ${c.name}`); await loadState(); await this.cards(); if (document.activeElement === document.body && $("#addsrv")) $("#addsrv").focus(); } catch (e) { busyBtn($("#uyes"), false); sayIn("#umsg", e.message, false); $("#uyes").focus(); }
