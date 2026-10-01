@@ -75,7 +75,7 @@ def state(E, h, q, body):
     today = usage.get(datetime.now().strftime("%Y-%m-%d"), {"calls": 0, "tokens": 0, "cost": 0})
     return {"bots": bots_here(E), "needs": len(E.store.find("needs", status="open")) + len(REMOTE_NEEDS["rows"]), "setup_done": E.store.setting("setup_done", False),
             "settings": settings_view(E), "today": today, "pair_code": transfer.pair_code(E.token),
-            "engine": E.store.setting("engine_name", platform.node()), "engine_id": transfer.engine_id(E)}
+            "engine": E.store.setting("engine_name", platform.node()), "engine_id": transfer.engine_id(E), "thinking": thinking(E)}
 
 
 @route("GET", "/api/bots")
@@ -488,6 +488,39 @@ def models(E, h, q, body):
             "usage": E.store.setting("usage", {}), "errors": E.store.setting("provider_errors", {})}
 
 
+def thinking(E):
+    """Model calls in progress: which model, for which bot, for how long."""
+    names = {b["id"]: b["name"] for b in E.store.find("bots")}
+    return [dict(c, bot=c.get("bot_id"), name=names.get(c.get("bot_id"))) for c in E.llm.live_calls()]
+
+
+@route("GET", "/api/models/live")
+def models_live(E, h, q, body):
+    return {"thinking": thinking(E), "loaded": E.llm.loaded()}
+
+
+@route("POST", "/api/models/stop")
+def models_stop(E, h, q, body):
+    """Stop the model: its calls are cut off, and the runs they were for stop too."""
+    bid = body.get("bot")
+    bots = {c.get("bot_id") for c in E.llm.live_calls() if bid is None or c.get("bot_id") == bid} - {None}
+    for b in bots:
+        try:
+            E.control(int(b), "stop")
+        except Exception:
+            pass
+    return {"stopped": E.llm.stop(int(bid) if bid is not None else None)}
+
+
+@route("POST", "/api/models/unload")
+def models_unload(E, h, q, body):
+    try:
+        E.llm.unload(str(body.get("name") or ""))
+    except httpx.HTTPError:
+        raise HTTPError(502, "Ollama didn’t answer. Is it running?")
+    return {"loaded": E.llm.loaded()}
+
+
 @route("GET", "/api/models/choices")
 def model_choices(E, h, q, body):
     """Every model you can use right now, for the one picker: what's on this computer, then each provider you have a key for."""
@@ -840,10 +873,18 @@ def find_sites(E, h, q, body):
     """Websites for a job (a DuckDuckGo search per query), so you can pick instead of hunting for them."""
     from inky import sites
     qs = [x for x in body.get("queries") or [] if isinstance(x, str)] or [str(body.get("job") or "")]
+    web, note = [], ""
     try:
-        return {"sites": sites.suggest(qs, guess=body.get("guess")), "searched": qs}
-    except RuntimeError as e:
-        raise HTTPError(502, str(e))
+        web = sites.suggest(qs, guess=body.get("guess"), pages=3 if body.get("more") else 1)
+    except RuntimeError as e:  # the search engine is busy or unreachable: the model's suggestions still help
+        note = str(e)
+    ai = []
+    if len(web) < 15 and E.llm.roles().get("chat"):
+        model = E.llm.roles()["chat"].get("model") or "the model"
+        ai = sites.from_model(E.llm, str(body.get("job") or " ".join(qs)), have={r["site"] for r in web}, label=model)
+    if not web and not ai:
+        raise HTTPError(502, note or "No sites found. Try other words, or type an address.")
+    return {"sites": web + ai, "searched": qs, "note": note, "more": bool(body.get("more"))}
 
 
 @route("POST", r"/api/bots/(\d+)/share-link")

@@ -151,7 +151,8 @@ You see the page as a numbered list of interactive elements. Reply with ONE JSON
 Rules: close cookie banners first. Use "fill" for text boxes and "select" for dropdowns (value = option label).
 Never type into a box marked ALREADY TYPED. After filling a search form, click its search button. After typing a message or
 filling a form the job wants sent, click the button that sends or submits it (Inky asks the user before it really sends).
-When the page shows the list of results the job wants, use "extract". After extracting, if there is a next-page link use
+Don't set the site's own filters for price, size or the like: Inky filters the results itself. As soon as the page lists
+results for the job (after a search, or in the right category), use "extract". After extracting, if there is a next-page link use
 "next_page" with its index, otherwise "done". Never type passwords. Never click buy/pay. Prefer the user's corrections."""
 
 EXTRACT_SYSTEM = """You write CSS selectors to extract a list of results from a page outline.

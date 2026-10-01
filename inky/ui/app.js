@@ -166,8 +166,15 @@ addEventListener("pagehide", markSeen);
 let refreshTimer = null;
 function refreshSoon(ms = 250) {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(async () => { await loadState(); if (canRefresh()) S.view.refresh(); }, ms);
+  refreshTimer = setTimeout(async () => { await loadState(); if (S.view && S.view.drawLive && S.view.data) S.view.drawLive(); if (canRefresh()) S.view.refresh(); }, ms);
 }
+setInterval(() => $$("[data-since]").forEach((x) => (x.textContent = `${Math.max(0, Math.round(Date.now() / 1000 - +x.dataset.since))} s`)), 1000);  // how long a model has been thinking
+document.addEventListener("click", async (e) => {  // the sidebar's Stop: cut off what the models are doing now
+  if (!e.target.closest("#stopmodel")) return;
+  const r = await post("/api/models/stop", {}).catch((err) => ({ error: err.message }));
+  toast(r.error || (r.stopped ? "Stopped the model. The runs it was thinking for stopped too." : "Nothing was thinking."));
+  refreshSoon();
+});
 function listen() {
   const es = new EventSource(`/api/events?t=${encodeURIComponent(TOKEN)}`);
   es.onmessage = (e) => {
@@ -185,7 +192,7 @@ async function loadState() {
   const st = await get("/api/state");
   if (knockFor && S.settings && st.needs > S.needs) { SOUND.play("knock", knockFor); appNotify(knockFor, `${knockFor.name} needs you`, "Open Inky to decide.", "#/needs"); }
   knockFor = null;
-  Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done, engineId: st.engine_id || S.engineId });
+  Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done, engineId: st.engine_id || S.engineId, thinking: st.thinking || [] });
   renderNav();
   if (APP && !BAR && !BUDDY) invoke("tray", { needs: S.needs, bots: S.bots.map((b) => ({ id: b.id, name: b.name, status: b.status })), buddy: S.settings.buddy !== false });
   if (BUDDY) drawBuddy();
@@ -232,6 +239,7 @@ function renderNav() {
       <span class="av">${botCritter(b, 26)}<i class="${["working", "learning"].includes(b.status) ? "live" : ""}" style="background:${m.color}"></i></span>
       <span class="t"><span title="${esc(b.name)}">${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}</div>
     <div class="navbottom">
+      ${(S.thinking || []).length ? `<div class="thinking" role="status"><span class="livedot" aria-hidden="true"></span><span class="t small"><b class="mono">${esc(S.thinking[0].model)}</b> is thinking${S.thinking[0].name ? ` for ${esc(S.thinking[0].name)}` : ""} · <span data-since="${S.thinking[0].since}">${Math.round(Date.now() / 1000 - S.thinking[0].since)} s</span>${S.thinking.length > 1 ? ` · ${S.thinking.length - 1} more` : ""}</span><button class="iconbtn" id="stopmodel" aria-label="Stop the model" title="Stop the model">${icon("x", 14)}</button></div>` : ""}
       <a class="navlink needlink${S.needs ? "" : " calm"}${on("#/needs")}" href="#/needs"><i></i>${needsText()}</a>
       <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
       <a class="navlink${on("#/team")}" href="#/team">${icon("users")}Team</a>

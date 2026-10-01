@@ -49,6 +49,14 @@ class NoModel(RuntimeError):
     pass
 
 
+import threading
+from concurrent.futures import Future, TimeoutError as FutureTimeout
+
+
+class ModelStopped(RuntimeError):
+    """You pressed Stop while a model was thinking: its call was cut off."""
+
+
 def plain(e, label="The provider"):
     """A model call's error in words."""
     if isinstance(e, NoModel):
@@ -108,6 +116,26 @@ def parse_json(text):
 class LLM:
     def __init__(self, store, keys, on_usage=None):
         self.store, self.keys, self.on_usage = store, keys, on_usage
+        self.live, self.on_live = {}, None  # model calls in progress, so you can see them and stop them
+
+    def live_calls(self):
+        return [{k: v for k, v in c.items() if k not in ("client", "stopped")} | {"seconds": round(time.time() - c["since"])} for c in list(self.live.values())]
+
+    def stop(self, bot_id=None):
+        """Cut off the model calls in progress (for one bot, or all). Their streams close, which makes Ollama stop too."""
+        n = 0
+        for c in list(self.live.values()):
+            if bot_id is None or c.get("bot_id") == bot_id:
+                c["stopped"] = True
+                n += 1
+        return n
+
+    def _changed(self):
+        if self.on_live:
+            try:
+                self.on_live()
+            except Exception:
+                pass
 
     # ---- config
     def providers(self):
@@ -209,12 +237,44 @@ class LLM:
         if over:
             raise NoModel(f"{p['label']} reached your monthly limit (${spent:.2f} of ${float(lim):.2f}). Raise it in API keys.")
         t0 = time.time()
+        import secrets
+        cid, client = secrets.token_hex(4), httpx.Client(timeout=timeout)
+        self.live[cid] = {"provider": provider, "model": model, "role": role, "bot_id": bot_id, "since": t0, "client": client}
+        self._changed()
+        live = self.live[cid]
+        try:  # the call runs aside, so Stop takes effect at once, even before the model's first word
+            fut = Future()
+
+            def work():
+                try:
+                    fut.set_result(self._complete(client, p, key, provider, model, messages, bot_id, role, max_tokens, temperature, t0, live))
+                except BaseException as e:
+                    fut.set_exception(e)
+            threading.Thread(target=work, daemon=True, name="model").start()  # daemon: a stopped call never holds up quitting
+            while True:
+                try:
+                    return fut.result(timeout=0.25)
+                except FutureTimeout:
+                    if live.get("stopped"):
+                        raise ModelStopped("You stopped the model.")
+        except ModelStopped:
+            raise
+        except Exception as e:
+            if live.get("stopped"):
+                raise ModelStopped("You stopped the model.") from e
+            raise
+        finally:
+            self.live.pop(cid, None)
+            if not live.get("stopped"):
+                client.close()  # a stopped call's stream closes itself at its next piece (which also stops Ollama)
+            self._changed()
+
+    def _complete(self, client, p, key, provider, model, messages, bot_id, role, max_tokens, temperature, t0, live):
         if p.get("kind") == "anthropic":
             system = "\n".join(m["content"] for m in messages if m["role"] == "system")
             body = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "system": system,
                     "messages": [m for m in messages if m["role"] != "system"]}
-            res = httpx.post(p["base"] + "/messages", json=body, timeout=timeout,
-                             headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+            res = client.post(p["base"] + "/messages", json=body, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
             self._record(provider, res)
             res.raise_for_status()
             j = res.json()
@@ -229,13 +289,37 @@ class LLM:
                 body["usage"] = {"include": True}
                 body["max_tokens"] = max(max_tokens, 6000)  # reasoning models think before they answer
                 body["reasoning"] = {"effort": self.store.setting("reasoning_effort", "low")}
-            res = httpx.post(p["base"].rstrip("/") + "/chat/completions", json=body, headers=headers, timeout=timeout)
-            self._record(provider, res)
-            res.raise_for_status()
-            j = res.json()
-            text = j["choices"][0]["message"].get("content") or ""
-            text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S).strip()
-            u = j.get("usage") or {}
+            body["stream"] = True  # streamed: Stop takes effect between pieces of the answer, and the server stops too
+            if provider in ("openai", "openrouter", "ollama"):
+                body["stream_options"] = {"include_usage": True}
+            parts, u = [], {}
+            with client.stream("POST", p["base"].rstrip("/") + "/chat/completions", json=body, headers=headers) as res:
+                if res.status_code >= 400:
+                    res.read()
+                self._record(provider, res)
+                res.raise_for_status()
+                if "event-stream" not in (res.headers.get("content-type") or ""):  # a server that answers all at once (it ignored "stream")
+                    res.read()
+                    j = res.json()
+                    parts, u = [j["choices"][0]["message"].get("content") or ""], j.get("usage") or {}
+                for line in ([] if parts else res.iter_lines()):
+                    if live.get("stopped"):
+                        client.close()
+                        raise ModelStopped("You stopped the model.")
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        j = json.loads(data)
+                    except ValueError:
+                        continue
+                    u = j.get("usage") or u
+                    for ch in j.get("choices") or []:
+                        parts.append((ch.get("delta") or {}).get("content") or "")
+            text = re.sub(r"<think>.*?(</think>|$)", "", "".join(parts), flags=re.S).strip()
             usage = {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0), "cost": u.get("cost")}
         usage.update(provider=provider, model=model, role=role, seconds=round(time.time() - t0, 2),
                      local=bool(p.get("local")))
@@ -281,6 +365,21 @@ class LLM:
             return [{"name": m["name"], "size": m.get("size", 0)} for m in r.json().get("models", [])]
         except Exception:
             return []
+
+    def loaded(self):
+        """Ollama models in memory right now: [{name, gb, until}]."""
+        try:
+            r = httpx.get("http://127.0.0.1:11434/api/ps", timeout=1.5)
+            return [{"name": m["name"], "gb": round((m.get("size_vram") or m.get("size") or 0) / 1e9, 1), "until": m.get("expires_at")}
+                    for m in r.json().get("models", [])]
+        except Exception:
+            return []
+
+    def unload(self, name):
+        """Free a local model's memory now (Ollama loads it again when a bot needs it)."""
+        r = httpx.post("http://127.0.0.1:11434/api/generate", json={"model": name, "keep_alive": 0}, timeout=15)
+        r.raise_for_status()
+        return True
 
     def local_status(self):
         ollama_bin = shutil.which("ollama")

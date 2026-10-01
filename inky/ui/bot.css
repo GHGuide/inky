@@ -72,3 +72,9 @@ table.t td.nw{white-space:nowrap}
 }
 .ritual:focus{outline:none}  /* the hatch overlay takes focus so Enter and Esc close it */
 .ritual .bubble{margin:0 16px}  /* never edge to edge on a phone */
+/* while it works: what it's doing and which model is thinking, with Stop */
+.chatlive{display:flex;align-items:center;gap:10px;margin:0 12px 8px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.chatlive .btn.hot{border-color:#F3C9BC;color:var(--coral-t)}
+.livedot{width:9px;height:9px;border-radius:50%;background:var(--coral);flex-shrink:0;animation:livepulse 1.4s ease-in-out infinite}
+@keyframes livepulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.livedot{animation:none}}

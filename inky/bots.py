@@ -15,7 +15,7 @@ from inky import connectors, skills
 from inky.bus import Bus
 from inky.computer import Computer
 from inky.keys import Keys
-from inky.llm import LLM, NoModel, plain as llm_plain
+from inky.llm import LLM, ModelStopped, NoModel, plain as llm_plain
 from inky.mcp import MCPManager
 from inky.safety import classify
 from inky.store import Store
@@ -393,6 +393,7 @@ class Engine:
         self.store.on_event = lambda bid, kind, text: self.bus.publish("event", bot=bid, ev=kind, text=text)
         self.keys = Keys(self.home)
         self.llm = LLM(self.store, self.keys, on_usage=self._usage)
+        self.llm.on_live = lambda: self.bus.publish("thinking")  # the app shows which model is thinking, for which bot
         self.mcp = MCPManager(self.store, str(self.home))
         self.mcp.builtin = connectors.Builtins(self)
         self.computers, self.runs, self.waits = {}, {}, {}
@@ -485,7 +486,7 @@ class Engine:
                "schedule": {"every_minutes": minutes(d.get("every_minutes")), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
                             "quiet_from": "23:00", "quiet_to": "07:00"},
                "mode": "own", "computer": "local", "created": time.time(),
-               "site_queue": [u for u in (skills.web_address(x, "") for x in d.get("more_sites") or []) if u][:10],  # learned one after another
+               "site_queue": [u for u in (skills.web_address(x, "") for x in d.get("more_sites") or []) if u][:60],  # learned one after another
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
         bid = self.store.insert("bots", bot, status="idle")
         self.drop_profile(bid)  # a new bot never inherits sign-ins left by an old one with this id
@@ -778,6 +779,8 @@ class Engine:
                 d = {"reply": t.strip()[:800] if not t.lstrip().startswith("{") else "Sorry, I got muddled. Could you say that again?", "actions": []}
         except NoModel as e:
             d = {"reply": str(e), "actions": []}
+        except ModelStopped:
+            d = {"reply": "Stopped.", "actions": []}
         except Exception as e:
             from inky.llm import PROVIDERS
             prov = (self.llm.roles().get("chat") or {}).get("provider")
@@ -1137,9 +1140,11 @@ class Engine:
         except skills.NeedsHelp as h:
             self.problem(bid, h, url=url, goal=goal)
             self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
-        except skills.Stopped:
+        except (skills.Stopped, ModelStopped):
             self._finish(run, "stopped")
             self.store.update("bots", bid, site_queue=[])  # you stopped it: the other sites wait for you
+            self.store.message(bid, "bot", "Stopped. Nothing was learned this time.")
+            self.bus.publish("messages", bot=bid)
         except NoModel as e:
             self.problem(bid, skills.NeedsHelp("no_model", "No model to learn with", str(e), ["Open Models"]))
             self._finish(run, "failed", note=str(e))
@@ -1262,7 +1267,7 @@ class Engine:
             self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
         except skills.CheckedUpTo as c:
             self._finish(run, "ok", note=f"Checked up to “{c}”, which asks you first")
-        except skills.Stopped:
+        except (skills.Stopped, ModelStopped):
             self._finish(run, "stopped")
             self.store.message(bid, "bot", "Stopped.")
         except NoModel as e:

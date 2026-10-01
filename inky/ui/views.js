@@ -398,7 +398,7 @@ VIEWS.new = {
   async show(el, _, qs) {
     const job = qs.get("job") || "";
     this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null; this.leaving = false; this.job0 = job.trim();
-    this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.every = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
+    this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.gotMore = false; this.every = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
     el.innerHTML = `${mobileBar("New bot")}<div class="page narrow"><h1>New bot</h1><p class="lede">Describe the job. It drafts the bot, you check it, then it learns the site once while you watch.</p>
       <div class="composer" style="width:100%"><label class="vh" for="job">Job</label><textarea id="job" rows="3" placeholder="e.g. Every morning, find flats in Bari under €150k on casafacile.it">${esc(job)}</textarea>
       <div class="between"><span class="small muted">Include the site if you know it.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox"></div></div>`;
@@ -445,16 +445,18 @@ VIEWS.new = {
     const query = (this.siteQuery = this.siteQuery || (d.search || [])[0] || d.goal || d.job || "");
     this.searched = this.searched || d.search || [query];
     const draw = (rows, note) => {
-      const show = rows.slice(0, this.allSites ? 24 : 8);
-      sb.innerHTML = `<div class="between"><b class="small">Sites for this job</b><span class="small muted">${rows.length ? `${rows.length} found on the web (DuckDuckGo)` : ""}</span></div>
+      const show = rows.slice(0, this.allSites ? rows.length : 12);
+      const web = rows.filter((r) => !r.source && !r.guess).length;
+      sb.innerHTML = `<div class="between"><b class="small">Sites for this job</b><span class="small muted">${rows.length ? [web && `${web} found on the web (DuckDuckGo)`, rows.length - web && `${rows.length - web} suggested by its model, each checked to exist`].filter(Boolean).join(" · ") : ""}</span></div>
         ${rows.length ? `<span class="small muted clip1">Searched for: ${this.searched.map(esc).join(" · ")}</span>` : ""}
         ${note ? `<span class="small ${/Couldn’t/.test(note) ? "bad" : "muted"}" style="background:none">${esc(note)}</span>` : ""}
         <div class="sites" role="group" aria-label="Sites for this job">${show.map((r) => `<label class="siterow${this.picked.has(r.url) ? " on" : ""}"><input type="checkbox" data-site="${esc(r.url)}" ${this.picked.has(r.url) ? "checked" : ""}>
-          <span class="col grow" style="gap:1px;min-width:0"><b class="mono small">${esc(r.host)}${r.guess ? ` <span class="badge">its guess</span>` : ""}</b>${r.title ? `<span class="small clip1">${esc(r.title)}</span>` : ""}${r.snippet ? `<span class="small muted clip1">${esc(r.snippet)}</span>` : ""}</span>
+          <span class="col grow" style="gap:1px;min-width:0"><b class="mono small">${esc(r.host)}${r.guess ? ` <span class="badge">its guess</span>` : ""}${r.source ? ` <span class="badge">${esc(r.source)}</span>` : ""}</b>${r.title ? `<span class="small clip1">${esc(r.title)}</span>` : ""}${r.snippet ? `<span class="small muted clip1">${esc(r.snippet)}</span>` : ""}</span>
           <a class="small" href="${esc(r.url)}" data-out="${esc(r.url)}" aria-label="Open ${esc(r.host)}">open ↗</a></label>`).join("")}</div>
-        ${rows.length > show.length ? `<button class="btn s" id="sitemore" type="button">Show ${rows.length - show.length} more</button>` : ""}
+        <div class="row wrap">${rows.length > show.length ? `<button class="btn s" id="sitemore" type="button">Show all ${rows.length}</button>` : !this.gotMore && rows.length ? `<button class="btn s" id="sitefetch" type="button">Find more sites</button>` : ""}
+          ${rows.length > 1 ? (rows.every((r) => this.picked.has(r.url)) ? `<button class="btn s" id="sitenone" type="button">Untick all</button>` : `<button class="btn s p" id="siteall" type="button">Check all ${rows.length} sites</button>`) : ""}</div>
         <form class="row" id="sitesearch"><label class="vh" for="siteq">Search for sites</label><input class="f grow" id="siteq" value="${esc(this.siteQuery)}" placeholder="Search for sites"><button class="btn s" id="sitego">Search</button></form>
-        <span class="small muted">${this.picked.size > 1 ? `It learns ${esc(new URL([...this.picked][0]).hostname)} first, then the other ${this.picked.size - 1}, one after another.` : "Tick one or more. The first one is where it starts."}</span>`;
+        <span class="small muted">${this.picked.size > 1 ? `It learns ${esc(new URL([...this.picked][0]).hostname)} first, then the other ${this.picked.size - 1}, one after another (a few minutes each). After that, every run checks them all, with no AI.` : "Tick one or more. The first one is where it starts."}</span>`;
       $$("[data-site]", sb).forEach((x) => (x.onchange = () => {
         x.checked ? this.picked.add(x.dataset.site) : this.picked.delete(x.dataset.site);
         this.edited.add("sites");
@@ -464,15 +466,22 @@ VIEWS.new = {
       }));
       $$("[data-out]", sb).forEach((a) => (a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openOut(a.dataset.out); }));
       if ($("#sitemore", sb)) $("#sitemore", sb).onclick = () => { this.allSites = true; draw(rows); };
+      if ($("#sitefetch", sb)) $("#sitefetch", sb).onclick = () => { this.gotMore = true; this.allSites = true; find(this.searched, true); };
+      const setAll = (on) => { rows.forEach((r) => (on ? this.picked.add(r.url) : this.picked.delete(r.url))); this.edited.add("sites"); this.edited.add("url");
+        url.value = on ? rows[0].url : ""; url.setCustomValidity(""); this.allSites = this.allSites || on; draw(rows); const f = $("#siteall, #sitenone", sb); if (f) f.focus(); };
+      if ($("#siteall", sb)) $("#siteall", sb).onclick = () => setAll(true);
+      if ($("#sitenone", sb)) $("#sitenone", sb).onclick = () => setAll(false);
       $("#sitesearch", sb).onsubmit = (e) => { e.preventDefault(); this.siteQuery = $("#siteq", sb).value.trim(); if (this.siteQuery) { this.searched = [this.siteQuery]; this.allSites = false; find([this.siteQuery]); } };
     };
-    const find = async (queries) => {
-      sb.innerHTML = `<span class="small muted">Looking for sites for this job…</span>`;
+    const find = async (queries, more = false) => {
+      sb.innerHTML = `<span class="small muted">${more ? "Looking further…" : "Looking for sites for this job…"} It searches the web and asks its model, which can take half a minute.</span>`;
       try {
-        const r = await post("/api/sites", { queries, guess: d.guess || null });
+        const r = await post("/api/sites", { queries, guess: d.guess || null, job: d.job || $("#job", this.el).value, more });
         if (my !== this.req || !sb.isConnected) return;
-        this.found = r.sites;
-        draw(r.sites, r.sites.length ? "" : "No sites found. Try other words, or type an address above.");
+        const keep = new Map((more ? this.found || [] : []).map((x) => [x.site || x.host, x]));
+        r.sites.forEach((x) => { if (!keep.has(x.site || x.host)) keep.set(x.site || x.host, x); });
+        this.found = [...keep.values()];
+        draw(this.found, r.note || (this.found.length ? "" : "No sites found. Try other words, or type an address above."));
       } catch (e) { if (sb.isConnected) draw(this.found || [], e.message); }
     };
     if (this.found) return draw(this.found);
@@ -639,6 +648,7 @@ VIEWS.bot = {
     el.innerHTML = `<a class="skipchat" href="#/bot/${b.id}/chat">Skip to chat</a>${mobileBar(b.name)}<div class="botpage t-${tab}"><div class="bothead" id="bh"></div><div class="botbody">
       <section class="rightcol"><nav class="tabs" aria-label="Bot views">${TABS.map(([k, t]) => `<a href="#/bot/${b.id}/${k}" data-t="${k}" class="${k === tab ? "on" : ""}${k === "chat" ? " only-s" : ""}"${k === tab ? ' aria-current="page"' : ""}>${t}</a>`).join("")}</nav><div class="tabbody" id="tb"></div></section>
       <section class="chatcol" aria-label="Conversation"><div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages with ${esc(b.name)}"></div>
+        <div class="chatlive hidden" id="chatlive" role="status"></div>
         <div class="chatin"><div class="chatbox"><label class="vh" for="say">Message ${esc(b.name)}</label><input id="say" placeholder="Message ${esc(b.name)}…" autocomplete="off">
         <div class="between"><span class="small muted">${hint}say “slower”, “stop”, or give it a rule</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:#fff;border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section></div></div>`;
     $(".skipchat", el).onclick = (e) => { e.preventDefault(); if (onPhone()) this.go("chat"); $("#say").focus(); };  // before the tabs' own click: on a computer, chat isn't a tab
@@ -766,6 +776,7 @@ VIEWS.bot = {
       if (say) { say.placeholder = `Message ${b.name}…`; $('label[for="say"]').textContent = `Message ${b.name}`; $("#msgs").setAttribute("aria-label", `Messages with ${b.name}`); }
       if (mb) mb.textContent = b.name;
     }
+    this.drawLive();
     const meta = tk ? (show ? "showing it once" : "you have control") : m.meta;
     const key = JSON.stringify([b.name, meta, m.hot, b.status, b.run_kind, tk, b.library, b.allowed_domains, b.remote, b.mode, b.look, moodOf(b, RECENT)]);
     $$('.tabs a[data-t="chat"]').forEach((a) => a.classList.toggle("dot", this.data.needs.length > 0));
@@ -787,6 +798,28 @@ VIEWS.bot = {
     $$("#bh .bringback").forEach((x) => (x.onclick = () => this.bringBack()));
     const more = $("#bh details.more");
     more.onkeydown = (e) => { if (e.key === "Escape" && more.open) { e.preventDefault(); e.stopPropagation(); more.open = false; $("summary", more).focus(); } };
+  },
+  drawLive() {  // in the chat, while it works: what it's doing, the AI it used, which model is thinking right now, and Stop
+    const box = $("#chatlive"); if (!box || !this.data) return;
+    const b = { ...this.data.bot, ...(S.bots.find((x) => x.id === this.data.bot.id) || {}) };  // the newest step, even while you type
+    const t = (S.thinking || []).find((x) => x.bot === b.id), run = b.run_kind;
+    if (!run && !t) { box.classList.add("hidden"); box.innerHTML = ""; this.liveKey = ""; return; }
+    let site = ""; try { site = new URL(b.start_url).hostname.replace(/^www\./, ""); } catch (e) {}
+    const what = run === "learn" ? `Learning ${site || "a site"}` : run === "show" ? "Watching you show it" : run ? "Working" : "Thinking";
+    const key = JSON.stringify([what, b.step, b.ai_calls, b.status, t && t.model]);
+    if (key === this.liveKey) return;
+    this.liveKey = key;
+    box.classList.remove("hidden");
+    box.innerHTML = `<span class="livedot" aria-hidden="true"></span><span class="grow small"><b>${esc(what)}</b>${b.step ? ` · ${esc(b.step)}` : ""}${run ? ` · ${plural(b.ai_calls || 0, "AI call")}` : ""}
+        ${t ? `<br><span class="muted"><b class="mono">${esc(t.model)}</b> is thinking · <span data-since="${t.since}">${Math.round(Date.now() / 1000 - t.since)} s</span></span>` : run === "replay" ? `<br><span class="muted">no AI needed</span>` : ""}</span>
+      ${run && run !== "show" ? `<button class="btn s" id="livepause">${b.status === "paused" ? "Resume" : "Pause"}</button>` : ""}<button class="btn s hot" id="livestop">Stop</button>`;
+    const lp = $("#livepause"); if (lp) lp.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => this.oops(e));
+    $("#livestop").onclick = async () => {
+      busyBtn($("#livestop"), true, "Stopping…");
+      await post(`/api/models/stop`, { bot: b.id }).catch(() => {});
+      await post(`/api/bots/${b.id}/control`, { cmd: "stop" }).catch(() => {});
+      refreshSoon();
+    };
   },
   drawMsgs(force) {
     const box = $("#msgs"); if (!box) return;
@@ -1928,6 +1961,7 @@ const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this co
 const keyErr = (status) => ([401, 403].includes(+status) ? `refused (${status})` : `error ${status}`);
 
 // ================================================================ models
+const ROLE_NAMES = { learn: "learning a site", chat: "talking with you", repair: "fixing a step", smart: "smarter model", test: "a test" };
 const PROVIDER_NAMES = { ollama: "Ollama", custom: "Your own server", openrouter: "OpenRouter", anthropic: "Anthropic", openai: "OpenAI", gemini: "Google Gemini", groq: "Groq", xai: "xAI", mistral: "Mistral" };
 const provLabel = (p) => (p.name === "custom" ? "Your own server" : p.label);
 const ROLE_ABOUT = { learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule",
@@ -1935,11 +1969,42 @@ const ROLE_ABOUT = { learn: "reads the page and plans the steps, once per site",
 VIEWS.models = {
   live: false,
   async show(el, [sub]) { this.el = el; this.sub = sub; await this.refresh(); },
-  onEvent(m) { if (m.kind === "pull" && this.sub === "local") this.pulled(m); },
+  onEvent(m) {
+    if (m.kind === "pull" && this.sub === "local") this.pulled(m);
+    if (m.kind === "thinking" && !this.sub) {  // only the "Right now" card follows along; the forms hold still
+      clearTimeout(this.liveT);
+      this.liveT = setTimeout(async () => {
+        const lv = await get("/api/models/live").catch(() => null); if (!lv || !this.el.isConnected) return;
+        const html = this.liveCard(lv), cur = $(".mlive", this.el);
+        if (cur) cur.outerHTML = html || "";
+        else if (html) { const pk = $(".mpick", this.el); if (pk) pk.insertAdjacentHTML("afterend", html); }
+        this.bindLive();
+      }, 300);
+    }
+  },
   async refresh() {
     if (this.sub === "local") { const loc = await get("/api/models/local"); return redraw(this.el, () => this.local(loc)); }
-    const [md, loc, ch] = await Promise.all([get("/api/models"), get("/api/models/local"), get("/api/models/choices")]);
-    redraw(this.el, () => this.main(md, loc, ch));
+    const [md, loc, ch, lv] = await Promise.all([get("/api/models"), get("/api/models/local"), get("/api/models/choices"), get("/api/models/live").catch(() => ({ thinking: [], loaded: [] }))]);
+    redraw(this.el, () => this.main(md, loc, ch, lv));
+  },
+  liveCard(lv) {  // what the models are doing right now, and what's in memory
+    if (!lv.thinking.length && !lv.loaded.length) return "";
+    return `<section class="card mlive"><div class="between"><b>Right now</b><button class="btn s" id="mlrefresh" type="button">Check again</button></div>
+      ${lv.thinking.map((t) => `<div class="between"><span class="row"><span class="livedot" aria-hidden="true"></span><span><b class="mono">${esc(t.model)}</b> is thinking${t.name ? ` for <a href="#/bot/${t.bot}/chat">${esc(t.name)}</a>` : ""} <span class="small muted">· ${esc(ROLE_NAMES[t.role] || t.role)} · <span data-since="${t.since}">${t.seconds} s</span></span></span></span><button class="btn s hot" data-mstop="${t.bot == null ? "" : t.bot}">Stop</button></div>`).join("")
+        || `<span class="small muted">No model is thinking right now.</span>`}
+      ${lv.loaded.length ? `<div class="col" style="gap:6px"><span class="small muted">In memory on this computer (Ollama keeps a model loaded for a few minutes after use)</span>${lv.loaded.map((m) => `<div class="between"><span><b class="mono">${esc(m.name)}</b> <span class="small muted">· ${m.gb} GB</span></span><button class="btn s" data-unload="${esc(m.name)}">Unload</button></div>`).join("")}</div>` : ""}</section>`;
+  },
+  bindLive() {
+    $$("[data-mstop]", this.el).forEach((b) => (b.onclick = async () => {
+      busy(b, true); await post("/api/models/stop", b.dataset.mstop ? { bot: +b.dataset.mstop } : {}).catch((e) => toast(e.message));
+      toast("Stopped. The run it was thinking for stopped too."); this.refresh();
+    }));
+    $$("[data-unload]", this.el).forEach((b) => (b.onclick = async () => {
+      busy(b, true);
+      try { await post("/api/models/unload", { name: b.dataset.unload }); toast(`Unloaded ${b.dataset.unload}: its memory is free again`); } catch (e) { toast(e.message); }
+      this.refresh();
+    }));
+    if ($("#mlrefresh", this.el)) $("#mlrefresh", this.el).onclick = () => this.refresh();
   },
   picker(ch) {  // the one choice most people need: which model every bot uses
     const val = (c) => `${c.provider}|${c.model || ""}`, u = ch.using;
@@ -1970,12 +2035,13 @@ VIEWS.models = {
       } catch (e) { formSay("#mpickmsg", e.message, false); busy(b, false); }
     };
   },
-  main(md, loc, ch) {
+  main(md, loc, ch, lv = { thinking: [], loaded: [] }) {
     const provs = md.providers, o = loc.ollama, local = o.models.map((x) => x.name);
     const suggest = (p) => (p === "ollama" ? local : [...new Set(Object.values(md.roles).filter((v) => v.provider === p && v.model).map((v) => v.model))]);
     const opts = (p) => suggest(p).map((x) => `<option value="${esc(x)}">`).join("");
     this.el.innerHTML = `${mobileBar("Models")}<div class="page"><div class="between"><div><h1>Models</h1><p class="lede">Bots only use a model to learn a job or understand you. Repeating a job uses none.</p></div><span class="row"><a class="btn" href="#/models/local">Add a local model</a><a class="btn p" href="#/keys">Add an API key</a></span></div>
       ${this.picker(ch)}
+      ${this.liveCard(lv)}
       <details class="card mjobs" data-keep="mjobs"${ch.mixed ? " open" : ""}><summary><b>Different models for different jobs</b> <span class="small muted">optional, for when one model isn’t enough</span></summary><div class="list">${Object.entries(md.role_labels).map(([r, label]) => { const v = md.roles[r] || {}; return `<div class="mrole"><div class="row mrow"><span class="col mlabel" style="gap:2px"><b>${esc(label)}</b><span class="small muted">${ROLE_ABOUT[r] || ""}</span></span>
         <select class="f mprov" data-rp="${r}" aria-label="Provider for ${esc(label)}">${provs.map((p) => `<option value="${p.name}" ${v.provider === p.name ? "selected" : ""}>${esc(provLabel(p))}</option>`).join("")}</select>
         <input class="f mono mmodel" data-rm="${r}" value="${esc(v.model || "")}" placeholder="model name" list="ml-${r}" aria-label="Model for ${esc(label)}" autocomplete="off" spellcheck="false"><datalist id="ml-${r}">${opts(v.provider)}</datalist>
@@ -2020,6 +2086,7 @@ VIEWS.models = {
       busy(b, false);
     }));
     this.bindPicker(ch);
+    this.bindLive();
     this.bindStart();
   },
   bindStart() {

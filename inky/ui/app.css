@@ -352,3 +352,7 @@ body.buddymode #view{display:flex;align-items:flex-end;justify-content:center;he
 }
 @keyframes toast-in-top{from{opacity:0;transform:translateY(-20px) scale(.94)}}@keyframes toast-out-top{to{opacity:0;transform:translateY(-12px) scale(.97)}}
 .wsteps li{color:var(--muted)}
+/* sidebar: a model thinking right now, and Stop */
+.thinking{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.thinking .t{flex:1;min-width:0;line-height:1.3}
+.thinking .iconbtn{width:28px;height:28px;flex-shrink:0}
