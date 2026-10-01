@@ -169,7 +169,7 @@ def learn(ctx, goal, start_url, max_steps=24):
         ctx.check()
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
-                            "Bots don’t solve these. Solve it once on its computer and it carries on.", ["Open its computer", "Skip"])
+                            "Bots don’t solve these. Solve it once on its computer and it carries on, or skip it for now.", ["Open its computer", "Skip for now"])
         fixes = ctx.corrections()
         user = (f"GOAL: {goal}\nBOT RULES: {'; '.join(r['text'] for r in ctx.bot.get('rules', []))}\n"
                 f"CORRECTIONS FROM THE USER: {'; '.join(fixes) or 'none'}\n"
@@ -331,7 +331,7 @@ def replay(ctx, skill, repair_role="repair"):
         step = steps[i]
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
-                            "Bots don’t solve these. Solve it once on its computer and it carries on, or skip this site.",
+                            "Bots don’t solve these. Solve it once on its computer and it carries on, or skip this run.",
                             ["Open its computer", "Skip this run"], step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])

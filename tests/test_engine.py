@@ -287,6 +287,19 @@ class ServerMCPTransferTest(unittest.TestCase):
         self.assertEqual(A.store.get("needs", local)["status"], "open")
         with self.assertRaises(urllib.error.HTTPError):  # answered already, or not one of its answers
             self.api(self.ua, A.token, "POST", f"/api/bots/{b['id']}/needs/{nid}", {"decision": "Approve"})
+        # a bot on B that only shares the id (B's database was reset) is never shown, asked or touched from A
+        from inky import server as srv
+        real_home = self.B.store.get("bots", rid)["home"]
+        self.B.store.insert("needs", {"kind": "decision", "title": "Stranger's", "options": ["Approve", "Deny"]}, bot_id=rid, status="open")
+        srv.REMOTE_NEEDS["at"] = 0
+        self.assertEqual([n["title"] for n in srv.remote_needs(A)], ["Stranger's"])
+        self.B.store.update("bots", rid, home=None)
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self.api(self.ua, A.token, "GET", f"/api/bots/{b['id']}")
+        self.assertEqual(e.exception.code, 410)
+        srv.REMOTE_NEEDS["at"] = 0
+        self.assertEqual(srv.remote_needs(A), [])
+        self.B.store.update("bots", rid, home=real_home)
         # bring it back: one bot on A again, nothing left on B
         transfer.bring_back(A, b["id"])
         self.assertEqual(A.store.get("bots", b["id"])["status"], "idle")

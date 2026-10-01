@@ -117,13 +117,14 @@ def delete_bot(E, h, q, body, bid):
     c = E.store.get("computers", int(b["computer"])) if b.get("remote_id") and str(b.get("computer") or "local") != "local" else None
     if c and q.get("here") != "1":  # it lives on another computer: delete it there too (directly, never through another forward)
         try:
-            r = httpx.delete(f"{c['url']}/api/bots/{b['remote_id']}", headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=30)
-            ok = r.status_code < 300 or r.status_code == 404  # 404: it's already gone there
+            r = httpx.delete(f"{c['url']}/api/bots/{b['remote_id']}", headers=fwd_headers(E, c, b), timeout=transfer.connect_timeout(30))
+            ok = r.status_code < 300 or r.status_code == 404  # 404: it's already gone there (or that id is someone else's now)
         except httpx.HTTPError:
             ok = False
         if not ok:
             raise HTTPError(409, f"{c['name']} isn’t answering, so {b['name']} is still there. Try again when it’s on, or remove it only here.")
     E.delete_bot(int(bid))
+    forget_remote_needs(bid)
     return {"ok": True}
 
 
@@ -134,9 +135,10 @@ def bring_back(E, h, q, body, bid):
     def go():
         try:
             transfer.bring_back(E, int(bid), progress=lambda step, **kw: E.bus.publish("move", bot=int(bid), step=step, **kw))
+            forget_remote_needs(bid)
         except httpx.HTTPStatusError as e:
             b = E.store.get("bots", int(bid)) or {}
-            E.bus.publish("move", bot=int(bid), step="failed", text=f"{b.get('name', 'It')} is no longer there. Remove it here from its page." if e.response.status_code == 404 else f"The other computer answered {e.response.status_code}.")
+            E.bus.publish("move", bot=int(bid), step="failed", text=f"{b.get('name', 'It')} is no longer there. Remove it here from its page." if e.response.status_code in (404, 410) else f"The other computer answered {e.response.status_code}.")
         except httpx.RequestError:
             b = E.store.get("bots", int(bid)) or {}
             c = E.store.get("computers", int(b["computer"])) if str(b.get("computer", "")).isdigit() else None
@@ -365,6 +367,15 @@ def import_skill(E, h, q, body, bid):
 REMOTE_NEEDS = {"at": 0, "rows": []}
 
 
+def forget_remote_needs(bid):
+    REMOTE_NEEDS["rows"] = [n for n in REMOTE_NEEDS["rows"] if n.get("bot_id") != int(bid)]
+
+
+def fwd_headers(E, c, b):
+    """Headers for a call to a moved bot's computer: its token, forwarded once, and which bot this really is."""
+    return {"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1", "X-Inky-Home": transfer.home_of(E, b)}
+
+
 def remote_needs(E):
     """Open questions from your bots that moved to another computer: one request per server, in parallel, every 15 s at most."""
     if time.time() - REMOTE_NEEDS["at"] < 15:
@@ -379,11 +390,12 @@ def remote_needs(E):
         if not c:
             return []
         try:
-            got = transfer.Remote(c["url"], c["token"]).req("GET", "/api/needs", timeout=4)["needs"]
+            got = transfer.Remote(c["url"], c["token"]).req("GET", f"/api/needs?home={transfer.engine_id(E)}", timeout=4)["needs"]
         except Exception:
             return []
-        mine = {b["remote_id"]: b for b in moved[cid]}
-        return [dict(n, bot_id=mine[n["bot_id"]]["id"], bot=mine[n["bot_id"]]["name"], remote=c["name"]) for n in got if n.get("bot_id") in mine]
+        mine = {(b["remote_id"], transfer.home_of(E, b)): b for b in moved[cid]}
+        return [dict(n, bot_id=mine[k]["id"], bot=mine[k]["name"], remote=c["name"]) for n in got
+                if (k := (n.get("bot_id"), n.get("home"))) in mine]
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max(1, min(8, len(moved)))) as ex:
         rows = [n for got in ex.map(ask, moved) for n in got] if moved else []
@@ -399,9 +411,8 @@ def watch_remote_needs(E):
         while True:
             time.sleep(15)
             try:
-                if any(b.get("status") == "moved" for b in E.store.find("bots")):
-                    REMOTE_NEEDS["at"] = 0
-                    remote_needs(E)
+                REMOTE_NEEDS["at"] = 0  # with no moved bots this asks no one and clears the list (the badge stays right)
+                remote_needs(E)
             except Exception:
                 pass
     threading.Thread(target=loop, daemon=True, name="remote-needs").start()
@@ -409,8 +420,11 @@ def watch_remote_needs(E):
 
 @route("GET", "/api/needs")
 def needs(E, h, q, body):
-    names = {b["id"]: b["name"] for b in E.store.find("bots")}
-    rows = [dict(n, bot=names.get(n["bot_id"])) for n in E.store.find("needs", status=q.get("status", "open"), limit=100)]
+    bots = {b["id"]: b for b in E.store.find("bots")}
+    rows = [dict(n, bot=(bots.get(n["bot_id"]) or {}).get("name")) for n in E.store.find("needs", status=q.get("status", "open"), limit=100)]
+    if q.get("home"):  # another computer asking about the bots it sent here: only those, by who they are, never forwarded on
+        return {"needs": [dict(n, home=transfer.home_of(E, bots[n["bot_id"]])) for n in rows
+                          if n["bot_id"] in bots and (bots[n["bot_id"]].get("home") or {}).get("engine") == q["home"]]}
     if q.get("status", "open") == "open":
         rows += remote_needs(E)
     return {"needs": rows}
@@ -728,7 +742,7 @@ def library_preview(E, h, q, body):
     """What an agent would do here, before it's installed: its sites, what it may do that can't be undone, its skills."""
     try:
         b = library.fetch(body.get("url", ""))
-        listing = b.get("listing") or library.listing(b)
+        listing = library.listing_for(b, body.get("url", "").strip())
     except Exception as e:
         raise HTTPError(400, str(e) if isinstance(e, ValueError) else "That link doesn’t point to an Inky agent.")
     have = [x["id"] for x in E.store.find("bots") if (x.get("library") or {}).get("slug") == listing.get("slug")]
@@ -914,7 +928,7 @@ def del_computer(E, h, q, body, cid):
         if b.get("status") == "moved" and str(b.get("computer")) == str(cid):
             E.delete_bot(b["id"])
     E.store.delete("computers", int(cid))
-    REMOTE_NEEDS["at"] = 0
+    REMOTE_NEEDS.update(at=0, rows=[])
     return {"ok": True}
 
 
@@ -1028,6 +1042,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(path)
         if path not in ("/api/ping", "/api/pair") and not self._authed(q):
             return self._send(401, {"error": "missing token"})
+        mh = re.match(r"^/api/bots/(\d+)", path)
+        if mh and self.headers.get("X-Inky-Home"):  # another computer asking for its moved bot: never a bot that only shares its id
+            hb = E.store.get("bots", int(mh.group(1)))
+            if not hb or not hb.get("home") or transfer.home_of(E, hb) != self.headers["X-Inky-Home"]:
+                return self._send(410 if method != "DELETE" else 404, {"error": "That bot isn’t here any more.", "gone": True})
         m = re.match(r"^/api/bots/(\d+)/screen\.(mjpg|jpg)$", path)
         if m:
             return self._screen(int(m.group(1)), m.group(2))
@@ -1068,18 +1087,22 @@ class Handler(BaseHTTPRequestHandler):
             return None
         rpath = f"/api/bots/{b['remote_id']}{m.group(2) or ''}"
         try:
-            r = httpx.request(method, c["url"] + rpath, json=body if method != "GET" else None,
-                              headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=120 if method != "GET" else 20)
+            r = httpx.request(method, c["url"] + rpath, json=body if method != "GET" else None, headers=fwd_headers(self.engine, c, b),
+                              timeout=transfer.connect_timeout(120 if method != "GET" else 20))
             data = r.json()
-            if r.status_code == 404 and not m.group(2):  # the bot itself is gone there
+            if r.status_code == 410 or (r.status_code == 404 and not m.group(2)):  # the bot itself is gone there
                 return self._send(410, {"error": f"{b['name']} is no longer on {c['name']}.", "gone": True}) or True
             if isinstance(data, dict) and isinstance(data.get("bot"), dict):
-                data["bot"].update(id=b["id"], computer=b["computer"], remote=c["name"])
+                rb = data["bot"]
+                if (rb.get("name"), rb.get("look")) != (b.get("name"), b.get("look")):  # renamed or restyled there: the sidebar follows
+                    self.engine.store.update("bots", b["id"], name=rb.get("name") or b["name"], look=rb.get("look") or b.get("look"))
+                    self.engine.bus.publish("bots")
+                rb.update(id=b["id"], computer=b["computer"], remote=c["name"])
             if method == "POST" and re.search(r"/needs/\d+$", path) and r.status_code in (200, 201, 404, 409):
                 REMOTE_NEEDS["at"] = 0  # answered (or already answered there): the list follows at once
             self._send(r.status_code, data)
-        except Exception as e:
-            self._send(502, {"error": f"can’t reach {c['name']}: {e}"})
+        except Exception:
+            self._send(502, {"error": f"{c['name']} isn’t answering. It may be asleep or offline.", "offline": True})
         return True
 
     def _local(self):
@@ -1104,11 +1127,34 @@ class Handler(BaseHTTPRequestHandler):
             c = E.store.get("computers", int(b["computer"])) if str(b["computer"]).isdigit() else None
             if not c:  # its computer was unpaired
                 return self._send(204, b"", "image/jpeg")
-            try:
-                r = httpx.get(f"{c['url']}/api/bots/{b['remote_id']}/screen.jpg", headers={"X-Inky-Token": c["token"]}, timeout=20)
+            url, hd = f"{c['url']}/api/bots/{b['remote_id']}/screen.{kind}", fwd_headers(E, c, b)
+            if kind == "jpg":
+                try:
+                    r = httpx.get(url, headers=hd, timeout=transfer.connect_timeout(20))
+                except httpx.HTTPError:
+                    return self._send(204, b"", "image/jpeg")
+                return self._send(r.status_code, r.content, "image/jpeg")
+            started = False
+            try:  # the live view streams through, frame by frame
+                with httpx.stream("GET", url, headers=hd, timeout=httpx.Timeout(None, connect=3)) as r:
+                    if r.status_code != 200:
+                        return self._send(204, b"", "image/jpeg")
+                    self.send_response(200)
+                    self.send_header("Content-Type", r.headers.get("content-type") or "multipart/x-mixed-replace; boundary=frame")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    started = True
+                    for chunk in r.iter_raw():
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
             except httpx.HTTPError:
-                return self._send(204, b"", "image/jpeg")
-            return self._send(r.status_code, r.content, "image/jpeg")
+                if not started:
+                    return self._send(204, b"", "image/jpeg")
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            self.close_connection = True
+            return
         comp = E.computers.get(bid)
         if not (comp and comp.alive):
             if b and b.get("mode") == "screen":  # never open a window on your screen just to show it here

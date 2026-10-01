@@ -106,6 +106,7 @@ class InstallAndGuardTest(unittest.TestCase):
 
 class PublishTest(unittest.TestCase):
     def make(self):
+        library._login.clear()  # a fake gh per test, never your real one's cached name
         E = make_engine()
         self.addCleanup(E.close)
         b = E.create_bot({"name": "Book Bargains", "goal": "Books under £20", "start_url": "https://books.toscrape.com/"})
@@ -142,7 +143,10 @@ esac
         with mock.patch.dict(os.environ, {"PATH": d + os.pathsep + os.environ["PATH"]}):
             r = library.publish(E, bid, {"summary": "Cheap books daily"})
         self.assertEqual((r["mode"], r["url"]), ("pr", "https://github.com/GHGuide/inky/pull/7"))
-        calls = open(log).read().splitlines()
+        with open(log) as f:
+            calls = f.read().splitlines()
+        self.assertEqual(calls[0], "api user -q .login")  # the listing names who posted it
+        calls = calls[1:]
         order = ["auth status", "repo fork GHGuide/inky", "api user", "git/ref/heads/main", "git/refs", "contents/library/agents/book-bargains.inky", "pr create"]
         at = [next(i for i, c in enumerate(calls) if o in c) for o in order]
         self.assertEqual(at, sorted(at), calls)

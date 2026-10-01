@@ -262,7 +262,7 @@ class Ctx:
             raise skills.CheckedUpTo(step.get("text") or "a step")
         if verdict == "robot":
             raise skills.NeedsHelp("robot", "The site shows a robot check", "Bots don’t solve these. Solve it once on its computer, then press Hand back.",
-                                   ["Open its computer", "Skip"])
+                                   ["Open its computer", "Skip this run"])
         if verdict == "password":
             raise skills.NeedsHelp("sign_in", f"{name} needs you to sign in",
                                    "Bots never see or type your passwords. Sign in yourself on its computer and it keeps the session.",
@@ -428,10 +428,15 @@ class Engine:
         if run and run.thread:
             run.thread.join(15)  # let it finish writing before its rows go
         self.close_computer(bid)
+        self.drop_profile(bid)  # its browser and sign-ins go too
         for t in ("skills", "runs", "results", "messages", "events", "needs", "diary"):
             self.store.delete(t, bot_id=bid)
         self.store.delete("bots", bid)
         self.bus.publish("bots")
+
+    def drop_profile(self, bid):
+        import shutil
+        shutil.rmtree(self.home / "profiles" / f"bot-{bid}", ignore_errors=True)
 
     # ---------------------------------------------------------- computers
     def computer(self, bid):
@@ -541,6 +546,12 @@ class Engine:
         opts = [o for o in h.options if not (o == "Try a smarter model" and roles.get("smart") == roles.get("repair"))]  # same model: no point
         if not (meta.get("skill_id") or h.meta.get("skill_id")):  # nothing to replay up to: showing it once can't record anything
             opts = [o for o in opts if o != "Show me once"] or ["Try again"]
+        same = next((n for n in self.store.find("needs", bot_id=bid, status="open") if n.get("kind") == h.kind and n.get("title") == h.title
+                     and n.get("skill_id") == (meta.get("skill_id") or h.meta.get("skill_id"))), None)
+        if same:  # the same problem again (a scheduled rerun): one card, one notification
+            self.store.update("needs", same["id"], body=h.body, options=opts, seen=time.time())
+            self.bus.publish("needs", bot=bid)
+            return same["id"]
         nid = self.store.insert("needs", {"kind": h.kind, "title": h.title, "body": h.body, "options": opts, **h.meta, **meta},
                                 bot_id=bid, status="open")
         self.store.message(bid, "bot", f"{h.title}. {h.body}", need=nid)
@@ -587,7 +598,7 @@ class Engine:
         elif decision in ("Show me once",):
             self.start_show(bid, n)
         elif decision in ("Open its computer",):
-            self.store.update("bots", bid, resume_after_handback=True)
+            self.store.update("bots", bid, resume_after_handback=n.get("skill_id") or True)  # carry on with that skill, not all of them
             self.control(bid, "takeover", reason="You have its computer. Press Hand back when you’re done, and I’ll carry on.")
 
     # ---------------------------------------------------------- chat
@@ -619,7 +630,7 @@ class Engine:
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
                                  skills="; ".join(f"{s['name']} ({len(s['steps'])} steps)" for s in sk) or "none yet",
                                  status=status, tools="\n".join(self.mcp.catalog()) or "none",
-                                 others="; ".join(f"{o['name']} ({(o.get('job') or '')[:70]}; {o['status'].replace('_', ' ')})" for o in self.bots() if o["id"] != bid) or "none")
+                                 others="; ".join(f"{o['name']} ({(o.get('job') or '')[:70]}; {o['status'].replace('_', ' ')})" for o in self.bots() if o["id"] != bid and o["status"] != "moved") or "none")
         def worth_remembering(e):  # run summaries, not every step
             if e.get("kind") == "replay":
                 return "pass your rules" in e.get("text", "") or e.get("text", "").startswith("Done in")
@@ -924,6 +935,13 @@ class Engine:
         self.bus.publish("bots")
         try:
             out = skills.replay(Ctx(self, bid, run), skill, repair_role=repair_role)
+            reads = any(st["action"] == "extract" for st in skill["steps"])
+            found_before = any(r.get("skill") == skill["name"] and r.get("items") for r in self.store.find("runs", bot_id=bid, status="ok", limit=30))
+            if out["repairs"] and reads and not out["items"] and found_before:  # the fix led nowhere: keep the old step, ask instead
+                r = out["repairs"][0]
+                raise skills.NeedsHelp("fix_failed", f"Couldn’t fix step {r['step']} ({r['from']})",
+                                       f"I tried “{r['to']}” instead, but then found nothing, so I kept the old step.",
+                                       ["Show me once", "Try a smarter model", "Skip this run"], step=r["step"] - 1)
             if out["repairs"]:
                 self.store.update("skills", sid, steps=skill["steps"], version=skill.get("version", 1) + 1)
                 for r in out["repairs"]:
@@ -948,7 +966,6 @@ class Engine:
                 if r.get("new") and r.get("run") != run.run_id:
                     self.store.update("results", r["id"], new=False)
             self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"], steps=len(skill["steps"]))
-            reads = any(st["action"] == "extract" for st in skill["steps"])
             self.store.event(bid, "replay", f"{nres(len(out['items']))}, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
             if new and reason != "silent":
@@ -1027,11 +1044,13 @@ class Engine:
                 for n in open_takeover:
                     self.store.update("needs", n["id"], status="resolved", decision="Handed back")
                 resume = open_takeover or b.get("resume_after_handback")
+                r = b.get("resume_after_handback")
+                sid = r if type(r) is int else next((n.get("skill_id") for n in open_takeover if n.get("skill_id")), None)
                 self.store.update("bots", bid, resume_after_handback=False)
                 if resume and not alive:
                     self.store.message(bid, "bot", "Thanks, carrying on from here.")
                     try:
-                        self.run(bid, reason="after you took over")
+                        self.run(bid, sid, reason="after you took over")
                     except Exception as e:
                         self.store.message(bid, "bot", f"I couldn’t carry on: {e}")
         elif cmd == "stop" and run:
@@ -1207,10 +1226,15 @@ class Engine:
     # ---------------------------------------------------------- team life: bots talking to each other
     def find_bot(self, name, from_bid=None):
         low = str(name or "").strip().lower()
-        bots = [b for b in self.store.find("bots", desc=False) if b.get("status") != "moved"]
-        t = next((b for b in bots if b["name"].lower() == low), None) or next((b for b in bots if b["name"].lower().startswith(low) and low), None)
+        every = self.store.find("bots", desc=False)
+        pick = lambda bots: next((b for b in bots if b["name"].lower() == low), None) or next((b for b in bots if b["name"].lower().startswith(low) and low), None)
+        t = pick([b for b in every if b.get("status") != "moved"])
         if not t:
-            raise ValueError(f"there's no bot called {name}")
+            away = pick([b for b in every if b.get("status") == "moved"])
+            if away:
+                c = self.store.get("computers", int(away["computer"])) if str(away.get("computer")).isdigit() else None
+                raise ValueError(f"{away['name']} runs on {c['name'] if c else 'another computer'} now, so it can’t be asked from here")
+            raise ValueError(f"there’s no bot called {name}")
         if t["id"] == from_bid:
             raise ValueError("a bot can't ask itself")
         return t

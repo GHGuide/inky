@@ -203,6 +203,16 @@ def fetch(url):
     return b
 
 
+def listing_for(b, url):
+    """What to show for a file: the library's own entry when it comes from the library; otherwise made from the
+    file itself, because a link from anywhere can claim any title, author or slug."""
+    entry = next((a for a in index()["agents"] if a.get("url") == url), None) if url else None
+    if entry:
+        return entry
+    import hashlib
+    return {**listing(b), "author": "", "unverified": True, "slug": "link-" + hashlib.sha1((url or "").encode()).hexdigest()[:10]}
+
+
 def install(E, b, source=None):
     """Import a library agent. It keeps to the sites it lists, starts in its own browser, and asks before
     anything it can't undo: approvals that came with the file are dropped."""
@@ -218,7 +228,7 @@ def install(E, b, source=None):
         a.pop("approved_always", None)
     bot["mode"] = "own"
     bid = transfer.import_bot(E, b)
-    lst = b.get("listing") or listing(b)
+    lst = listing_for(b, source) if source else b.get("listing") or listing(b)
     E.store.update("bots", bid, allowed_domains=c["domains"],
                    library={"slug": lst["slug"], "version": lst.get("version", 1), "author": lst.get("author"), "source": source})
     return bid
@@ -236,7 +246,24 @@ def prepare(E, bid, meta):
     for k in ("last_run", "created", "warned_unchecked", "allowed_domains", "library"):  # this computer's bookkeeping
         b["bot"].pop(k, None)
     b["listing"] = listing(b, meta)
-    return b, check(b), json.dumps(b, ensure_ascii=False, indent=1)
+    c = check(b)
+    if c["ok"] and not (meta or {}).get("author") and gh_login():  # signed in to GitHub: the listing says who posted it
+        b["listing"] = listing(b, {**(meta or {}), "author": gh_login()})
+    return b, c, json.dumps(b, ensure_ascii=False, indent=1)
+
+
+_login = {}
+
+
+def gh_login():
+    """Your GitHub name when the gh tool is signed in, else ""; asked once per run."""
+    if "v" not in _login:
+        try:
+            r = _gh("api", "user", "-q", ".login") if shutil.which("gh") else None
+            _login["v"] = r.stdout.strip()[:39] if r and r.returncode == 0 else ""
+        except Exception:
+            _login["v"] = ""
+    return _login["v"]
 
 
 def publish(E, bid, meta):

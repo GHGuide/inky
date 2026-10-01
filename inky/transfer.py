@@ -99,12 +99,24 @@ def import_bot(engine, bundle):
     return bid
 
 
+def home_of(engine, b):
+    """Who a bot really is, across computers: where it was first made and its id there."""
+    h = b.get("home") or {}
+    return f"{h['engine']}:{h['bot']}" if h.get("engine") and h.get("bot") else f"{engine_id(engine)}:{b['id']}"
+
+
+def connect_timeout(t):
+    """A server that isn't there fails in 3 s, not after the whole wait."""
+    return httpx.Timeout(t, connect=min(3, t))
+
+
 class Remote:
-    def __init__(self, url, token):
-        self.url, self.token = url.rstrip("/"), token
+    def __init__(self, url, token, home=None):
+        self.url, self.token, self.home = url.rstrip("/"), token, home
 
     def req(self, method, path, body=None, timeout=60):
-        r = httpx.request(method, self.url + path, json=body, headers={"X-Inky-Token": self.token}, timeout=timeout)
+        headers = {"X-Inky-Token": self.token, **({"X-Inky-Home": self.home} if self.home else {})}
+        r = httpx.request(method, self.url + path, json=body, headers=headers, timeout=connect_timeout(timeout))
         r.raise_for_status()
         return r.json()
 
@@ -156,6 +168,7 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
         n = check.get("items", 0)
         progress("checked", text=f"Checked a run there: {n} result{'' if n == 1 else 's'}" + (f" ({check['note']})" if check.get("note") else ""))
     engine.close_computer(bid)
+    engine.drop_profile(bid)  # its sign-ins went with it
     home = b.get("home") or {}
     if home.get("engine") and home.get("engine") == remote.req("GET", "/api/ping", timeout=10).get("id"):
         engine.delete_bot(bid)  # it went back home: nothing needs to stay behind here
@@ -174,7 +187,7 @@ def bring_back(engine, bid, progress=lambda step, **kw: None):
     comp = engine.store.get("computers", int(b["computer"])) if b and b.get("remote_id") else None
     if not comp:
         raise RuntimeError("it isn’t on another computer")
-    remote = Remote(comp["url"], comp["token"])
+    remote = Remote(comp["url"], comp["token"], home=home_of(engine, b))  # only ever this bot, never one that took its id there
     remote.req("POST", f"/api/bots/{b['remote_id']}/control", {"cmd": "stop"}, timeout=30)
     progress("paused", text=f"Paused it on {comp['name']}")
     bundle = remote.req("GET", f"/api/bots/{b['remote_id']}/export?private=1", timeout=120)
