@@ -482,6 +482,7 @@ const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads
   const rest = k && t.toLowerCase().startsWith(k.toLowerCase() + " ") ? t.slice(k.length + 1).trim() : t;
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 };
+const offName = (m) => (String(m || "").match(/^(.+?) isn’t answering\. It may be/) || String(m || "").match(/can’t reach (.+?):/) || [])[1];  // a moved bot's server is off
 const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
 const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
 ICON.speakeroff = "M11 5L6 9H2v6h4l5 4z M23 9l-6 6 M17 9l6 6";  // the Call tab's speaker, turned off
@@ -567,7 +568,7 @@ VIEWS.bot = {
       this.typing = true; this.drawMsgs(true);
       try { await post(`/api/bots/${id}/chat`, { text: t }); }
       catch (e) {  // it didn't go: your words go back in the box, to send again
-        const off = (String(e.message).match(/can’t reach (.+?):/) || [])[1];
+        const off = offName(e.message);
         toast(off ? `${off} isn’t answering, so your message didn’t reach ${this.data ? this.data.bot.name : "the bot"}. It’s back in the box.` : e.message);
         if (id !== this.id || !this.data) { if (!DRAFTS[id]) DRAFTS[id] = t; return; }
         this.data.messages = this.data.messages.filter((m) => m !== mine);
@@ -610,9 +611,9 @@ VIEWS.bot = {
   missing(el, e) {  // no such bot, it lives on a computer that isn't answering, or it's gone from there
     const known = S.bots.find((x) => x.id === this.id), msg = String(e.message || "");
     const gone = msg.match(/ is no longer on (.+?)\.?$/);
-    const away = !gone && !!known && (known.status === "moved" || msg.includes("can’t reach"));
+    const away = !gone && !!known && (known.status === "moved" || !!offName(msg));
     if (!gone && !away && !msg.includes("no such bot")) throw e;  // anything else: the router's error page
-    const where = (msg.match(/can’t reach (.+?):/) || [])[1] || "another computer";
+    const where = offName(msg) || known && known.remote || "another computer";
     this.data = null;  // nothing here to refresh
     el.innerHTML = `${mobileBar(known ? known.name : "Inky")}<div class="page narrow">${known ? botCritter({ ...known, status: "idle", needs: 0 }, 90) : critter("octopus", "#E86F51", "none", 90, "worried")}
       ${gone ? `<h1 style="overflow-wrap:anywhere">It’s no longer on ${esc(gone[1])}</h1><p class="lede">${esc(known ? known.name : "This bot")} was deleted there, or that computer was reset. Only this computer still lists it.</p>
