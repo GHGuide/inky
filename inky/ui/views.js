@@ -1830,7 +1830,7 @@ VIEWS.connectors = {
     on("[data-reset]", async (x) => {
       const n = x.dataset.reset;
       if (!(await confirmBox(`Reset ${label(n)} to how it came with Inky?`, "Reset", true))) return;
-      try { await del(`/api/mcp/${n}`); await this.refresh(); this.res(n, `${label(n)} is back to how it came.`); } catch (e) { this.res(n, e.message, false); }
+      try { await del(`/api/mcp/${n}`); await this.refresh(); this.res(n, `${label(n)} is back to how it came.`); const f = $(`[data-on="${n}"],[data-test="${n}"]`, this.el); if (f) f.focus(); } catch (e) { this.res(n, e.message, false); }
     });
     on("[data-test]", async (x) => {
       const n = x.dataset.test; busy(x, true); this.res(n, "Testing…");
@@ -1855,13 +1855,14 @@ VIEWS.connectors = {
       if (!r.ok) { busy(b, false); return this.res(n, r.text, false); }  // the engine says what's missing or wrong
       $$("[data-field]", f).forEach((i) => (i.value = "")); this.open.delete(n);
       await this.refresh(); this.res(n, "✓ " + r.text, true); SOUND.play("chime");
+      const ft = $(`[data-test="${n}"]`, this.el); if (ft) ft.focus();  // focus stays where you were working
       if (n === "telegram") this.waitForStart(r.bot);
     }));
     on("[data-forget]", async (x) => {
       const n = x.dataset.forget;
       const what = { telegram: "Its token is removed from this computer and alerts stop.", n8n: "Its address and API key are removed from this computer.", apify: "Its token is removed from this computer." }[n];
       if (!(await confirmBox(`Disconnect ${label(n)}? ${what}`, "Disconnect", true))) return;
-      try { await del(`/api/connectors/${n}`); if (n === "telegram") clearInterval(tgPoll); this.open.delete(n); await this.refresh(); this.res(n, `Disconnected ${label(n)}.`); }
+      try { await del(`/api/connectors/${n}`); if (n === "telegram") clearInterval(tgPoll); this.open.delete(n); await this.refresh(); this.res(n, `Disconnected ${label(n)}.`); const fe = $(`[data-edit="${n}"]`, this.el); if (fe) fe.focus(); }
       catch (e) { this.res(n, e.message, false); }
     });
     $$("details[data-keep^='try-']", this.el).forEach((d) => (d.ontoggle = () => { if (d.open) this.toolParams(d.dataset.keep.slice(4)); }));
