@@ -225,7 +225,7 @@ VIEWS.setup = {
     const say = (t, ok) => this.say("#tgmsg", t, ok), again = $("#tgagain");
     const wait = async (bot) => {  // waitForTelegram gives up after 2 minutes; then you can look again from here
       again.classList.add("hidden");
-      const t0 = Date.now(), ok = await waitForTelegram(bot, say);
+      const t0 = Date.now(), ok = await waitForTelegram(bot, say, "press Check again");
       if (ok !== false || !again.isConnected) return;
       if (Date.now() - t0 >= 119e3) say(`Didn’t hear from you yet. Send /start to @${bot}, then press Check again.`, false);
       again.classList.remove("hidden"); again.onclick = () => wait(bot);
