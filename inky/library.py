@@ -174,6 +174,8 @@ def fetch(url):
     url = (url or "").strip()
     if not url:
         raise ValueError("That link has no agent in it.")
+    if url.lower().startswith("inky://agent"):  # a share link with the whole agent inside: nothing to download
+        return unpack(url)
     if url.startswith("bundled:"):
         p = (BUNDLED / url[8:]).resolve()
         if BUNDLED.resolve() not in p.parents or p.suffix != ".inky" or not p.is_file():
@@ -304,6 +306,39 @@ def _pull_request(slug, text, lst, c):
                         f"May do (asks first): {'; '.join(c['irreversible']) or 'nothing irreversible'}", "", "Posted from the Inky app."])
     url = ok(_gh("pr", "create", "--repo", REPO, "--head", f"{me}:{branch}", "--title", f"Library: {lst['title']}", "--body", report))
     return {"mode": "pr", "url": url.splitlines()[-1], "check": c}
+
+
+def pack(text):
+    """An agent file as an inky://agent link: compressed, so a typical one is about 1,300 characters."""
+    import zlib
+    return "inky://agent?d=" + base64.urlsafe_b64encode(zlib.compress(text.encode("utf-8"), 9)).decode().rstrip("=")
+
+
+def unpack(link):
+    import zlib
+    from urllib.parse import parse_qs, urlsplit
+    d = (parse_qs(urlsplit(link.strip()).query).get("d") or [""])[0].strip()
+    if not d or len(d) > MAX_BYTES:
+        raise ValueError("That share link is incomplete. Ask for it again, or for the file.")
+    try:
+        raw = zlib.decompressobj().decompress(base64.urlsafe_b64decode(d + "=" * (-len(d) % 4)), MAX_BYTES)
+        b = json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise ValueError("That share link is damaged. It may have been cut off when it was copied.")
+    if not isinstance(b, dict) or not isinstance(b.get("bot"), dict):
+        raise ValueError("That link doesn’t hold an Inky agent.")
+    return b
+
+
+def share_code(E, bid, meta):
+    """A share link that needs no account: the checked file, inside the link. Anyone with Inky pastes or opens it."""
+    b, c, text = prepare(E, bid, meta)
+    if not c["ok"]:
+        return {"mode": "blocked", "problems": c["problems"]}
+    link = pack(text)
+    if len(link) > 60000:
+        return {"mode": "too_big", "text": "This agent is too big for a link. Send the file instead (Download the file)."}
+    return {"mode": "link", "link": link, "check": c, "public": text}
 
 
 def share_link(E, bid, meta):

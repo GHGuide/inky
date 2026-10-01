@@ -28,6 +28,7 @@ const get = (p) => api("GET", p), post = (p, b = {}) => api("POST", p, b), patch
 const screenUrl = (id, kind = "jpg") => `/api/bots/${id}/screen.${kind}?t=${encodeURIComponent(TOKEN)}${kind === "jpg" ? "&_=" + Date.now() : ""}`;
 
 const ICON = {
+  link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7 M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
   plus: "M12 5v14 M5 12h14", activity: "M3 12h4l3 7 4-14 3 7h4", monitor: "M5 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8 20h8 M12 16v4",
   models: "M9 3h6 M9 21h6 M3 9v6 M21 9v6 M6 6h12v12H6z M10 10h4v4h-4z", plug: "M9 7V3 M15 7V3 M6 7h12v4a6 6 0 0 1-12 0z M12 17v4",
   spark: "M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z", gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
@@ -366,6 +367,7 @@ function cmdItems(q) {
     else items.push({ sec: "SEND TO", label: `No bot called “${esc(m.named)}”`, lead: lead("x"), k: "", noop: true });
   }
   const act = (label, k, d, run, make) => items.push({ sec: at ? "OR" : "ACTIONS", label, k, lead: lead(d), run, make });
+  if (/^inky:\/\//i.test(text)) return [{ sec: "LINK", label: "Open this Inky link", k: "↵", lead: lead("link"), run: () => handleLink(text) }];  // a pasted share or pair link
   act(text ? `Make a new bot: “${esc(text.slice(0, 60))}”` : "Make a new bot", kb(MAC ? "⌘ ↵" : "Ctrl ↵"), "plus", () => (location.hash = `#/new?job=${encodeURIComponent(text)}`), true);
   act("Open Needs you", `${S.needs}`, "check", () => (location.hash = "#/needs"));
   act("Pause all bots", kb(BAR ? "⌃ ⌥ P" : "⌥ P"), "activity", () => pauseAll());
@@ -503,6 +505,7 @@ window.handleLink = async (link) => {  // inky:// links the desktop app hands ov
     return;
   }
   if (u.host === "install") return u.searchParams.get("url") ? getAgent(u.searchParams.get("url")) : toast("That install link is incomplete.");
+  if (u.host === "agent") return u.searchParams.get("d") ? getAgent(link) : toast("That share link is incomplete.");  // the agent is inside the link
   toast("Inky can’t open that link.");
 };
 function closeModal() {

@@ -827,6 +827,23 @@ def publish(E, h, q, body, bid):
     return library.publish(E, int(bid), body.get("meta") or {})
 
 
+@route("POST", r"/api/bots/(\d+)/share-code")
+def share_code(E, h, q, body, bid):
+    bot_or_404(E, bid)
+    return library.share_code(E, int(bid), body.get("meta") or {})
+
+
+@route("POST", "/api/sites")
+def find_sites(E, h, q, body):
+    """Websites for a job (a DuckDuckGo search per query), so you can pick instead of hunting for them."""
+    from inky import sites
+    qs = [x for x in body.get("queries") or [] if isinstance(x, str)] or [str(body.get("job") or "")]
+    try:
+        return {"sites": sites.suggest(qs, guess=body.get("guess")), "searched": qs}
+    except RuntimeError as e:
+        raise HTTPError(502, str(e))
+
+
 @route("POST", r"/api/bots/(\d+)/share-link")
 def share_link(E, h, q, body, bid):
     return library.share_link(E, int(bid), body.get("meta") or {})

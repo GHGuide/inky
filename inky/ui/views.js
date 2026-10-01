@@ -3,6 +3,8 @@ const LOOKS = { kinds: ["octopus", "cat", "blob"], colors: [["#E86F51", "Coral"]
   accs: ["none", "glasses", "beanie", "headphones", "bow"], earned: [[10, "scarf"], [50, "party"], [100, "star"], [500, "crown"]] };
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
+const EVERY = [[0, "Only when I ask"], [60, "Every hour"], [360, "Every 6 hours"], [1440, "Every day"], [10080, "Every week"]];
+const everyOf = (d) => { const m = +d.every_minutes || 0; return EVERY.reduce((a, [v]) => (Math.abs(v - m) < Math.abs(a - m) ? v : a), 0); };  // nearest choice
 const OP_WORDS = { "<=": "at most", "<": "under", ">=": "at least", ">": "over", "==": "is", "!=": "isn’t", contains: "contains", not_contains: "doesn’t contain", in: "is one of", not_in: "isn’t one of" };
 
 // ================================================================ setup wizard
@@ -284,6 +286,7 @@ VIEWS.bots = {
     const go = () => {
       const t = $("#job").value.trim();
       if (!t) { toast("Describe the job first"); return $("#job").focus(); }
+      if (/^inky:\/\//i.test(t)) { $("#job").value = ""; return handleLink(t); }  // a share or pair link someone sent you
       if (!t.startsWith("@")) { location.hash = `#/new?job=${encodeURIComponent(t)}`; return; }
       const m = mention(t);  // an @-message is always for a bot, never a new bot's job
       if (m.ambiguous) {
@@ -368,7 +371,8 @@ function siteUrl(v) {  // "books.toscrape.com" → "https://books.toscrape.com/"
 VIEWS.new = {
   async show(el, _, qs) {
     const job = qs.get("job") || "";
-    this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null; this.leaving = false; this.job0 = job.trim();  // "edited", not "dirty": the router calls a page's dirty() before leaving it
+    this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null; this.leaving = false; this.job0 = job.trim();
+    this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.every = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
     el.innerHTML = `${mobileBar("New bot")}<div class="page narrow"><h1>New bot</h1><p class="lede">Describe the job. It drafts the bot, you check it, then it learns the site once while you watch.</p>
       <div class="composer" style="width:100%"><label class="vh" for="job">Job</label><textarea id="job" rows="3" placeholder="e.g. Every morning, find flats in Bari under €150k on casafacile.it">${esc(job)}</textarea>
       <div class="between"><span class="small muted">Include the site if you know it.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox"></div></div>`;
@@ -404,9 +408,54 @@ VIEWS.new = {
   },
   kept() {  // what you changed in the draft survives a redraft
     const box = $("#draftbox", this.el), k = {};
-    for (const [id, key] of [["nm", "name"], ["url", "start_url"], ["goal", "goal"], ["every", "every_minutes"]]) if (this.edited.has(id) && $("#" + id, box)) k[key] = $("#" + id, box).value;
+    for (const [id, key] of [["nm", "name"], ["url", "start_url"], ["goal", "goal"]]) if (this.edited.has(id) && $("#" + id, box)) k[key] = $("#" + id, box).value;
+    if (this.edited.has("every")) k.every_minutes = this.every;
     if (this.edited.has("filters") && this.filters) k.filters = this.filters;
     return k;
+  },
+  async sites(d, box) {  // websites for the job, found for you: tick the ones it should check
+    const sb = $("#sitebox", box), url = $("#url", box), my = this.req;
+    this.picked = this.picked || new Set();
+    const query = (this.siteQuery = this.siteQuery || (d.search || [])[0] || d.goal || d.job || "");
+    this.searched = this.searched || d.search || [query];
+    const draw = (rows, note) => {
+      const show = rows.slice(0, this.allSites ? 24 : 8);
+      sb.innerHTML = `<div class="between"><b class="small">Sites for this job</b><span class="small muted">${rows.length ? `${rows.length} found on the web (DuckDuckGo)` : ""}</span></div>
+        ${rows.length ? `<span class="small muted clip1">Searched for: ${this.searched.map(esc).join(" · ")}</span>` : ""}
+        ${note ? `<span class="small ${/Couldn’t/.test(note) ? "bad" : "muted"}" style="background:none">${esc(note)}</span>` : ""}
+        <div class="sites" role="group" aria-label="Sites for this job">${show.map((r) => `<label class="siterow${this.picked.has(r.url) ? " on" : ""}"><input type="checkbox" data-site="${esc(r.url)}" ${this.picked.has(r.url) ? "checked" : ""}>
+          <span class="col grow" style="gap:1px;min-width:0"><b class="mono small">${esc(r.host)}${r.guess ? ` <span class="badge">its guess</span>` : ""}</b>${r.title ? `<span class="small clip1">${esc(r.title)}</span>` : ""}${r.snippet ? `<span class="small muted clip1">${esc(r.snippet)}</span>` : ""}</span>
+          <a class="small" href="${esc(r.url)}" data-out="${esc(r.url)}" aria-label="Open ${esc(r.host)}">open ↗</a></label>`).join("")}</div>
+        ${rows.length > show.length ? `<button class="btn s" id="sitemore" type="button">Show ${rows.length - show.length} more</button>` : ""}
+        <form class="row" id="sitesearch"><label class="vh" for="siteq">Search for sites</label><input class="f grow" id="siteq" value="${esc(this.siteQuery)}" placeholder="Search for sites"><button class="btn s" id="sitego">Search</button></form>
+        <span class="small muted">${this.picked.size > 1 ? `It learns ${esc(new URL([...this.picked][0]).hostname)} first, then the other ${this.picked.size - 1}, one after another.` : "Tick one or more. The first one is where it starts."}</span>`;
+      $$("[data-site]", sb).forEach((x) => (x.onchange = () => {
+        x.checked ? this.picked.add(x.dataset.site) : this.picked.delete(x.dataset.site);
+        this.edited.add("sites");
+        const first = [...this.picked][0];
+        url.value = first ? first : ""; url.setCustomValidity(""); this.edited.add("url");
+        draw(rows); const again = $(`[data-site="${CSS.escape(x.dataset.site)}"]`, sb); if (again) again.focus();
+      }));
+      $$("[data-out]", sb).forEach((a) => (a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openOut(a.dataset.out); }));
+      if ($("#sitemore", sb)) $("#sitemore", sb).onclick = () => { this.allSites = true; draw(rows); };
+      $("#sitesearch", sb).onsubmit = (e) => { e.preventDefault(); this.siteQuery = $("#siteq", sb).value.trim(); if (this.siteQuery) { this.searched = [this.siteQuery]; this.allSites = false; find([this.siteQuery]); } };
+    };
+    const find = async (queries) => {
+      sb.innerHTML = `<span class="small muted">Looking for sites for this job…</span>`;
+      try {
+        const r = await post("/api/sites", { queries, guess: d.guess || null });
+        if (my !== this.req || !sb.isConnected) return;
+        this.found = r.sites;
+        draw(r.sites, r.sites.length ? "" : "No sites found. Try other words, or type an address above.");
+      } catch (e) { if (sb.isConnected) draw(this.found || [], e.message); }
+    };
+    if (this.found) return draw(this.found);
+    if (d.start_url && !d.guess && !this.edited.has("sites")) {  // you named the site: no need to search, but you can
+      sb.innerHTML = `<div class="between"><span class="small">It starts on the site you named.</span><button class="btn s" type="button" id="sitefind">Find more sites like it</button></div>`;
+      $("#sitefind", sb).onclick = () => { this.picked.add(siteUrl(url.value) || d.start_url); find(d.search && d.search.length ? d.search : [query]); };
+      return;
+    }
+    find(d.search && d.search.length ? d.search : [query]);
   },
   render(draft) {
     const d = { ...draft, ...this.kept() }, box = $("#draftbox", this.el), dirty = this.edited;
@@ -415,22 +464,27 @@ VIEWS.new = {
     const notice = d.notice ? `<p class="small muted" role="status" style="margin:8px 0 0">${/\bModels\b/.test(d.notice) ? esc(d.notice).replace(/\bModels\b/, '<a href="#/models">Models</a>') : `${esc(d.notice)} <a href="#/models">Models</a>`}</p>` : "";
     box.innerHTML = `${notice}<div class="card" style="margin-top:8px"><div class="row">${critter(look.kind, look.color, look.acc, 48)}<div class="grow"><label class="l" for="nm">Your new bot</label><input class="f" id="nm" value="${esc(d.name)}" maxlength="40"></div></div>
       ${d.summary ? `<div class="card panel">${esc(d.summary)}</div>` : ""}
-      <div class="grid2"><div><label class="l" for="url">Start on this site</label><input class="f" id="url" value="${esc(d.start_url || "")}" placeholder="books.toscrape.com" inputmode="url" autocomplete="off" spellcheck="false"></div>
-        <div><label class="l" for="every">Check every (minutes, 0 = only when I ask)</label><input class="f" id="every" type="number" min="0" step="1" inputmode="numeric" value="${esc(d.every_minutes || 0)}"></div></div>
+      <div class="col" style="gap:8px"><label class="l" for="url">Where it looks</label><input class="f" id="url" value="${esc(d.start_url || "")}" placeholder="a site’s address, or pick some below" inputmode="url" autocomplete="off" spellcheck="false">
+        <div class="card panel sitebox" id="sitebox"></div></div>
       <div><label class="l" for="goal">What to do there</label><input class="f" id="goal" value="${esc(d.goal || "")}"></div>
-      <div><label class="l">Rules for results</label><div id="filters" class="col"></div><button class="btn s" id="addf" style="margin-top:6px">Add a rule</button></div>
+      <div class="col" style="gap:6px"><span class="l" id="everyl">How often</span><span class="seg wrap" id="every" role="group" aria-labelledby="everyl">${EVERY.map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${+v === everyOf(d)}" class="${+v === everyOf(d) ? "on" : ""}">${t}</button>`).join("")}</span></div>
+      <div><span class="l">Only keep results where…</span><div id="filters" class="col"></div><button class="btn s" id="addf" style="margin-top:6px">Add a rule</button></div>
       ${(d.questions || []).length ? `<div class="card panel small wonders"><b>It wonders:</b>${d.questions.map((q, i) => `<div class="col" style="gap:6px"><label for="qa${i}">${esc(q)}</label>
         <div class="row"><input class="f grow" id="qa${i}" data-q="${esc(q)}" placeholder="Your answer" autocomplete="off"><button class="btn s" data-qa="${i}">Answer</button></div></div>`).join("")}
         <span class="muted">Your answer goes into the job, and it drafts again. What you changed above stays.</span></div>` : ""}
       <div class="col"><span class="l">What it may do</span><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, delete, submit forms, sign up</span></div><div class="rule"><b>Never</b><span>Buy or pay · type your passwords</span></div></div>
       <div class="between"><span class="small muted">It learns the site right after you create it.</span><button class="btn p" id="create"></button></div></div>`;
     $("#create", box).textContent = label();
-    ["nm", "url", "goal", "every"].forEach((id) => $("#" + id, box).addEventListener("input", () => { dirty.add(id); $("#" + id, box).setCustomValidity(""); }));
+    ["nm", "url", "goal"].forEach((id) => $("#" + id, box).addEventListener("input", () => { dirty.add(id); $("#" + id, box).setCustomValidity(""); }));
+    let every = everyOf(d);
+    $$("#every button", box).forEach((x) => (x.onclick = () => { every = +x.dataset.v; this.every = every; dirty.add("every");
+      $$("#every button", box).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); }); }));
+    this.sites(d, box);
     $("#nm", box).addEventListener("input", () => { if (!$("#create", box).disabled) $("#create", box).textContent = label(); });
     const filters = (this.filters = (d.filters || []).map((f) => ({ ...f })));
     const drawF = () => {
-      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><input class="f" data-i="${i}" data-k="field" value="${esc(f.field)}" aria-label="Field"><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
-        <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">None: it keeps everything it finds.</span>`;
+      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><input class="f" data-i="${i}" data-k="field" value="${esc(f.field)}" aria-label="Field" placeholder="price"><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
+        <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">Nothing yet: it keeps everything it finds. Add one like “price at most 20”.</span>`;
       $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); const f = filters[x.dataset.i]; f[x.dataset.k] = x.dataset.k === "value" && /,/.test(x.value) ? x.value.split(",").map((s) => s.trim()) : x.value; }));
       $$("#filters [data-del]", box).forEach((x) => (x.onclick = () => { dirty.add("filters"); filters.splice(+x.dataset.del, 1); drawF(); }));
     };
@@ -448,12 +502,12 @@ VIEWS.new = {
       enterSends(inp, answer);
     });
     $("#create", box).onclick = async () => {
-      const url = $("#url", box), every = $("#every", box), start = siteUrl(url.value);
-      url.setCustomValidity(start === false ? "That isn’t a web address. It looks like books.toscrape.com or https://…" : "");
+      const url = $("#url", box), start = siteUrl(url.value);
+      url.setCustomValidity(start === false ? "That isn’t a web address. It looks like example.com or https://…" : "");
       if (!url.reportValidity()) return;
-      if (!every.reportValidity()) return;  // whole minutes, 0 or more
       if (start) url.value = start;
-      const body = { ...d, name: $("#nm", box).value.trim() || d.name, start_url: start, goal: $("#goal", box).value, every_minutes: +every.value || 0,
+      const more = [...(this.picked || [])].filter((u) => u !== start);  // the other sites you ticked: learned one after another
+      const body = { ...d, name: $("#nm", box).value.trim() || d.name, start_url: start, goal: $("#goal", box).value, every_minutes: every, more_sites: more,
         filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: `${f.field} ${OP_WORDS[f.op] || f.op} ${f.value}` })) };
       const btn = $("#create", box);
       busyBtn(btn, true, "Creating…");
@@ -1467,8 +1521,14 @@ VIEWS.library = {
       <div class="row wrap"><input class="f grow" id="lq" type="search" placeholder="Search agents, sites, tags, authors" value="${esc(this.q)}" aria-label="Search the library" style="min-width:220px"><span class="row wrap" id="ltags" style="gap:6px"></span></div>
       ${this.data.error && !this.data.agents.length ? `<div class="card panel small">${esc(this.data.error)}</div>` : ""}
       <div class="grid3" id="lgrid" aria-live="polite"></div>
+      <form class="card row wrap" id="lshare" style="padding:12px 16px"><label class="l" for="lsl" style="margin:0">Got a share link?</label><input class="f mono grow" id="lsl" placeholder="inky://agent?d=…" autocomplete="off" spellcheck="false" style="min-width:220px"><button class="btn s">Open it</button></form>
       <div class="card panel small"><span><b>Post your own.</b> Open one of your bots → <b>Share</b> → <b>Post to the library</b>. Inky checks it and shows you exactly what becomes public first. <a href="https://github.com/GHGuide/inky/tree/main/library" target="_blank" rel="noopener">How the library works ↗</a></span></div></div>`;
     $("#lq", el).oninput = (e) => { this.q = e.target.value; this.draw(); };
+    $("#lshare", el).onsubmit = (e) => {  // the same preview and checks as the Library's own agents
+      e.preventDefault(); const v = $("#lsl", el).value.trim();
+      if (!v) return $("#lsl", el).focus();
+      /^inky:\/\//i.test(v) ? handleLink(v) : /^https:\/\//i.test(v) ? getAgent(v) : toast("That isn’t a share link. It starts with inky://");
+    };
     this.draw();
   },
   draw() {  // only the tags and results redraw, so the search box keeps your typing
@@ -1495,8 +1555,11 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
   modal(`<div class="row">${botCritter(b, 44)}<h2>Share ${esc(b.name)}</h2></div><span class="small muted">What you share is its skills, rules, look and personality. Never your sign-ins, memory, results or chat.</span>
     <label class="l" for="shsum">One line about what it does</label><input class="f" id="shsum" value="${esc(b.summary || b.goal || "")}">
     <label class="l" for="shtags">Tags (optional, comma separated)</label><input class="f" id="shtags" placeholder="shopping, flats">
-    <div class="col" style="gap:8px"><button class="btn" data-dl="/api/bots/${b.id}/export" data-name="${esc(b.name)}.inky">Download the file</button>
-      <button class="btn" id="shlink">${logo("github", 18)}Make a share link</button><button class="btn p" id="shpost">Post to the library</button></div>
+    <div class="col" style="gap:8px"><button class="btn p" id="shcode">${icon("link", 16)}Copy a share link</button>
+      <span class="small muted" style="margin-top:-2px">No account needed. Anyone with Inky opens it, or pastes it into their Library, sees what it does, and gets it with one tap.</span>
+      <button class="btn" data-dl="/api/bots/${b.id}/export" data-name="${esc(b.name)}.inky">Download the file</button>
+      <button class="btn" id="shpost">${logo("github", 18)}Post to the public library</button>
+      <details><summary class="small muted">More: a GitHub link</summary><button class="btn s" id="shlink" style="margin-top:8px">${logo("github", 16)}Make a GitHub share link</button></details></div>
     <div class="col" id="shout" style="gap:8px" role="status"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="shclose">Close</button></div>`, () => {
     $("#shclose").onclick = closeModal;
     const meta = () => ({ summary: $("#shsum").value.trim(), tags: $("#shtags").value.split(",").map((t) => t.trim()).filter(Boolean) });
@@ -1525,6 +1588,20 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
         else if (r.mode === "manual") out(`<span class="small">This agent is too big for GitHub’s link. Download the file, then upload it on GitHub’s page.</span><div class="row"><button class="btn s" data-dl="/api/bots/${b.id}/export" data-name="${esc(r.filename)}">Download</button><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Upload on GitHub ↗</a></div>`);
         else failed((r.problems || []).join(" ") || r.text || "Couldn’t post it.");
       }, p.gh ? "Open a pull request" : "Continue on GitHub");
+    };
+    $("#shcode").onclick = async () => {  // the whole (checked) agent inside the link: nothing is uploaded anywhere
+      const btn = $("#shcode");
+      busyBtn(btn, true, "Checking…");
+      let r;
+      try { r = await post(`/api/bots/${b.id}/share-code`, { meta: meta() }); } catch (e) { busyBtn(btn, false); return failed(e.message); }
+      busyBtn(btn, false);
+      if (r.mode === "blocked") return out(`<div class="chk"><i class="bad">!</i><span><b>Not shareable yet</b><br><span class="small">${r.problems.map(esc).join("<br>")}</span></span></div>`);
+      if (r.mode !== "link") return failed(r.text || "Couldn’t make the link.");
+      out(`<span class="small good">✓ Link ready. It carries ${esc(b.name)}${/s$/i.test(b.name) ? "’" : "’s"} skills, rules and look, never your sign-ins, memory or results. Visits ${esc(r.check.domains.join(", ") || "no sites")}.</span>
+        <div class="row"><input class="f mono grow" id="shl" value="${esc(r.link)}" readonly aria-label="Share link"><button class="btn s" id="shcopy">Copy</button></div>
+        <span class="small muted">Send it in any chat or email. If it doesn’t open Inky when clicked, they paste it into Library → “Got a share link?”.</span>`);
+      $("#shcopy").onclick = () => copyText(r.link, $("#shcopy"), $("#shl"));
+      copyText(r.link, $("#shcopy"), $("#shl"));
     };
     $("#shlink").onclick = async () => {
       const p = await review($("#shlink")); if (!p) return;

@@ -129,6 +129,25 @@ def limit_filter(text):
     return {"field": m.group(1).lower(), "op": op, "value": float(m.group(3).replace(",", "."))}
 
 
+def stated(f, job):
+    """Did your job text say this limit? Its value (each word of it, or the number) must be in what you wrote."""
+    if not isinstance(f, dict) or not f.get("field") or f.get("value") in (None, "", []):
+        return False
+    vals = f["value"] if isinstance(f["value"], list) else [f["value"]]
+    low = job.lower()
+    for v in vals:
+        n = skills.parse_num(v)
+        if isinstance(v, bool) or str(v).lower() in ("true", "false"):
+            return False
+        if n is not None:  # a number, or a number written as text: it has to be one you wrote (and 0 is never a limit)
+            if n == 0 or not re.search(rf"(?<![\d.]){re.escape(str(int(n)) if float(n).is_integer() else str(n))}(?![\d])", job.replace(",", "").replace(" ", "")) \
+                    and not re.search(rf"\b{int(n) // 1000}\s*k\b", low):
+                return False
+        elif not all(w in low for w in re.findall(r"[^\W\d_]{3,}", str(v).lower())):
+            return False
+    return True
+
+
 def when_words(ts, future=False):
     """“Today at 12:51”, “Yesterday at 09:00”, “Fri at 12:51” (or “at 12:51” mid-sentence)."""
     d, now = datetime.fromtimestamp(ts), datetime.now()
@@ -197,8 +216,10 @@ DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON obj
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
  "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <a number of minutes: 1440 for daily or every morning, 60 for hourly, 0 for only when asked>, "summary_at": "<HH:MM or null>",
  "filters": [{"field": "<price|size|title|…>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
+ "search": ["<2-3 web searches that find websites for this job; one in the local language if the job names a place>"],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
- "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}"""
+ "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}
+Filters: only limits the user actually stated (a price, a size, a place, a word). Never invent one. No question about which website: Inky searches for sites itself."""
 
 CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). Your job: {job}.
 Talk {tone}. Keep replies short (1–3 sentences). You can take actions. Reply with ONE JSON object:
@@ -392,11 +413,13 @@ class Engine:
         d["every_minutes"] = minutes(d.get("every_minutes"))
         if d.get("start_url") and not skills.web_address(d["start_url"], ""):
             d["start_url"] = None
-        if d.get("start_url"):  # a site you didn't name is the model's guess: ask, don't start learning on it
+        if d.get("start_url"):  # a site you didn't name is the model's guess: one suggestion among the ones found, not where it starts
             site = skills.site_of(urlparse(skills.web_address(d["start_url"], "")).hostname)
             if site and site not in job.lower():
-                d["questions"] = [f"Which website should it use? (A guess: {site}. Type its address in “Start on this site”.)"] + list(d.get("questions") or [])
-                d["start_url"] = None
+                d["guess"], d["start_url"] = skills.web_address(d["start_url"], ""), None
+        d["questions"] = [q for q in d.get("questions") or [] if isinstance(q, str) and not re.search(r"\b(website|web site|which site|what site|url)\b", q, re.I)][:2]
+        d["filters"] = [f for f in d.get("filters") or [] if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
+        d["search"] = [q for q in d.get("search") or [] if isinstance(q, str) and q.strip()][:3] or [d.get("goal") or job]
         return d
 
     def create_bot(self, d):
@@ -411,6 +434,7 @@ class Engine:
                "schedule": {"every_minutes": minutes(d.get("every_minutes")), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
                             "quiet_from": "23:00", "quiet_to": "07:00"},
                "mode": "own", "computer": "local", "created": time.time(),
+               "site_queue": [u for u in (skills.web_address(x, "") for x in d.get("more_sites") or []) if u][:10],  # learned one after another
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
         bid = self.store.insert("bots", bot, status="idle")
         self.drop_profile(bid)  # a new bot never inherits sign-ins left by an old one with this id
@@ -1044,9 +1068,11 @@ class Engine:
             self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
         except skills.Stopped:
             self._finish(run, "stopped")
+            self.store.update("bots", bid, site_queue=[])  # you stopped it: the other sites wait for you
         except NoModel as e:
             self.problem(bid, skills.NeedsHelp("no_model", "No model to learn with", str(e), ["Open Models"]))
             self._finish(run, "failed", note=str(e))
+            self.store.update("bots", bid, site_queue=[])
         except Exception as e:
             self.problem(bid, skills.NeedsHelp("error", "Learning stopped", plain_error(e), ["Try again", "Show me once"]), url=url, goal=goal)
             self._finish(run, "failed", note=str(e)[:300])
@@ -1054,6 +1080,26 @@ class Engine:
             self.store.update("bots", bid, last_run=time.time())
             self.apply_overlay(bid, target=None, step="")
             self.bus.publish("bots")
+            if (self.store.get("bots", bid) or {}).get("site_queue"):
+                threading.Thread(target=self._learn_next, args=(bid, goal), daemon=True).start()
+
+    def _learn_next(self, bid, goal):
+        """The next site you picked when you made it, once this run is over."""
+        for _ in range(1200):  # up to 10 minutes for the first run after learning to finish
+            if not self.busy(bid):
+                break
+            time.sleep(0.5)
+        b = self.store.get("bots", bid)
+        if not b or not b.get("site_queue") or self.busy(bid):
+            return
+        url, rest = b["site_queue"][0], b["site_queue"][1:]
+        self.store.update("bots", bid, site_queue=rest)
+        self.store.message(bid, "bot", f"Next site: {urlparse(url).netloc}." + (f" {len(rest)} more after this." if rest else ""))
+        try:
+            self.learn(bid, goal, url)
+        except Exception as e:
+            self.store.message(bid, "bot", f"I couldn’t start on {urlparse(url).netloc}: {e}")
+        self.bus.publish("messages", bot=bid)
 
     def run(self, bid, skill_id=None, repair_role="repair", reason="manual", wait=False, check=False, timeout=900):
         sk = [s for s in self.store.find("skills", bot_id=bid, desc=False) if skill_id in (None, s["id"], s["name"])]

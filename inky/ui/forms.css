@@ -86,3 +86,12 @@ input.f.sf{height:36px;width:auto;flex:1 1 120px;min-width:0;max-width:200px}
 .mjobs[open] summary::before{transform:rotate(90deg)}
 .mjobs[open] summary{margin-bottom:6px}
 @media (prefers-reduced-motion:reduce){.mjobs summary::before{transition:none}}
+/* New bot: sites found for the job */
+.sitebox{gap:10px}
+.sites{display:flex;flex-direction:column;gap:6px}
+.siterow{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;min-width:0}
+.siterow.on{border-color:var(--coral);box-shadow:0 0 0 1px var(--coral) inset}
+.siterow input{width:18px;height:18px;flex-shrink:0;accent-color:var(--coral)}
+.siterow a{flex-shrink:0}
+.clip1{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+#every.seg.wrap{flex-wrap:wrap;border-radius:16px}
