@@ -196,8 +196,8 @@ def learn(ctx, goal, start_url, max_steps=24):
                                            f"GOAL: {goal}\nOUTLINE:\n{outline[:6000]}", bot_id=ctx.bot["id"])
                 rows = comp.call("extract", spec)
             extract = spec
-            steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
-            ctx.emit("learn", f"Read {len(rows)} results", step=len(steps), fields=list(spec.get("fields", {})))
+            steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
+            ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
             page = comp.call("elements")
             continue
         idx = d.get("index")
@@ -259,8 +259,9 @@ def web_address(v, base):
     v = str(v or "").strip()
     if v.startswith("/"):
         v = urljoin(base, v)
-    elif "://" not in v and re.match(r"^[\w-]+(\.[\w-]+)+(:\d+)?(/\S*)?$", v):
-        v = "https://" + v
+    elif "://" not in v and re.match(r"^[\w-]+(\.[\w-]+)+(:\d+)?(/\S*)?$|^localhost(:\d+)?(/\S*)?$", v):
+        local = re.match(r"^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\d+\.\d+\.\d+\.\d+|[\w-]+\.local\b)", v)
+        v = ("http://" if local else "https://") + v  # your own machines rarely have https
     u = urlparse(v)
     return v if u.scheme in ("http", "https") and u.netloc and " " not in v else None
 
@@ -280,6 +281,11 @@ def repair(ctx, step, page, role="repair"):
     idx = d.get("index")
     conf = float(d.get("confidence") or 0)
     el = next((e for e in page["elements"] if e["i"] == idx), None) if idx is not None else None
+    if el:  # same kind of control, or a word in common: otherwise a small model's "90% sure" isn't sure
+        t = step["target"] or {}
+        words = lambda x: {w for w in re.findall(r"[^\W\d_]{3,}", (x or "").lower())}
+        if t.get("role") != el.get("role") and not (words(t.get("name")) & words(el.get("name"))):
+            conf = min(conf, CONFIDENT - 0.2)
     return el, conf, d.get("why", "")
 
 
@@ -326,7 +332,7 @@ def replay(ctx, skill, repair_role="repair"):
             rows = comp.call("extract", step["spec"])
             items += rows
             pages += 1
-            ctx.emit("replay", f"Read {len(rows)} results", step=i + 1)
+            ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
             nxt = steps[i + 1] if i + 1 < len(steps) and steps[i + 1].get("next_page") else None
             if nxt and pages < skill.get("max_pages", 3):
                 idx, _ = locate(nxt["target"], comp.call("elements")["elements"])

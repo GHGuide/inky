@@ -175,7 +175,13 @@ def control(E, h, q, body, bid):
 def user_input(E, h, q, body, bid):
     bot_or_404(E, bid)
     kind = body.pop("kind")
-    return {"result": E.user_input(int(bid), kind, **{k: body[k] for k in ("x", "y", "text", "key") if k in body})}
+    if kind == "goto" and not skills_mod.web_address(body.get("text"), ""):
+        raise HTTPError(400, "That isn’t a web address. It looks like example.com or 192.168.1.20:8800.")
+    try:
+        return {"result": E.user_input(int(bid), kind, **{k: body[k] for k in ("x", "y", "text", "key") if k in body})}
+    except Exception as e:
+        from inky.bots import plain_error
+        raise HTTPError(400, plain_error(e))
 
 
 @route("POST", r"/api/bots/(\d+)/show/done")
@@ -317,6 +323,7 @@ def import_skill(E, h, q, body, bid):
     s["name"] = (str(s.get("name") or "Imported skill").strip() or "Imported skill")[:60]
     s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in steps]  # someone else's yes isn't yours: it asks again
     sid = E.store.insert("skills", s, bot_id=int(bid), status="ok")
+    E.bus.publish("bots")  # the sidebar stops saying it hasn't learned yet
     return {"skill": E.store.get("skills", sid)}
 
 
