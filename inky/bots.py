@@ -1154,7 +1154,7 @@ class Engine:
         r, when = runs[0], when_words(runs[0]["ts"])
         sites = len(v["skills"])
         lead = (f"So far I’ve found {v['found']} {'that pass your rules' if b.get('filters') else 'things'}"
-                + (f" on {sites} sites" if sites > 1 else "") + (f", {v['fresh']} new. " if v["fresh"] else ". ")) if v["found"] or sites else ""
+                + (f" on {sites} sites" if sites > 1 else "") + (f", {v['fresh']} new. " if v["fresh"] else ". ")) if sites > 1 or (v["found"] and v["found"] != r.get("matched")) else ""  # one site: its last run says it
         last = {}  # the latest check of each site: with several sites, the last run alone is only one of them
         for x in runs:
             if x.get("kind") == "replay" and x.get("status") == "ok" and x.get("items") is not None:
