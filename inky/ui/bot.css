@@ -37,6 +37,7 @@
 .skrow .steptarget{max-width:40%;overflow-wrap:anywhere;text-align:right}
 
 /* settings, results, activity */
+.rule>.badge{justify-self:start}.rule.ask>.badge{background:#fff;color:var(--coral-t)}  /* the kind, then the rule in its words */
 .autoform{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .tscroll{overflow-x:auto;border-radius:14px}
 table.t td.nw{white-space:nowrap}
@@ -60,3 +61,4 @@ table.t td.nw{white-space:nowrap}
   .skrow .steptarget{display:none}.skside{flex:1 1 auto}.skside .grid2{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 .ritual:focus{outline:none}  /* the hatch overlay takes focus so Enter and Esc close it */
+.ritual .bubble{margin:0 16px}  /* never edge to edge on a phone */
