@@ -97,11 +97,16 @@ LISTS_JS = r"""() => {
     }
     return parts.join(' > ');
   };
-  const rel = (item, el) => {  // a selector inside one result
-    const parts = [];
-    for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(sig(n));
-    const css = parts.join(' > ');
-    return css && item.querySelector(css) === el ? css : (el.tagName.toLowerCase());
+  const step = (n, k) => n.tagName.toLowerCase() + cls(n).slice(0, k).map((c) => '.' + CSS.escape(c)).join('');
+  const relK = (item, el, k) => { const parts = []; for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(step(n, k)); return parts.join(' > '); };
+  let peers = [];  // the other results, so a selector is picked that works for most of them, not just the first
+  const rel = (item, el) => {  // a selector inside one result: the most specific one that still finds this field in most results
+    const cands = [relK(item, el, 2), relK(item, el, 1), step(el, 1), relK(item, el, 0), step(el, 0)].filter((c, i, a) => c && a.indexOf(c) === i && item.querySelector(c) === el);
+    if (!cands.length) return el.tagName.toLowerCase();
+    const cover = (c) => peers.filter((it) => { try { return it.querySelector(c); } catch (e) { return false; } }).length;
+    let best = cands[0], most = cover(best);
+    for (const c of cands.slice(1)) { const n = cover(c); if (n > most) { best = c; most = n; } }
+    return best;
   };
   const groups = [];
   for (const parent of document.querySelectorAll('body *')) {
@@ -125,6 +130,7 @@ LISTS_JS = r"""() => {
     const item = path(g.parent) + ' > ' + g.s;
     if (document.querySelectorAll(item).length < 3 || out.some((o) => o.item === item)) continue;
     const first = g.els[0], fields = {};
+    peers = g.els.slice(0, 15);
     const links = [...first.querySelectorAll('a[href]')].concat(first.matches('a[href]') ? [first] : []);
     const head = first.querySelector('h1,h2,h3,h4,h5,h6,[class*=title],[class*=name]');
     const a = links.find((l) => l.getAttribute('title')) || (head && (head.matches('a[href]') ? head : head.querySelector('a[href]'))) ||
@@ -134,7 +140,12 @@ LISTS_JS = r"""() => {
     else if (a) fields.title = a === first ? '' : rel(first, a);
     if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
     const leaves = [...first.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
-    const price = leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
+    // the price: not a discount badge ("€424 korting", "-20%"), not a struck-out old price; the sale/current one when there are two
+    const OFF = /korting|discount|rabatt|réduction|sconto|descuento|reducere|bespaar|save|you save|\boff\b|%|was\b|before|vorher|avant|prima/i;
+    const OLD = (e) => e.closest('del,s,strike') || /old|was|compare|regular|strike|before|original|list-price/i.test(String(e.className || '') + ' ' + String((e.parentElement || {}).className || ''));
+    const prices = leaves.filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
+    const price = prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
+      || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
     if (price) fields.price = rel(first, price);
     const img = first.querySelector('img');
     if (img) fields.image = rel(first, img) + '@src';

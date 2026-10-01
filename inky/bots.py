@@ -1239,8 +1239,8 @@ class Engine:
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
             sid = self.store.insert("skills", skill, bot_id=bid, status="ok")
-            same = run.replace or next((x["id"] for x in self.store.find("skills", bot_id=bid) if x["id"] != sid and skills.site_of(urlparse(x.get("start_url") or "").hostname or "")
-                                         == skills.site_of(urlparse(url).hostname or "")), None)  # learning a site again: its new skill replaces the old one
+            host = lambda u: (urlparse(u or "").hostname or "").removeprefix("www.")  # the same site, not just the same domain (books. vs quotes.)
+            same = run.replace or next((x["id"] for x in self.store.find("skills", bot_id=bid) if x["id"] != sid and host(x.get("start_url")) == host(url)), None)  # learning a site again: its new skill replaces the old one
             if same:
                 self.store.delete("skills", same)
                 self._worked(bid, f"skill:{same}")

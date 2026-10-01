@@ -305,6 +305,18 @@ def learn(ctx, goal, start_url, max_steps=24):
                     finished = True
                     break
         idle += 1
+        if idle > 10 and watch and not extract:  # going round in circles: if the page already lists real results, those are the job
+            spec, rows = read_results(ctx, goal, page)
+            if rows and len(rows) >= 6:
+                extract = spec
+                steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
+                ctx.emit("learn", f"Read {len(rows)} results", step=len(steps), fields=list(spec.get("fields", {})))
+                page = comp.call("elements")
+                nxt = next_link(page)
+                if nxt:
+                    steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
+                finished = True
+                break
         if idle > 10:  # ten replies without a new step: it's going round in circles
             raise NeedsHelp("learn_failed", "Learning got stuck on this site",
                             f"The model tried for a while on {u.netloc} without getting further. Show it once, or try a smarter model.",
