@@ -152,7 +152,8 @@ You see the page as a numbered list of interactive elements. Reply with ONE JSON
 {"action": "click"|"fill"|"select"|"press"|"goto"|"extract"|"next_page"|"done", "index": <element number or null>,
  "value": <text to type, option label, key, or URL>, "step": "<short label, e.g. Type Bari>", "confidence": <0-1>}
 Rules: close cookie banners first. Use "fill" for text boxes and "select" for dropdowns (value = option label).
-Never type into a box marked ALREADY TYPED. After filling a search form, click its search button. After typing a message or
+Never type into a box marked ALREADY TYPED. To open a category or page, click its link; use "goto" only for an address you
+saw on the page or the user gave, never one you guess. After filling a search form, click its search button. After typing a message or
 filling a form the job wants sent, click the button that sends or submits it (Inky asks the user before it really sends).
 Don't set the site's own filters for price, size or the like: Inky filters the results itself. As soon as the page lists
 results for the job (after a search, or in the right category; not the categories or featured items on a home page), use "extract". After extracting, if there is a next-page link use
@@ -201,6 +202,13 @@ def next_link(page):
     return None
 
 
+def error_page(page):
+    """A “not found” or server error page: what a made-up address leads to."""
+    head = f"{page.get('title') or ''} {' '.join(page.get('heads') or [])} {(page.get('text') or '')[:160]}"
+    return bool(re.search(r"\b(404|410|500|502|503)\b|not found|page (doesn.t|does not) exist|niet gevonden|nicht gefunden|introuvable|no encontrad|non trovat|nu a fost găsit", head, re.I)) \
+        and len(page.get("elements") or []) < 40
+
+
 def home_page(url):
     u = urlparse(url or "")
     return not u.path.strip("/") and not u.query
@@ -247,12 +255,12 @@ def read_results(ctx, goal, page):
             spec, _ = ctx.llm.ask_json("learn", EXTRACT_SYSTEM, f"{note}GOAL: {goal}\nURL: {page['url']}\nOUTLINE:\n{outline[:7000]}", bot_id=ctx.bot["id"])
         except ValueError:
             continue
-        if isinstance(spec, dict) and isinstance(spec.get("item"), str):
+        if isinstance(spec, dict) and isinstance(spec.get("item"), str) and not re.fullmatch(r"\s*(html|body)(\s*>\s*[\w.#-]+)?\s*", spec["item"]):
             try:
                 rows = [r for r in comp.call("extract", spec) if any(r.values())]
             except Exception:
                 rows = []
-            if named(rows):
+            if len(rows) >= 3 and named(rows):  # the model's own selectors: a real list, not one stray element
                 return spec, rows
     return None, []
 
@@ -385,6 +393,10 @@ def learn(ctx, goal, start_url, max_steps=24):
         ctx.gate(step, el, page)
         try:
             page_after = _do(comp, step, idx, el, len(steps) + 1)
+            if act == "goto" and error_page(page_after):  # an address the model made up: back, and click links instead
+                history.append(f"{d.get('value')} doesn’t exist (an error page); click a link on the page instead of guessing addresses")
+                page = comp.call("open", page["url"])
+                continue
         except (NeedsHelp, Stopped):
             raise
         except Exception as e:  # a step that fails is feedback for the model, not the end of learning

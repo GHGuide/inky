@@ -150,6 +150,22 @@ Goal: try every function and fix every interaction. Method: QA agents swept the 
 
 Rule slips by QA agents during the sweeps, all on scratch engines and all reverted: one agent turned on phone/LAN access on its test engine for about 5 minutes; one pressed Claude Code Connect on its test engine (checked afterwards: ~/.claude.json has no Inky entry, ~/.codex/config.toml unchanged); one tried SSH to an unresolvable host; one touched another agent's test engine. None touched your own Inky or its data.
 
+## Core journeys, end to end (2026-10-01)
+
+`python -m tests.journeys` runs every journey from [../vision.md](../vision.md) on scratch engines, real websites and a local model (gemma3:12b). First run: 7 of 9 passed; the two failures were fixed and pass now.
+
+| Journey | Result |
+|---|---|
+| Watch: books under £20 | 14 under £20 from 3 pages, 4 AI calls. Fixed first: the model made up an address (a 404 page) and one stray element was read as a result |
+| Sites found for a job (bricks in Moldova) | 15 real suppliers; no made-up rules |
+| Real Dutch e-bike sites + a second run | marktplaats 30 results with 0 AI calls, ebikexl 55, 2dehandsfietsenwinkel 16; every rerun ok |
+| Do: send a message (local test site) | Asks first; Approve sends once, Deny sends nothing, Always is remembered. After the page changed: ok, 27 items |
+| Chat | 10/10 did exactly what was asked. Fixed first: “only keep books under £15” now works without the model |
+| Several sites as one batch | 2 of 3 learned, one progress message, no cards |
+| Problems handled by the bot | No card; one line in “Handled by your bots” |
+| See and stop the model | Stop took 0.7 s |
+| Share to another Inky | 1,334-character link; the other Inky ran it: 60 items, 14 pass |
+
 ## Limits
 
 - **The desktop app is unsigned**: macOS asks you to right-click → Open the first time; Windows SmartScreen asks too.

@@ -177,6 +177,8 @@ def command_reply(a, out):
     if t == "schedule":
         m = minutes(a.get("every_minutes"))
         return f"Done: I’ll check every {every_words(m)}." if m else "Done: I’ll only run when you ask."
+    if t == "add_rule":
+        return f"Done: from now on I only keep results with {a['text']}."
     return {"run": "Running now.", "pause": "Paused." if out == "paused" else "Paused my schedule: I won’t run until you say resume.",
             "resume": "Carrying on.", "stop": "Stopped.", "remember": f"I’ll remember: {a.get('text')}.",
             "forget": f"Forgotten: {str(out).removeprefix('forgot: ')}.", "speed": f"Speed: {a.get('value')}."}.get(t, "Done.")
@@ -812,6 +814,17 @@ class Engine:
             if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
                 return self._say(bid, self.recap(bid))
             cmd = quick_command(text)
+            f = None if cmd or text.lower().startswith("new rule:") else limit_filter(re.sub(r"[.!]+$", "", FILLER.sub("", text.strip())))
+            if f:  # “only keep books under £15”: a limit is as plain as a command
+                seen = self.store.find("results", bot_id=bid, limit=1)
+                if seen and f["field"] not in seen[0]:
+                    f = {**f, "field": "price"} if "price" in seen[0] else None
+                elif not seen and f["field"] not in ("price", "size", "rooms", "year", "km", "rating", "floor", "area", "weight"):
+                    f = {**f, "field": "price"}  # “books under 15”: the thing itself isn't a field, its price is
+            if f:
+                word = {"<": "under", "<=": "at most", ">": "over", ">=": "at least"}[f["op"]]
+                val = int(f["value"]) if float(f["value"]).is_integer() else f["value"]
+                cmd = {"type": "add_rule", "text": f"{f['field']} {word} {val}", "kind": "filter", "filter": f}
             if cmd:  # plain commands never depend on how good the model is
                 try:
                     out = self.apply_action(bid, cmd)
