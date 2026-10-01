@@ -455,7 +455,7 @@ class Engine:
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
-                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")),
+                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []),
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
@@ -729,6 +729,16 @@ class Engine:
         self.store.event(bid, "handled", text)
         self.bus.publish("messages", bot=bid)
         return None
+
+    def retry_now(self, bid=None):
+        """What the bots planned to try again later: now. The first starts at once, the rest follow one after another."""
+        n = 0
+        for b in [self.store.get("bots", bid)] if bid else self.store.find("bots"):
+            if b and b.get("retries"):
+                self.store.update("bots", b["id"], retries=[dict(r, at=0) for r in b["retries"]])
+                n += len(b["retries"])
+        threading.Thread(target=self.tick, daemon=True).start()
+        return n
 
     def _worked(self, bid, key):
         b = self.store.get("bots", bid) or {}
@@ -1229,9 +1239,11 @@ class Engine:
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
             sid = self.store.insert("skills", skill, bot_id=bid, status="ok")
-            if getattr(run, "replace", None):
-                self.store.delete("skills", run.replace)
-                self._worked(bid, f"skill:{run.replace}")
+            same = run.replace or next((x["id"] for x in self.store.find("skills", bot_id=bid) if x["id"] != sid and skills.site_of(urlparse(x.get("start_url") or "").hostname or "")
+                                         == skills.site_of(urlparse(url).hostname or "")), None)  # learning a site again: its new skill replaces the old one
+            if same:
+                self.store.delete("skills", same)
+                self._worked(bid, f"skill:{same}")
             self._worked(bid, f"site:{skills.site_of(urlparse(url).hostname or '')}")
             self.store.event(bid, "learned", f"Learned {skill['name']}: {len(skill['steps'])} steps, {run.ai_calls} AI calls")
             self._finish(run, "ok", learned=sid)

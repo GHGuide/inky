@@ -155,6 +155,12 @@ def chat(E, h, q, body, bid):
     return E.chat(int(bid), body.get("text", ""), source=body.get("source", "app"))
 
 
+@route("POST", "/api/retry")
+def retry_now(E, h, q, body):
+    """Try now what the bots would try again later on their own."""
+    return {"started": E.retry_now(body.get("bot"))}
+
+
 @route("POST", r"/api/bots/(\d+)/learn")
 def learn(E, h, q, body, bid):
     b = bot_or_404(E, bid)

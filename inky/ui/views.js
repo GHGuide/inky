@@ -1489,11 +1489,17 @@ VIEWS.needs = {
         <p class="lede">Only what your bots can’t do without you: a yes before anything that can’t be undone, a sign-in, or a robot check.</p></div>
       ${broken.length ? `<div class="card hot"><div class="between"><b>Something to fix</b><button class="btn s" id="hagain">Check again</button></div>${broken.map((h) => `<div class="between small"><span>${esc(h.name)}: ${esc(h.detail)}</span>${h.fix ? `<a class="btn s" href="${esc(h.fix)}">Fix it</a>` : ""}</div>`).join("")}</div>` : ""}
       <section class="col" style="gap:12px">${needs.map(card).join("") || empty}</section>
-      ${done ? `<section class="col" style="gap:8px"><h2 style="font-size:16px">Handled by your bots <span class="small muted" style="font-weight:400">· last 3 days, nothing for you to do</span></h2><div class="card hlist">${done}</div></section>` : ""}
+      ${done ? `<section class="col" style="gap:8px"><div class="between"><h2 style="font-size:16px">Handled by your bots <span class="small muted" style="font-weight:400">· last 3 days, nothing for you to do</span></h2>${S.bots.some((b) => b.retries) ? `<button class="btn s" id="retrynow">Try them all now</button>` : ""}</div><div class="card hlist">${done}</div></section>` : ""}
       <p class="small muted">Every bot reads and searches on its own, asks before sending, posting or submitting anything, and never buys, pays or types your passwords.</p></div>`));
     if ($("#hagain", this.el)) $("#hagain", this.el).onclick = async () => {
       busyBtn($("#hagain", this.el), true, "Checking…"); this.health = null;
       try { await this.refresh(); } catch (e) { toast(e.message); }
+    };
+    if ($("#retrynow", this.el)) $("#retrynow", this.el).onclick = async () => {  // no waiting for the bot's own time
+      busyBtn($("#retrynow", this.el), true, "Starting…");
+      const r = await post("/api/retry", {}).catch((e) => ({ error: e.message }));
+      toast(r.error || (r.started ? `Trying ${plural(r.started, "thing")} again now, one after another` : "Nothing was waiting"));
+      await loadState(); this.refresh();
     };
     $$("[data-need]", this.el).forEach((x) => (x.onclick = async () => {
       const bid = +x.dataset.bot, nid = +x.dataset.need, k = `${bid}:${nid}`, btns = $$("button", x.closest(".need")), b = botOf(needs.find((y) => y.id === nid && y.bot_id === bid) || { bot_id: bid });
