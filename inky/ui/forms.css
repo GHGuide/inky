@@ -1,1 +1,72 @@
 /* forms.css: models, keys, connectors, make it yours, settings (loaded after app.css) */
+.small.warn{color:#8A5A00}
+.okdot{color:var(--green-t)}
+
+/* models */
+.mrole{padding:10px 0;display:flex;flex-direction:column;gap:4px}
+.mrole .mrow{flex-wrap:wrap}
+.mrole .mlabel{flex:1 1 220px;min-width:0}
+.mrole .mprov{flex:0 1 180px;width:auto;min-width:130px}
+.mrole .mmodel{flex:1 1 180px;width:auto;max-width:260px;min-width:140px}
+.mrole [data-out]:empty{display:none}
+@media (max-width:1100px){.mrole .mlabel{flex-basis:100%}}
+.addr{overflow-wrap:anywhere;text-align:right;min-width:0}
+.card.hw{flex-direction:row;align-items:center;flex-wrap:wrap}
+.lmwrap{align-items:flex-start;gap:18px;flex-wrap:wrap}
+.lmlist{flex:1 1 380px;min-width:0}
+.lmside{flex:0 1 380px;min-width:260px}
+
+/* API keys */
+.kwrap{align-items:flex-start;gap:22px}
+.klist{width:340px;flex-shrink:0;gap:2px;padding:10px}
+.klist .navlink{min-height:52px;padding:6px 8px;line-height:1.3}
+.kform{padding:22px 26px;gap:16px}
+@media (max-width:1100px){
+  .kwrap{flex-direction:column;align-items:stretch}
+  .klist{width:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+}
+
+/* connectors */
+#maddf button.chip{border:0;cursor:pointer}
+.conn code{font-family:var(--mono);font-size:.92em;background:var(--chip);padding:1px 5px;border-radius:5px}
+.conn .crow{flex-wrap:wrap}
+.conn .cbtns{flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.trytool{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr) auto;gap:10px;align-items:start;margin-top:8px}
+.trytool>div:last-child{align-self:end}
+.tryout{margin-top:8px!important;max-height:320px;overflow:auto}.tryout.bad{color:#F2957C}
+.mcpgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:12px}
+
+/* make it yours */
+.lookwrap{display:flex;align-items:flex-start;gap:36px}
+.lookprev{width:400px;flex-shrink:0;gap:16px;padding:24px;position:sticky;top:24px}
+.lookctl{flex:1;min-width:0;gap:18px}
+.lookctl .row{flex-wrap:wrap}
+.lpname{display:block;font-size:28px;letter-spacing:-.03em;overflow-wrap:anywhere}
+.ldrive{position:relative;height:210px;border-radius:14px;background:#111110;padding:6px}
+@media (max-width:1100px){  /* a smaller preview beside the controls, in one column */
+  .lookwrap{gap:20px}
+  .lookprev{width:250px;padding:16px;gap:12px;top:12px}
+  .lookprev .lphead svg{width:60px;height:60px}
+  .lpname{font-size:21px}
+  .ldrive{height:170px}
+  .lookctl .grid2{grid-template-columns:1fr}
+}
+@media (max-width:760px){  /* phone: the controls first, the preview under them */
+  .lookwrap{flex-direction:column;align-items:stretch}
+  .lookctl{order:-1}
+  .lookprev{position:static;width:auto}
+}
+
+/* settings */
+.sets .fld{flex-wrap:wrap}.sets .mono{overflow-wrap:anywhere}
+.sfw{flex:1 1 170px;max-width:260px;justify-content:flex-end;gap:8px}
+input.f.sf{height:36px;width:auto;flex:1 1 120px;min-width:0;max-width:200px}
+
+@media (max-width:760px){
+  .trytool,.mcpgrid{grid-template-columns:1fr}
+  .conn .crow{align-items:flex-start}
+  .mrole .mprov{flex-basis:100%}.mrole .mmodel{max-width:none}
+  .kform{padding:18px}
+  .sfw{max-width:none}input.f.sf{max-width:none}
+  .sets .tgl{flex-wrap:nowrap}
+}
