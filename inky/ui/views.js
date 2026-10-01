@@ -27,7 +27,7 @@ VIEWS.setup = {
     let dir = "fwd"; try { dir = sessionStorage.getItem("wizDir") || "fwd"; sessionStorage.removeItem("wizDir"); } catch (e) {}
     const [st, models, comps] = await Promise.all([get("/api/setup"), get("/api/models"), n === 6 ? get("/api/computers").catch(() => ({ computers: [] })) : null]);
     this.st = st; this.label = Object.fromEntries(models.providers.map((p) => [p.name, p.label]));
-    const pills = STEPS.map((t, i) => `<li class="${i + 1 < n ? "done" : i + 1 === n ? "on" : ""}"><i>${i + 1 < n ? "✓" : i + 1}</i><span>${t}</span></li>`).join("");
+    const pills = STEPS.map((t, i) => `<li class="${i + 1 < n ? "done" : i + 1 === n ? "on" : ""}"${i + 1 === n ? ' aria-current="step"' : ""}><i>${i + 1 < n ? "✓" : i + 1}</i><span>${t}</span></li>`).join("");
     const nav = (back, next, label = "Continue") => `<div class="wfoot between">
       ${back ? `<a href="#/setup/${back}" class="muted" data-back>Back</a>` : `<span class="mono small muted">open source · MIT · no account needed</span>`}
       <a class="btn p" href="${typeof next === "number" ? "#/setup/" + next : next}" id="wnext" style="min-height:44px">${label}</a></div>`;
@@ -82,7 +82,7 @@ VIEWS.setup = {
         <span class="small">3. Send <span class="mono">/start</span> to your new bot. Inky finds you and says hello.</span>
         ${tg.chat_id ? `<div class="between"><span class="small">Send my alerts there</span><button class="toggle ${tg.enabled ? "on" : ""}" id="tg" role="switch" aria-checked="${!!tg.enabled}" aria-label="Send my alerts on Telegram"></button></div>` : ""}</div>
       <div class="opt"><b style="font-size:17px">Or the web app</b>
-        <div class="between"><span class="small">Let my phone open Inky (on this Wi-Fi)</span><button class="toggle ${st.web_url ? "on" : ""}" id="lan" role="switch" aria-checked="${!!st.web_url}" aria-label="Let my phone open Inky on this Wi-Fi"></button></div>
+        <div class="between"><span class="small">Let my phone open Inky (on this Wi‑Fi)</span><button class="toggle ${st.web_url ? "on" : ""}" id="lan" role="switch" aria-checked="${!!st.web_url}" aria-label="Let my phone open Inky on this Wi‑Fi"></button></div>
         <span class="small" id="lanmsg" role="status">${this.lanText(st.web_url)}</span></div></div>`;
       foot = nav(4, 6);
     }
@@ -90,13 +90,13 @@ VIEWS.setup = {
       const servers = (comps ? comps.computers : []).filter((c) => c.kind === "remote");
       body = `<h1>You’re set</h1><div class="row" style="justify-content:center">${critter("octopus", "#E86F51", "none", 72)}</div>
       <div class="col list">${[["Computers", servers.length ? `This computer and ${plural(servers.length, "server")}` : "Bots run as browsers on this computer"], ["Model", models.roles.learn ? `${models.roles.learn.model} for learning` : "none yet"],
-        ["Your screen", S.settings.screen_allowed ? "Allowed · bots ask each time" : "Off"], ["Phone", (st.telegram || {}).enabled ? "Telegram" : "Off"]].map(([a, b]) =>
+        ["Your screen", S.settings.screen_allowed ? "Allowed · bots ask each time" : "Off"], ["Phone", [(st.telegram || {}).enabled && "Telegram", st.web_url && "web app on this Wi‑Fi"].filter(Boolean).join(" · ") || "Off"]].map(([a, b]) =>
         `<div class="between" style="padding:9px 0"><span class="muted">${a}</span><span>${esc(b)}</span></div>`).join("")}</div>
       <div class="composer" style="width:100%"><label class="l" for="job">Make your first bot</label><textarea id="job" rows="2" placeholder="Describe a job in your own words"></textarea>
-        <div class="between"><span class="mono small muted">⌘K opens the command bar anywhere</span><button class="btn p" id="start">Start</button></div></div>`;
+        <div class="between"><span class="mono small muted">${esc(shortcut())}</span><button class="btn p" id="start">Start</button></div></div>`;
       foot = nav(5, "#/bots", "Go to your bots");
     }
-    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${pills}</ol><span class="wcount small">Step ${n} of ${STEPS.length} · ${STEPS[n - 1]}</span><a href="#/bots" id="skipall" class="small muted">Skip setup</a></header>
+    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${pills}</ol><span class="wcount small">Step ${n} of ${STEPS.length} · ${STEPS[n - 1]}</span><a href="#/bots" id="skipall" class="small muted${n === 6 ? " hidden" : ""}">Skip setup</a></header>
       <div class="wbody"><div class="wcard"><div class="wstep ${dir}">${body}</div>${foot}</div></div></div>`;
     const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; try { if (!localStorage.getItem("inkyTour")) sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} };
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
@@ -116,7 +116,7 @@ VIEWS.setup = {
       S.settings = s;
       const on = t.classList.contains("on");
       if (!on && s.web_url) { t.classList.add("on"); t.setAttribute("aria-checked", true); }  // this Inky was started open to the network
-      $("#lanmsg").innerHTML = on && !s.web_url ? "Inky couldn’t find this computer’s Wi-Fi address. Check it’s on Wi-Fi, then switch this off and on again." : this.lanText(s.web_url);
+      $("#lanmsg").innerHTML = on && !s.web_url ? "Inky couldn’t find this computer’s Wi‑Fi address. Check it’s on Wi‑Fi, then switch this off and on again." : this.lanText(s.web_url);
     };
     if (n === 2) bindServerAdder(st.install);
     if (n === 3) { this.showUsing(models.roles.learn); $$("[data-prov]").forEach((b) => (b.onclick = () => this.openKey(b.dataset.prov))); this.renderLocal(); }
@@ -134,8 +134,8 @@ VIEWS.setup = {
   },
   lanText(url) {
     const code = `<b class="mono">${esc(this.st.pair_code || S.pair || "")}</b>`;
-    return url ? `On your phone, on the same Wi-Fi, open <b class="mono">${esc(url)}</b> and sign in with the pairing code ${code}. It installs like an app.`
-      : "Off: only this computer can open Inky. Switch it on to get an address your phone can open on this Wi-Fi, with a pairing code to sign in.";
+    return url ? `On your phone, on the same Wi‑Fi, open <b class="mono">${esc(url)}</b> and sign in with the pairing code ${code}. It installs like an app.`
+      : "Off: only this computer can open Inky. Switch it on to get an address your phone can open on this Wi‑Fi, with a pairing code to sign in.";
   },
   say(sel, text, good) { const m = $(sel); if (m) { m.textContent = text; m.className = "small " + (good === true ? "good" : good === false ? "bad" : "muted"); } },
   showUsing(r) {
@@ -154,8 +154,15 @@ VIEWS.setup = {
     return true;
   },
   openKey(p) {
+    const kf = $("#keyfield");
+    if (this.openProv === p && !kf.classList.contains("hidden")) {  // a second click closes it again
+      kf.classList.add("hidden"); this.openProv = null;
+      $$("[data-prov]").forEach((b) => { b.classList.remove("on"); b.setAttribute("aria-expanded", "false"); });
+      return;
+    }
+    this.openProv = p;
     $$("[data-prov]").forEach((b) => { b.classList.toggle("on", b.dataset.prov === p); b.setAttribute("aria-expanded", b.dataset.prov === p); });
-    const kf = $("#keyfield"), has = this.st.keys[p], L = esc(this.label[p]);
+    const has = this.st.keys[p], L = esc(this.label[p]);
     kf.classList.remove("hidden");
     kf.innerHTML = `<div class="row">${providerLogo(p, 28)}<b>Your ${L} key</b></div>
       <span class="small">1. <a href="${KEY_URL[p]}" target="_blank" rel="noopener">Make a key at ${esc(KEY_URL[p].replace("https://", ""))} ↗</a></span>
@@ -179,6 +186,8 @@ VIEWS.setup = {
         await this.connect(p, null, "#keymsg");
       } catch (e) { this.say("#keymsg", e.message, false); }
       await sync(); busy(false);
+      const m = $("#keymsg"); if (m) m.scrollIntoView({ block: "nearest" });  // never under the sticky footer
+      if ($("#keyin")) $("#keyin").focus({ preventScroll: true });
     };
     const save = () => { const v = $("#keyin").value.trim(); if (!v) return this.say("#keymsg", "Paste a key first.", false); check(v); };
     $("#keysave").onclick = save;
@@ -267,9 +276,9 @@ VIEWS.bots = {
     el.innerHTML = `${mobileBar("Your bots")}<div class="hero">${critter("octopus", "#E86F51", "none", 72)}<h1>What job should a new bot do?</h1>
       <p class="lede" style="margin-top:-6px">Each bot gets its own computer and keeps working while you’re away. It learns a job once, then repeats it with no AI.</p>
       <div class="composer"><label class="vh" for="job">Describe the job</label><textarea id="job" rows="2" placeholder="Describe a job, or @mention a bot"></textarea>
-        <div class="between"><span class="mono small muted">⌘K anywhere · @ to talk to a bot</span><button class="btn p" id="go">Start</button></div></div>
+        <div class="between"><span class="mono small muted">${esc(shortcut())} · @ to talk to a bot</span><button class="btn p" id="go">Start</button></div></div>
       <div class="row wrap" style="justify-content:center">${["Find rental flats abroad under €150k", "Watch 5 webshops for price drops", "Every morning, check new books on books.toscrape.com"].map((t) => `<button class="btn" data-ex="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
-      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards">Cards</button><button data-hv="office">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".inky,.json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
+      <div class="page" style="padding-top:12px"><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards" aria-pressed="false">Cards</button><button data-hv="office" aria-pressed="false">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".inky,.json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
     const go = () => {
       const t = $("#job").value.trim();
       if (!t) { toast("Describe the job first"); return $("#job").focus(); }
@@ -316,7 +325,7 @@ VIEWS.bots = {
   refresh() {
     if (!$("#cards")) return;
     let mode = "cards"; try { mode = localStorage.getItem("inkyHome") || "cards"; } catch (e) {}
-    $$("[data-hv]").forEach((x) => x.classList.toggle("on", x.dataset.hv === mode));
+    $$("[data-hv]").forEach((x) => { x.classList.toggle("on", x.dataset.hv === mode); x.setAttribute("aria-pressed", x.dataset.hv === mode); });
     $("#cards").className = mode === "office" ? "" : "botcards";
     if (mode === "office") return this.office();
     $("#cards").innerHTML = S.bots.map((b) => {
@@ -346,6 +355,7 @@ VIEWS.bots = {
 function siteUrl(v) {  // "books.toscrape.com" → "https://books.toscrape.com/"; "" → null; not an address → false
   v = String(v || "").trim();
   if (!v) return null;
+  if (/\s/.test(v)) return false;  // "books .toscrape.com" isn't an address
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = (/^(localhost|127\.|\d+\.\d+\.\d+\.\d+)/i.test(v) ? "http://" : "https://") + v;
   try {
     const u = new URL(v);
@@ -366,6 +376,7 @@ VIEWS.new = {
   leave() { this.req++; },  // a draft that comes back after you left is dropped
   async draft() {
     const el = this.el, job = $("#job", el).value.trim(), box = $("#draftbox", el), btn = $("#draft", el);
+    if (btn.disabled) return;  // a second Enter while it's thinking
     if (!job) { toast("Describe the job first"); return $("#job", el).focus(); }
     const my = ++this.req, redraft = !!$("#create", box);
     busyBtn(btn, true, "Thinking…");
@@ -391,7 +402,7 @@ VIEWS.new = {
     const d = { ...draft, ...this.kept() }, box = $("#draftbox", this.el), dirty = this.dirty;
     const look = d.look || { kind: "octopus", color: "#E86F51", acc: "none" };
     const label = () => `Create ${$("#nm", box).value.trim() || "the bot"}`;
-    box.innerHTML = `<div class="card" style="margin-top:8px"><div class="row">${critter(look.kind, look.color, look.acc, 48)}<div class="grow"><label class="l" for="nm">Your new bot</label><input class="f" id="nm" value="${esc(d.name)}"></div></div>
+    box.innerHTML = `<div class="card" style="margin-top:8px"><div class="row">${critter(look.kind, look.color, look.acc, 48)}<div class="grow"><label class="l" for="nm">Your new bot</label><input class="f" id="nm" value="${esc(d.name)}" maxlength="40"></div></div>
       ${d.summary ? `<div class="card panel">${esc(d.summary)}</div>` : ""}
       <div class="grid2"><div><label class="l" for="url">Start on this site</label><input class="f" id="url" value="${esc(d.start_url || "")}" placeholder="books.toscrape.com" inputmode="url" autocomplete="off" spellcheck="false"></div>
         <div><label class="l" for="every">Check every (minutes, 0 = only when I ask)</label><input class="f" id="every" type="number" min="0" step="1" inputmode="numeric" value="${esc(d.every_minutes || 0)}"></div></div>
@@ -999,11 +1010,12 @@ function hatch(b, intro) {
   o.focus();
   SOUND.play("rise", b);
   setTimeout(() => confetti(), 700);
-  const key = (e) => { if (["Escape", "Enter", " "].includes(e.key) && !e.isComposing) { e.preventDefault(); e.stopPropagation(); close(); } };
+  const key = (e) => { if (!CMD.open && ["Escape", "Enter", " "].includes(e.key) && !e.isComposing) { e.preventDefault(); e.stopPropagation(); close(); } };
   const close = () => {
     if (o.classList.contains("out")) return;
     clearTimeout(timer); removeEventListener("keydown", key, true);
     o.classList.add("out"); setTimeout(() => o.remove(), 300);
+    if (!CMD.open) { const v = $("#view"); if (v) { v.tabIndex = -1; v.focus({ preventScroll: true }); } }
   };
   addEventListener("keydown", key, true);
   o.onclick = close;
@@ -1029,16 +1041,23 @@ const TOUR = [
   ["#nav .navbot", "This is your bot. Its critter shows how it’s doing: busy, asleep at night, or waving when it needs you."],
   ["#cards", "Each bot has its own computer. When one is working you can watch it live, take over and hand back."],
   ["#nav .needlink", "When a bot needs a yes, it waits here. Nothing that can’t be undone happens without you."],
-  [null, "Press ⌘K (or ⌥Space in the Inky app) to talk to any bot from anywhere. That’s it, have fun!"],
+  [null, () => `${TOUCH ? "Tap the search button" : `Press ${MAC ? "⌘K" : "Ctrl+K"}${APP ? ` (or ${MAC ? "⌥Space" : "Alt+Space"} from any app)` : ""}`} to talk to any bot. That’s it, have fun!`],
 ];
 const tourBox = (sel) => { const t = sel && $(sel), r = t && t.getBoundingClientRect(); return r && r.width && r.height && r.bottom > 0 && r.top < innerHeight ? r : null; };
-function tourKey(e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); tour(TOUR.length); } }
+function tourKey(e) {
+  if (CMD.open) return;
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); tour(TOUR.length); }
+  else if (e.key === "Tab" && $(".coach .tip")) trapTab($(".coach .tip"), e);
+}
 function tour(i = 0) {
   $$(".coach").forEach((x) => x.remove());
   removeEventListener("keydown", tourKey, true);
   if (i === 0 && !S.bots.length) { try { sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} return; }  // it starts once your first bot exists
   if (i >= TOUR.length) { try { localStorage.setItem("inkyTour", "1"); } catch (e) {} return; }
-  const [sel, text] = TOUR[i], r = tourBox(sel);
+  const [sel, said] = TOUR[i], text = typeof said === "function" ? said() : said;
+  const tgt = sel && $(sel);
+  if (tgt && tgt.offsetParent) tgt.scrollIntoView({ block: "center" });  // point at it where you can see it
+  const r = tourBox(sel);
   if (sel && !r) return tour(i + 1);  // nothing to point at here (the sidebar is hidden on a phone)
   const shown = TOUR.filter(([s]) => !s || tourBox(s)), n = shown.indexOf(TOUR[i]) + 1;
   const w = Math.min(320, innerWidth - 32);
@@ -1371,7 +1390,7 @@ VIEWS.computers = {
       <div class="grid2 clist" id="clist"><span class="small muted">Looking at your computers…</span></div>
       <div class="card panel"><div class="between"><span><b>Your own screen</b><br><span class="small muted">Let a bot use a visible browser window on your screen, with the coral frame and ask-first rules. You still turn it on per bot, and Esc stops it any time.</span></span><button class="toggle ${S.settings.screen_allowed ? "on" : ""}" id="scrok" role="switch" aria-checked="${!!S.settings.screen_allowed}" aria-label="Allow bots on my screen"></button></div></div>
       <section class="card" id="adder"><h2>Add a server</h2><span class="small muted">Any Linux server or spare Mac. 2 GB of memory runs about 3 bots, and they keep working while this computer sleeps.</span>${serverAdder(install)}</section></div>`;
-    $("#addsrv", el).onclick = () => { $("#adder", el).scrollIntoView({ behavior: "smooth", block: "start" }); $("#sshtarget", el).focus({ preventScroll: true }); };
+    $("#addsrv", el).onclick = () => { $("#adder", el).scrollIntoView({ behavior: calmMotion() ? "auto" : "smooth", block: "start" }); $("#sshtarget", el).focus({ preventScroll: true }); };
     $("#scrok", el).onclick = async (e) => {
       const t = e.currentTarget, on = !t.classList.contains("on"), set = (v) => { t.classList.toggle("on", v); t.setAttribute("aria-checked", v); };
       set(on);
@@ -1483,7 +1502,8 @@ function busy(b, on) {  // a button that is working can't be pressed twice, and 
 }
 function redraw(el, render) {  // draw a form page again, keeping what you typed or picked, open sections and the focus
   const key = (x) => x.id || [...x.attributes].filter((a) => a.name.startsWith("data-")).map((a) => `${a.name}=${a.value}`).join("&");
-  const vals = $$("input,textarea,select", el).filter((i) => i.type !== "checkbox" && (i.tagName === "SELECT" || i.value)).map((i) => [key(i), i.value]);
+  const changed = (i) => i.tagName === "SELECT" ? !(i.selectedOptions[0] && i.selectedOptions[0].defaultSelected) : i.value !== i.defaultValue;
+  const vals = $$("input,textarea,select", el).filter((i) => i.type !== "checkbox" && changed(i)).map((i) => [key(i), i.value]);
   const open = $$("details[open]", el).map(key), a = document.activeElement, focus = a && el.contains(a) ? key(a) : "";
   render();
   const find = (k) => k && $$("input,textarea,select,details,button,a", el).find((x) => key(x) === k);
@@ -1492,7 +1512,7 @@ function redraw(el, render) {  // draw a form page again, keeping what you typed
   const f = find(focus); if (f) f.focus();
 }
 const GB = (bytes) => (bytes / 1e9).toFixed(1);  // decimal GB, like ollama.com, `ollama list` and the local catalog
-const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this computer", env: "from your environment (.env)" };
+const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this computer", env: "from your environment (.env)", environment: "from your environment (.env)" };
 const keyErr = (status) => ([401, 403].includes(+status) ? `refused (${status})` : `error ${status}`);
 
 // ================================================================ models
@@ -1528,7 +1548,9 @@ VIEWS.models = {
     $$("[data-rp]", this.el).forEach((s) => (s.onchange = () => {  // suggestions follow the provider; a model from another provider is cleared
       const r = s.dataset.rp, list = suggest(s.value), i = row(r).m;
       $(`#ml-${r}`, this.el).innerHTML = opts(s.value);
-      if (!list.includes(i.value)) i.value = list[0] || "";
+      const saved = (md.roles[r] || {}).provider === s.value ? md.roles[r].model : null;  // back to its own provider: its own model again
+      if (saved) i.value = saved;
+      else if (!list.includes(i.value)) i.value = list[0] || "";
       i.placeholder = list.length ? "model name" : "type the model name";
     }));
     $$("[data-save]", this.el).forEach((b) => (b.onclick = async () => {
@@ -1612,7 +1634,8 @@ VIEWS.models = {
 };
 
 // ================================================================ API keys
-const LIMIT_URL = { anthropic: "https://console.anthropic.com/settings/limits", openai: "https://platform.openai.com/settings/organization/limits" };
+const LIMIT_URL = { anthropic: "https://console.anthropic.com/settings/limits", openai: "https://platform.openai.com/settings/organization/limits",
+  gemini: "https://console.cloud.google.com/billing/budgets", openrouter: "https://openrouter.ai/settings/credits" };
 const spentLine = (k) => `Spent $${(+k.spent || 0).toFixed(2)}${k.limit != null ? ` of $${(+k.limit).toFixed(2)}` : ""} this month.${k.limit != null ? " Bots stop using OpenRouter at the limit." : " No limit."}`;
 VIEWS.keys = {
   live: false,
@@ -1629,12 +1652,12 @@ VIEWS.keys = {
         <div class="row wrap"><input class="f" id="lim" type="number" min="0" step="any" inputmode="decimal" style="width:140px" value="${cur.limit ?? ""}" placeholder="no limit"><button class="btn s" id="limsave">Save limit</button></div>
         <span class="small muted" id="lspent">${spentLine(cur)}</span><span class="small" id="lstat" role="status"></span></div></form>`
       : CLOUD.includes(P) ? `<div class="row small"><span class="mono muted">3</span><span>Set a spending limit in <a href="${LIMIT_URL[P] || new URL(KEY_URL[P]).origin}" target="_blank" rel="noopener">${L}’s console ↗</a>. Inky can’t see what ${L} charges.</span></div>` : "";
-    const msg = this.msg || {};
+    const msg = this.msg && this.msg.P === this.sel ? this.msg : {};
     this.el.innerHTML = `${mobileBar("API keys")}<div class="page"><div class="row small"><a href="#/models" class="muted">Models</a><span class="muted">/</span><b>API keys</b></div>
       <div><h1>API keys</h1><p class="lede">Paste a key once. It stays in ${where} and only goes to that provider. There is no Inky server.</p></div>
       <div class="row kwrap"><nav class="card panel klist" aria-label="Providers">${keys.map((k) => `<a href="#/keys?p=${k.provider}" data-kp="${k.provider}" class="navlink ${k.provider === P ? "on" : ""}" ${k.provider === P ? 'aria-current="page"' : ""}>${providerLogo(k.provider)}<span class="grow col" style="gap:1px">${esc(k.label)}${src(k)}</span></a>`).join("")}</nav>
       <section class="card grow kform" id="kform"><h2 style="font-size:20px">${cur.source ? "Replace" : "Add"} your ${L} ${what}</h2>
-        ${cur.error ? `<div class="small warn">${[401, 403].includes(+cur.error) ? `${L} refused this key last time (${cur.error}). Paste a new one.` : `${L} answered with an error last time (${cur.error}).`}</div>` : ""}
+        ${cur.error && !msg.text ? `<div class="small warn">${[401, 403].includes(+cur.error) ? `${L} refused this key last time (${cur.error}). Paste a new one.` : `${L} answered with an error last time (${cur.error}).`}</div>` : ""}
         <div class="row small"><span class="mono muted">1</span><span>${step1}</span></div>
         <form class="row" id="kf" style="align-items:flex-start" novalidate><span class="mono small muted">2</span><div class="col grow"><label for="key" class="small">Paste it here</label><div class="row"><input class="f" id="key" type="password" autocomplete="off" spellcheck="false" placeholder="${cur.source ? `A ${what} is saved. Paste a new one to replace it.` : `Paste the ${what}`}"><button type="button" class="btn s" id="paste">Paste</button></div>
           <span class="small ${msg.ok === true ? "good" : msg.ok === false ? "bad" : msg.ok === "warn" ? "warn" : "muted"}" id="kstat" role="status">${esc(msg.text || "")}${msg.link ? ` <a href="#/connectors">Open Connectors</a>` : ""}</span></div></form>
@@ -1647,7 +1670,7 @@ VIEWS.keys = {
     };
     $("#kf").onsubmit = async (e) => {
       e.preventDefault();
-      const b = $("#save"), say = (text, ok, link) => { this.msg = { text, ok, link }; formSay("#kstat", text, ok); };
+      const b = $("#save"), say = (text, ok, link) => { this.msg = { text, ok, link, P }; if (this.sel === P) formSay("#kstat", text, ok); };
       busy(b, true); say("Checking…");
       try {
         await post("/api/keys", { provider: P, key: $("#key").value.trim() });  // the engine checks it (an empty one, a Telegram token)
@@ -1662,7 +1685,8 @@ VIEWS.keys = {
           say(`✓ Saved. Now send /start to ${bot ? "@" + bot : "your bot"} in Telegram, then press Test in Connectors.`, true, true);
         } else say(`✓ Saved your ${cur.label} key.`, true);
         await this.refresh();
-      } catch (err) { say(err.message, false); busy(b, false); }
+        if (this.sel === P && $("#key")) $("#key").focus();
+      } catch (err) { say(err.message, false); busy(b, false); if ($("#key")) $("#key").focus(); }
     };
     if ($("#limf")) $("#limf").onsubmit = async (e) => {
       e.preventDefault();
@@ -1679,7 +1703,7 @@ VIEWS.keys = {
     };
     if ($("#rm")) $("#rm").onclick = async () => {
       if (!(await confirmBox(`Remove your ${cur.label} ${what}?`, "Remove", true))) return;
-      try { await del(`/api/keys/${P}`); toast(`Removed your ${cur.label} ${what}`); this.msg = null; await this.refresh(); }
+      try { await del(`/api/keys/${P}`); toast(`Removed your ${cur.label} ${what}`); this.msg = null; await this.refresh(); if ($("#key")) $("#key").focus(); }
       catch (err) { formSay("#kstat", err.message, false); }
     };
     if (this.jump) {  // on a phone or a narrow window the form is below the list: choosing a provider goes to it
@@ -1731,6 +1755,7 @@ VIEWS.connectors = {
     if (!c.installed) return ["off", "not installed"];
     if (c.connected) return ["ok", `connected · ${c.tools.length} tools`];
     if (c.signed_in === false) return ["warn", "signed out"];
+    if (c.error) return ["warn", "didn’t connect"];
     return ["", "ready to connect"];
   },
   card(c) {
@@ -1852,7 +1877,9 @@ VIEWS.connectors = {
       let args;
       try { args = JSON.parse($(`#args-${n}`, this.el).value.trim() || "{}"); if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("not an object"); }
       catch (e) { return show("Arguments must be JSON, like {\"name\": \"value\"}.", true); }
+      const SAFE = /^(Read|Glob|Grep|LS|WebSearch|WebFetch|TaskOutput|ListMcpResources|ReadMcpResource)$/;  // look, never change
       if (n === "codex" && !(await confirmBox(`Run ${tool} in Codex now? It uses your ChatGPT plan’s Codex quota.`, "Run it"))) return;
+      if (n !== "codex" && !SAFE.test(tool) && !(await confirmBox(`Run ${tool} in ${n === "claude-code" ? "Claude Code" : n} now? It can change files or run commands on this computer.`, "Run it", true))) return;
       busy(b, true); show("Running…");
       try { const r = await post(`/api/mcp/${n}/call`, { tool, args }); show((r.error ? "Error: " : "") + pretty(r.text || ""), r.error); }
       catch (e) { show(e.message, true); }
@@ -1901,8 +1928,9 @@ const clip = (s, n) => {  // at most n characters, cut at a word, with …
 };
 VIEWS.look = {
   live: false,
+  leaveText() { return `Discard your changes to ${this.bot ? this.bot.name : "this bot"}?`; },
   async show(el, [id]) {
-    this.el = el;
+    this.el = el; this.leaving = false;
     const none = (text, link) => { el.innerHTML = `${mobileBar("Make it yours")}<div class="page"><div><h1>Make it yours</h1><p class="lede">${text}</p></div><div>${link}</div></div>`; };
     if (!S.bots.length) return none("Each bot gets its own look, voice and personality. Make your first bot, then come back here.", `<a class="btn p" href="#/new">${icon("plus", 16, 2.2)}Make a bot</a>`);
     const b = id !== undefined ? S.bots.find((x) => String(x.id) === id) : S.bots.find((x) => x.id === this.botId) || S.bots[0];
@@ -1923,7 +1951,7 @@ VIEWS.look = {
           <div style="margin-top:auto;margin-bottom:14px;position:relative;align-self:flex-start">${d.labels ? `<span style="position:absolute;left:0;top:-30px;padding:3px 8px;border-radius:7px;background:#111110;color:#fff;font-size:11.5px;white-space:nowrap">4 · Click “Search”</span>` : ""}
           <span style="padding:8px 16px;border-radius:6px;background:#1F6F78;color:#fff;font-size:13px;font-weight:600;outline:2px solid ${frame};outline-offset:3px">Search</span>
           <svg width="22" height="22" viewBox="0 0 24 24" style="position:absolute;right:-13px;bottom:-14px" aria-hidden="true"><path d="M4 3 L20 11 L12.5 13 L9.5 20 Z" fill="${frame}" stroke="#fff" stroke-width="1.5"/></svg>
-          ${d.cursor === "name" ? `<span style="position:absolute;left:calc(100% + 12px);top:26px;padding:3px 8px;border-radius:7px;background:${frame};color:#fff;font-size:11.5px;white-space:nowrap">${esc(d.name)}</span>` : d.cursor === "critter" ? `<span style="position:absolute;left:calc(100% + 10px);top:12px">${critter(d.kind, d.color, d.acc, 34)}</span>` : ""}</div></div></div></div>
+          ${d.cursor === "name" ? `<span style="position:absolute;left:calc(100% + 12px);top:26px;padding:3px 8px;border-radius:7px;background:color-mix(in srgb,${frame} 70%,#111110);color:#fff;font-size:11.5px;font-weight:600;white-space:nowrap">${esc(d.name)}</span>` : d.cursor === "critter" ? `<span style="position:absolute;left:calc(100% + 10px);top:12px">${critter(d.kind, d.color, d.acc, 34)}</span>` : ""}</div></div></div></div>
         <div class="row" style="align-items:flex-start;margin-top:auto">${critter(d.kind, d.color, d.acc, 30)}<div class="card" style="padding:12px 14px;border-radius:16px 16px 16px 4px">${sample}</div></div><span class="mono small muted">voice: ${esc(d.voice || "soft")} · speed ${esc(d.speed || "normal")}</span>`;
   },
   render() {
@@ -1963,10 +1991,9 @@ VIEWS.look = {
     $("#pc").oninput = (e) => { this.persona.chatty = +(1 - e.target.value).toFixed(1); this.hint(); };
     $("#pp").oninput = (e) => { this.persona.playful = +(1 - e.target.value).toFixed(1); this.hint(); };
     for (const [id, k] of [["pcat", "catchphrase"], ["pq", "quirk"], ["pb", "bio"]]) $("#" + id).oninput = (e) => { this.persona[k] = e.target.value; this.hint(); };
-    $$("[data-bot]", this.el).forEach((x) => (x.onclick = async () => {
+    $$("button[data-bot]", this.el).forEach((x) => (x.onclick = async () => {
       if (+x.dataset.bot === this.bot.id) return;
-      if (this.dirty() && !(await confirmBox(`Discard your changes to ${this.bot.name}?`, "Discard", true))) return;
-      location.hash = `#/look/${x.dataset.bot}`;
+      location.hash = `#/look/${x.dataset.bot}`;  // the router asks first if there are unsaved changes
     }));
     $("#lreset").onclick = () => { this.load(this.bot); this.render(); $("#lreset", this.el).focus(); };
     $("#lsave").onclick = async () => {
@@ -2003,12 +2030,12 @@ VIEWS.settings = {
     const tog = (k, on, label) => `<div class="between tgl"><span>${label}</span><button class="toggle ${on ? "on" : ""}" data-t="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}"></button></div>`;
     const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid #F0EEE9"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x}</kbd>`).join("")}</span></div>`;
     const field = (id, label, value, extra = "") => `<div class="between fld"><label for="${id}">${label}</label><span class="row sfw"><span class="small good" data-saved="${id}" aria-live="polite"></span><input class="f sf" id="${id}" value="${esc(value)}" ${extra}></span></div>`;
-    const lan = (st) => (!st.lan ? "Only this computer can open Inky." : st.web_url ? `On your phone, open <b class="mono">${esc(st.web_url)}</b> and sign in with the pairing code <b class="mono">${esc(S.pair || "")}</b>.` : "On, but this computer isn’t on a Wi-Fi network right now.");
+    const lan = (st) => (!st.lan ? "Only this computer can open Inky." : st.web_url ? `On your phone, open <b class="mono">${esc(st.web_url)}</b> and sign in with the pairing code <b class="mono">${esc(S.pair || "")}</b>.` : "On, but this computer isn’t on a Wi‑Fi network right now.");
     this.el.innerHTML = `${mobileBar("Settings")}<div class="page"><div><h1>Settings</h1><p class="lede">For the whole app. Each bot has its own settings on its page.</p></div>
-      <div class="grid2 sets"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", "⌘ K")}${kb("…or", "⌥ Space")}${kb("Pause all bots", "⌥ P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", "⌥ C")}${kb("Take over: move your mouse on your screen", "🖱")}
+      <div class="grid2 sets"><div class="card"><b>Shortcuts</b>${kb("Open the command bar", MAC ? "⌘ K" : "Ctrl K")}${APP ? kb("…from any app", MAC ? "⌥ Space" : "Alt Space") : ""}${kb("Pause all bots", MAC ? "⌥ P" : "Alt P")}${kb("On your screen: stop the bot", "Esc")}${kb("On your screen: chat while it drives", MAC ? "⌥ C" : "Alt C")}${kb("Take over: move your mouse on your screen", "🖱")}
         <span class="small muted" style="margin-top:8px">Anywhere on your computer, in the Inky app:</span><span id="barkey">${kb("Command bar over any app", "⌥ Space")}</span>${kb("Pause all bots", "⌃ ⌥ P")}${kb("Stop everything on my screen", "⌃ ⌥ Esc")}</div>
         <div class="card"><b>Privacy and data</b><div class="between"><span>Never record password fields</span><span class="small muted row">${icon("lock", 13)}always</span></div><div class="between"><span>Bots never type your passwords</span><span class="small muted row">${icon("lock", 13)}always</span></div>
-          ${tog("lan", s.lan, "Let my phone open Inky (on this Wi-Fi)")}<span class="small muted" id="lanline" role="status">${lan(s)}</span>
+          ${tog("lan", s.lan, "Let my phone open Inky (on this Wi‑Fi)")}<span class="small muted" id="lanline" role="status">${lan(s)}</span>
           <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
         <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("sounds", s.sounds !== false, "Sounds (each bot has its own)")}${APP ? tog("buddy", s.buddy !== false, "Desktop buddy: a critter peeks in when a bot needs you") + `<div class="between"><span>Open Inky when you log in</span><button class="toggle" id="autost" role="switch" aria-checked="false" aria-label="Open Inky when you log in"></button></div>` : ""}${tog("telegram", s.telegram.enabled, "On Telegram")}${field("chat", "Telegram chat id", s.telegram.chat_id || "", 'inputmode="numeric"')}
           <div class="between"><span>Bots on your screen</span><button class="toggle ${s.screen_allowed ? "on" : ""}" data-t="screen_allowed" role="switch" aria-checked="${!!s.screen_allowed}" aria-label="Bots on your screen"></button></div></div>

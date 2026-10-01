@@ -451,7 +451,10 @@ def test_model(E, h, q, body):
     try:
         return E.llm.test(prov, body["model"].strip())
     except Exception as e:
-        return {"ok": False, "reply": llm_plain(e, PROVIDERS[prov]["label"])}
+        msg = llm_plain(e, PROVIDERS[prov]["label"])
+        if PROVIDERS[prov].get("local") and msg.startswith("That key was refused"):  # a local server refusing isn't about a key you pasted
+            msg = f"{PROVIDERS[prov]['label']} refused the request. If it needs a key, add it in API keys."
+        return {"ok": False, "reply": msg}
 
 
 @route("POST", "/api/models/connect")
@@ -501,7 +504,7 @@ def keys(E, h, q, body):
              "spent": round(E.llm.spent(p["name"]), 2), "error": (errs.get(p["name"]) or {}).get("status")}
             for p in E.llm.providers() if not p["local"]]
     custom = next(p for p in E.llm.providers() if p["name"] == "custom")
-    return {"keys": rows + [{"provider": "custom", "label": "Your own server (optional key)", "source": custom["key"]},
+    return {"keys": rows + [{"provider": "custom", "label": "Your own server", "source": custom["key"]},
                             {"provider": "telegram", "label": "Telegram bot", "source": E.keys.source("telegram")}],
             "backend": E.keys.backend}
 
@@ -854,7 +857,7 @@ def save_settings(E, h, q, body):
         body["user_name"] = str(body["user_name"]).strip()[:40]
     tg = body.pop("telegram", None)
     if tg and tg.get("enabled") and not E.keys.get("telegram"):
-        raise HTTPError(400, "Set up Telegram in Connectors first: paste your bot's token and send it /start.")
+        raise HTTPError(400, "Set up Telegram in Connectors first: paste your bot’s token and send it /start.")
     app.update(body)
     E.store.set_setting("app", app)
     if "setup_done" in body:
@@ -1085,8 +1088,9 @@ def lan_access(E, on):
     srv = getattr(E, "lan_srv", None)
     if on and not srv and getattr(E, "host", "") not in ("0.0.0.0", "::", ""):
         for port in ((E.port or 8800) + 1, 0):
-            try:
-                srv = ThreadingHTTPServer(("0.0.0.0", port), type("EngineHandler", (Handler,), {"engine": E}))
+            try:  # no address reuse: on macOS it would let us share a port another program listens on
+                cls = type("LanServer", (ThreadingHTTPServer,), {"allow_reuse_address": False})
+                srv = cls(("0.0.0.0", port), type("EngineHandler", (Handler,), {"engine": E}))
                 break
             except OSError:
                 srv = None

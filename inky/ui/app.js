@@ -77,14 +77,20 @@ const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : 
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
 
 function toast(text, b) {
-  const box = $("#toasts"), el = document.createElement("div");
-  el.className = "toast";
+  const box = $("#toasts"), key = `${b ? b.id : 0}|${text}`;
+  if ([...box.children].some((t) => t.dataset.key === key && !t.classList.contains("out"))) return;  // the same message once
+  const el = document.createElement("div");
+  el.className = "toast"; el.dataset.key = key;
   el.innerHTML = `${b ? botCritter(b, 30) : critter("octopus", "#E86F51", "none", 30)}<div><b>${esc(b ? b.name : "Inky")}</b><br>${esc(text)}</div><button class="tx" aria-label="Dismiss">${icon("x", 14)}</button>`;
   const bye = () => { if (el.classList.contains("out")) return; el.classList.add("out"); setTimeout(() => el.remove(), 260); };
-  el.onclick = bye;
+  $(".tx", el).onclick = bye;
+  el.onclick = (e) => { if (!getSelection().toString()) bye(); };  // selecting its text doesn't close it
+  let left = 6000, t0 = Date.now(), timer = setTimeout(bye, left);
+  const hold = () => { clearTimeout(timer); left -= Date.now() - t0; };
+  const go = () => { t0 = Date.now(); timer = setTimeout(bye, Math.max(left, 1500)); };
+  el.onmouseenter = hold; el.onmouseleave = go; el.onfocusin = hold; el.onfocusout = go;  // reading it pauses the clock
   box.appendChild(el);
   while (box.children.length > 3) box.firstChild.remove();  // a burst of events never buries the page
-  setTimeout(bye, 6000);
 }
 const needsText = () => (S.needs ? `${S.needs} need${S.needs === 1 ? "s" : ""} you` : "Nothing needs you");
 
@@ -187,8 +193,9 @@ function appNotify(bot, title, body, hash) {
 
 // double-clicking an .inky bot file (or .inkyskill) in Finder/Explorer
 async function importFile(text) {
+  let d;
+  try { d = JSON.parse(text); } catch (e) { return toast("That file isn’t a bot file (it isn’t valid JSON)."); }
   try {
-    const d = JSON.parse(text);
     if (d.inky_skill) {
       const id = location.hash.match(/#\/bot\/(\d+)/);
       if (!id) return toast("Open a bot first, then open the skill file again.");
@@ -196,7 +203,7 @@ async function importFile(text) {
     }
     const r = await post("/api/import", d);
     await loadState(); location.hash = `#/bot/${r.bot.id}/computer?hatch=1`;
-  } catch (e) { toast(`That isn’t an Inky file (${e.message})`); }
+  } catch (e) { toast(e.message); }
 }
 
 // buddy mode (?buddy=1): a critter that peeks in from the screen edge when a bot needs you
@@ -216,7 +223,7 @@ function renderNav() {
     <div class="navlabel">Bots</div>
     <div class="navbots">${S.bots.map((b) => { const m = botMeta(b); return `<a class="navbot${on("#/bot/" + b.id + "/")}" href="#/bot/${b.id}/computer" data-bot="${b.id}">
       <span class="av">${botCritter(b, 26)}<i class="${["working", "learning"].includes(b.status) ? "live" : ""}" style="background:${m.color}"></i></span>
-      <span class="t"><span>${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}</div>
+      <span class="t"><span title="${esc(b.name)}">${esc(b.name)}</span><small class="${m.hot ? "hot" : ""}">${esc(m.meta)}</small></span></a>`; }).join("") || `<span class="small muted" style="padding:4px 10px">No bots yet</span>`}</div>
     <div class="navbottom">
       <a class="navlink needlink${S.needs ? "" : " calm"}${on("#/needs")}" href="#/needs"><i></i>${needsText()}</a>
       <a class="navlink${on("#/activity")}" href="#/activity">${icon("activity")}Activity</a>
@@ -257,11 +264,21 @@ function mobileBar(title) {
   return `<div class="mobilebar"><button class="iconbtn" onclick="openNav()" aria-label="Menu" aria-controls="nav" aria-expanded="false">${icon("menu")}</button><b>${esc(title || "Inky")}</b>
   <span class="grow"></span><button class="iconbtn" onclick="openCmd()" aria-label="Ask a bot or describe a job">${icon("search")}</button><a class="btn s${S.needs ? " hot" : ""}" href="#/needs">${needsText()}</a></div>`;
 }
+let routedHash = null;
 async function route() {
   const h = location.hash || "#/bots";
+  if (S.view && S.view.dirty && !S.view.leaving && routedHash && h !== routedHash && S.view.dirty()) {  // unsaved changes: ask before leaving
+    const back = routedHash;
+    history.replaceState(null, "", back);  // stay put while you decide (no redraw, nothing lost)
+    if (!(await confirmBox(S.view.leaveText ? S.view.leaveText() : "Leave without saving your changes?", "Leave", true))) return;
+    S.view.leaving = true;  // you chose to leave (its show() resets this)
+    history.replaceState(null, "", h);
+  }
+  routedHash = h;
   if (!S.setupDone && !h.startsWith("#/setup") && !sessionStorage.getItem("skipSetup")) { location.hash = "#/setup/1"; return; }
   const [, name, ...rest] = h.split(/[/?]/);
   const qs = new URLSearchParams(h.split("?")[1] || "");
+  if (CMD.open && !BAR) closeCmd();  // a new page never sits under an old command bar
   if (S.view && S.view.leave) S.view.leave();
   const v = name ? VIEWS[name] || NOTFOUND : VIEWS.bots, prev = S.view;
   S.view = v;
@@ -338,8 +355,17 @@ function cmdItems(q) {
   if (!at) S.bots.forEach(send(text ? "OR SEND TO" : "BOTS"));  // below the actions: a bot gets your text only when you pick it
   return items;
 }
-async function pauseAll() { for (const b of S.bots) if (["working", "learning"].includes(b.status)) await post(`/api/bots/${b.id}/control`, { cmd: "pause" }); toast("Paused all bots"); refreshSoon(); }
-async function stopScreens() { for (const b of S.bots) if (b.mode === "screen") await post(`/api/bots/${b.id}/control`, { cmd: "stop" }); toast("Stopped every bot on your screen"); refreshSoon(); }
+async function pauseAll() {
+  const busy = S.bots.filter((b) => ["working", "learning"].includes(b.status));
+  for (const b of busy) await post(`/api/bots/${b.id}/control`, { cmd: "pause" });
+  toast(busy.length ? `Paused ${busy.length === 1 ? busy[0].name : `${busy.length} bots`}` : "Nothing was running"); refreshSoon();
+}
+async function stopScreens() {
+  const on = S.bots.filter((b) => b.mode === "screen" && ["working", "learning", "paused"].includes(b.status));
+  for (const b of on) await post(`/api/bots/${b.id}/control`, { cmd: "stop" });
+  toast(on.length ? "Stopped every bot on your screen" : "No bot was on your screen"); refreshSoon();
+}
+const shortcut = (what = "the command bar") => TOUCH ? `tap the search button for ${what}` : `${MAC ? "⌘K" : "Ctrl+K"} opens ${what}`;  // hints that fit this device
 function renderCmd() {
   const q = $("#cmdq") ? $("#cmdq").value : "";
   CMD.items = cmdItems(q);
@@ -361,8 +387,11 @@ function pickCmd(i) {  // the mouse moves the selection without redrawing (and s
   $$("#cmdlist .it").forEach((x) => { x.classList.toggle("on", +x.dataset.i === i); x.setAttribute("aria-selected", +x.dataset.i === i); });
   if ($("#cmdq")) $("#cmdq").setAttribute("aria-activedescendant", `cmdi${i}`);
 }
+let cmdReturn = null;
 function openCmd(prefill = "") {
+  if (!CMD.open) cmdReturn = document.activeElement;
   CMD.open = true;
+  CMD.sel = 0;  // reopening always starts at the top
   const c = $("#cmd");
   c.classList.remove("hidden");
   c.innerHTML = `<div class="cmdbox"><div class="in"><b>›</b><label class="vh" for="cmdq">Ask a bot or describe a job</label><input id="cmdq" placeholder="Ask a bot (@name) or describe a new job…" autocomplete="off" value="${esc(prefill)}" role="combobox" aria-controls="cmdlist" aria-expanded="true">${TOUCH ? `<button class="iconbtn cmdx" aria-label="Close">${icon("x", 15)}</button>` : `<span class="mono small" style="color:var(--faint)">${MAC ? (BAR ? "⌥ Space" : "⌘ K") : BAR ? "Alt Space" : "Ctrl K"}</span>`}</div>
@@ -375,7 +404,7 @@ function openCmd(prefill = "") {
     if (e.key === "ArrowDown") { CMD.sel = (CMD.sel + 1) % CMD.items.length; renderCmd(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { CMD.sel = (CMD.sel - 1 + CMD.items.length) % CMD.items.length; renderCmd(); e.preventDefault(); }
     else if (e.key === "Enter") { if (e.metaKey || e.ctrlKey) CMD.sel = CMD.items.findIndex((x) => x.make); runCmd(); e.preventDefault(); }
-    else if (e.key === "Escape") closeCmd();
+    else if (e.key === "Escape") { e.stopPropagation(); closeCmd(); }
     else if (e.key === "Tab") { CMD.sel = (CMD.sel + (e.shiftKey ? CMD.items.length - 1 : 1)) % CMD.items.length; renderCmd(); e.preventDefault(); }
   });
   renderCmd();
@@ -388,7 +417,12 @@ const APP = !!(window.__TAURI__ && window.__TAURI__.core);  // inside the Inky d
 const invoke = (cmd, args) => (APP ? window.__TAURI__.core.invoke(cmd, args).catch((e) => { console.warn("inky app:", cmd, e); return null; }) : Promise.resolve(null));
 const native = (m) => (APP ? invoke("bar", { msg: m }) : null);
 const openOut = (url) => (APP ? invoke("open_url", { url }) : window.open(url, "_blank", "noopener"));  // your own browser
-function closeCmd() { CMD.open = false; $("#cmd").classList.add("hidden"); if (BAR) native({ type: "hide" }); }
+function closeCmd() {
+  CMD.open = false; $("#cmd").classList.add("hidden");
+  if (BAR) native({ type: "hide" });
+  else if (cmdReturn && document.contains(cmdReturn) && cmdReturn.focus) cmdReturn.focus();
+  cmdReturn = null;
+}
 async function runCmd() { const it = CMD.items[CMD.sel]; if (!it || it.noop) return; closeCmd(); try { await it.run(); } catch (e) { toast(e.message); } }
 document.addEventListener("keydown", (e) => {
   const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName), navOpen = $("#nav").classList.contains("open");

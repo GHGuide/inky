@@ -80,7 +80,9 @@ def status(E):
              "logo": {"claude-code": "claude", "codex": "codex"}.get(s["name"], "mcp"), "command": s["command"],
              "installed": s["installed"], "enabled": s["enabled"], "connected": s["connected"], "tools": s["tools"],
              "signed_in": None, "detail": "", "fix": "", "fix_url": ""}
-        if s["name"] in INSTALL:
+        if s["name"] in INSTALL and v["overridden"] and not s["installed"]:  # your own command for it is what's missing
+            v.update(detail=f"“{s['command'][0]}” isn’t on this computer.", fix="Reset to use the built-in one.")
+        elif s["name"] in INSTALL:
             if not s["installed"]:
                 v.update(detail="Not installed on this computer.", fix=INSTALL[s["name"]][0], fix_url=INSTALL[s["name"]][1])
             else:
@@ -93,7 +95,7 @@ def status(E):
         elif not s["installed"]:
             v.update(detail=f"“{s['command'][0]}” isn’t on this computer.", fix="Install it, or check the command.")
         if s.get("error") and not s["connected"]:
-            v.update(detail=f"Last try: {s['error']}", fix=v["fix"] or "Check the command and its settings, then Connect again.")
+            v.update(detail=f"Last try: {s['error'].rstrip('.')}.", fix=v["fix"] or "Check the command and its settings, then Connect again.", error=s["error"])
         out.append(v)
     out += [p.view(E) for p in PROVIDERS.values()]
     return out
@@ -269,8 +271,14 @@ class N8n(Provider):
     def save(self, E, values):
         url = (values.get("url") or E.store.setting("n8n", {}).get("url") or "").strip().rstrip("/")
         key = (values.get("key") or "").strip() or E.keys.get("n8n")
-        if not url.startswith(("http://", "https://")) or not key:
-            return {"ok": False, "text": "Put in your n8n address (http://…) and an API key."}
+        if not url:
+            return {"ok": False, "text": "Put in your n8n address, like http://localhost:5678."}
+        if "://" not in url:
+            url = "http://" + url
+        if not re.match(r"^https?://[^\s/]+(/\S*)?$", url):
+            return {"ok": False, "text": "That isn’t an address. It looks like http://localhost:5678."}
+        if not key:
+            return {"ok": False, "text": "Paste your n8n API key too (n8n → Settings → n8n API)."}
         try:
             wf = self.req("GET", url, key, "/workflows", params={"limit": 100}).get("data", [])
         except Exception as e:
@@ -288,7 +296,7 @@ class N8n(Provider):
             return {"ok": False, "text": "Put in your n8n address and API key first."}
         try:
             wf = self.list_workflows(E)
-            return {"ok": True, "text": f"{len(wf)} workflows: " + ", ".join(f"{w['name']}{' (on)' if w.get('active') else ''}" for w in wf[:10])}
+            return {"ok": True, "text": f"{len(wf)} workflow{'' if len(wf) == 1 else 's'}" + (": " + ", ".join(f"{w['name']}{' (on)' if w.get('active') else ''}" for w in wf[:10]) if wf else "")}
         except Exception as e:
             return {"ok": False, "text": _err(e, "n8n", self.conf(E)[0])}
 

@@ -168,7 +168,15 @@ def learn(ctx, goal, start_url, max_steps=24):
                 f"\nEXTRACTED: {'yes' if extract else 'no'}\n\nPAGE: {page['title']} — {page['url']}\n"
                 f"HEADINGS: {' | '.join(page['heads'])}\nTEXT: {page['text'][:500]}\n\nELEMENTS:\n{table(page)}" +
                 (f"\n\nYOUR LAST REPLIES DIDN’T WORK: {'; '.join(history[-3:])}. Pick an element by its number; goto needs a full URL." if history else ""))
-        d, _ = ctx.llm.ask_json("learn", LEARN_SYSTEM, user, bot_id=ctx.bot["id"])
+        try:
+            d, _ = ctx.llm.ask_json("learn", LEARN_SYSTEM, user, bot_id=ctx.bot["id"])
+        except ValueError:  # a reply that isn't JSON is one more strike, not the end
+            history.append("your reply wasn’t one JSON object")
+            if len(history) >= 6:
+                raise NeedsHelp("learn_failed", "The model’s answers didn’t make sense",
+                                "It kept replying in a way Inky can’t use. Try again, show it once, or pick a smarter model in Models.",
+                                ["Try again", "Show me once", "Open Models"])
+            continue
         act = d.get("action")
         if act == "done":
             break
@@ -219,7 +227,8 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Show me once", "Try a smarter model", "Try again"])
             page = comp.call("elements")
             continue
-        if len(steps) >= 2 and all(st["action"] == step["action"] and st.get("target") == step.get("target") and st.get("value") == step.get("value") for st in steps[-2:]):
+        same = lambda st: st["action"] == step["action"] and st.get("value") == step.get("value") and (step["action"] == "goto" or st.get("target") == step.get("target"))
+        if len(steps) >= 2 and all(same(st) for st in steps[-2:]):
             history.append(f"“{label}” done 3 times already; do the next thing")
             page = page_after
             continue
@@ -228,7 +237,7 @@ def learn(ctx, goal, start_url, max_steps=24):
         page = page_after
         if act == "next_page":
             break  # one next-page is enough to learn the loop
-    if not extract and not steps:
+    if not extract and (not steps or all(st["action"] == "goto" for st in steps)):  # only ever opened pages: nothing learned
         raise NeedsHelp("learn_failed", "Couldn’t find the results to read",
                         "It learned the steps but never reached a list of results. Tell it where to look, or show it once.",
                         ["Show me once", "Try a smarter model"])

@@ -74,15 +74,26 @@ def plain_error(e):
         return "Its browser closed while it was working. Try again."
     if "invalid URL" in t:
         return "It tried to open something that isn’t a web address."
+    if "did not return JSON" in t:
+        return "The model’s answers didn’t make sense. Try again, show it once, or pick a smarter model in Models."
     return f"Something went wrong ({type(e).__name__}): {t.splitlines()[0][:200] if t else 'no details'}"
 
 
 def minutes(v):
-    """How often, in whole minutes (0 = only when you ask). Words a model might write are understood too."""
+    """How often, in whole minutes (0 = only when you ask). Words a model might write are understood too:
+    "every 2 hours" 120, "6h" 360, "twice a day" 720, "every morning" 1440, "every 3 days" 4320."""
     if isinstance(v, str):
-        t = v.lower()
-        if re.search(r"morning|daily|day|night|evening", t):
-            return 1440
+        t = v.lower().strip()
+        if t.startswith("-"):
+            return 0
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)\b", t)
+        if m:
+            unit = {"m": 1, "h": 60, "d": 1440, "w": 10080}[m.group(2)[0]]
+            return max(0, min(int(float(m.group(1)) * unit), 525600))
+        if "twice" in t and "day" in t:
+            return 720
+        if re.search(r"morning|daily|day|night|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday", t):
+            return 10080 if re.search(r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|week", t) else 1440
         if "hour" in t:
             return 60
         if "week" in t:

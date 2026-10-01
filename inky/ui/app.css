@@ -120,9 +120,9 @@ table.t td{padding:9px 12px;border-bottom:1px solid #F0EEE9;vertical-align:top}
 /* needs */
 .need .opts{display:flex;gap:8px;flex-wrap:wrap}
 /* command bar */
-.cmd{position:fixed;inset:0;z-index:50;background:rgba(17,17,16,.18);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh}
+.cmd{position:fixed;inset:0;z-index:170;background:rgba(17,17,16,.18);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh}
 html:has(body.bar),body.bar{background:transparent}body.bar #app,body.bar #toasts{display:none}body.bar .cmd{background:transparent;padding:14px 0 0}
-.cmdbox{--faint:#A09C94;width:min(700px,92vw);max-height:calc(100vh - 14vh - 20px);display:flex;flex-direction:column;border-radius:18px;background:rgba(28,28,27,.96);color:#fff;box-shadow:0 30px 80px rgba(17,17,16,.45);overflow:hidden}
+.cmdbox{--faint:#A09C94;width:min(700px,92vw);max-height:calc(100vh - 14vh - 20px);display:flex;flex-direction:column;border-radius:18px;background:rgba(28,28,27,.985);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);color:#fff;box-shadow:0 30px 80px rgba(17,17,16,.45);overflow:hidden}
 body.bar .cmdbox{max-height:calc(100vh - 28px)}
 #cmdlist{border-top:1px solid rgba(255,255,255,.08);padding-bottom:8px;overflow:auto;min-height:0;flex:1}
 .cmdbox .in{display:flex;align-items:center;gap:12px;padding:16px 18px}.cmdbox .in b{color:var(--coral);font-size:20px}
@@ -145,15 +145,15 @@ body.bar .skip,body.buddymode .skip{display:none}
 /* wizard */
 .wiz{height:100vh;background:var(--panel);display:flex;flex-direction:column}
 .wiz header{height:64px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 28px}
-.wbody{flex:1;overflow:auto;padding:0 12px}
+.wbody{flex:1;overflow:auto;padding:0 12px;scroll-padding-bottom:110px}
 .wsteps{display:flex;align-items:center;gap:10px;list-style:none;margin:0;padding:0;font-size:13px}
 .wsteps li{display:flex;align-items:center;gap:7px;color:var(--faint)}.wsteps li i{width:22px;height:22px;border-radius:50%;border:1.5px solid #C9C5BD;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px}
 .wsteps li.on,.wsteps li.done{color:var(--ink)}.wsteps li.on{font-weight:600}.wsteps li.on i,.wsteps li.done i{background:var(--ink);border-color:var(--ink);color:#fff}
-.wcard{width:min(820px,94vw);margin:8px auto 24px;border-radius:24px;background:#fff;box-shadow:0 2px 12px rgba(17,17,16,.05);padding:34px 40px 0;display:flex;flex-direction:column;gap:18px}
+.wcard{width:min(820px,94vw);margin:8px auto 24px;border-radius:24px;overflow:clip;background:#fff;box-shadow:0 2px 12px rgba(17,17,16,.05);padding:34px 40px 0;display:flex;flex-direction:column;gap:18px}
 .wstep{display:flex;flex-direction:column;gap:18px}
 .wstep.fwd{animation:wizin .42s cubic-bezier(.2,.8,.2,1) both}.wstep.back{animation:wizback .42s cubic-bezier(.2,.8,.2,1) both}
 @keyframes wizin{from{opacity:0;transform:translateX(34px)}}@keyframes wizback{from{opacity:0;transform:translateX(-34px)}}
-.wfoot{position:sticky;bottom:0;z-index:2;background:#fff;border-top:1px solid #F0EEE9;padding:14px 0 20px;border-radius:0 0 24px 24px}
+.wfoot{position:sticky;bottom:0;z-index:2;background:#fff;border-top:1px solid #F0EEE9;padding:14px 0 20px}
 .wsec{font-size:15px;margin:6px 0 -8px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .usingm{display:flex;gap:8px;align-items:center;justify-content:center;font-size:14px;padding:10px 14px;border-radius:12px;background:var(--panel)}
 .usingm.ok{background:var(--green-bg);color:var(--green-t)}
@@ -343,3 +343,6 @@ body.buddymode #view{display:flex;align-items:flex-end;justify-content:center;he
 .logo i{display:block}.logo img{display:block}
 .logo.lm{font-weight:600;color:var(--muted);background:var(--panel)}
 @media (prefers-reduced-motion:reduce){.buddy,.rings.talk span{animation:none}.coach .ring,.prog i,.office{transition:none}}
+.mobilebar .btn{white-space:nowrap;flex-shrink:0}
+@media (prefers-reduced-motion:reduce){.toggle::after{transition:none!important}}
+.wsteps li{color:var(--muted)}

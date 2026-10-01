@@ -70,3 +70,7 @@ input.f.sf{height:36px;width:auto;flex:1 1 120px;min-width:0;max-width:200px}
   .sfw{max-width:none}input.f.sf{max-width:none}
   .sets .tgl{flex-wrap:nowrap}
 }
+.conn .crow>.grow{flex:1 1 200px;min-width:0}  /* on a phone the buttons wrap under the name, never over it */
+@media (max-width:760px){.conn .cbtns{flex-basis:100%;justify-content:flex-start;margin-left:0}.kform .row.small,.kform .between>.row{flex-wrap:nowrap}}
+.addr{white-space:nowrap}
+.sfw [data-saved]:empty{display:none}  /* no gap before a field when nothing was just saved */

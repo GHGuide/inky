@@ -47,7 +47,7 @@
 .cbot>.btn{align-self:flex-start}
 .cbot.nolink{cursor:default}
 .cbot.nolink:hover,.cbot.nolink:active{transform:none;box-shadow:none}
-.frow2{flex-wrap:wrap}
+.frow2{flex-wrap:wrap}.frow2>.grow{flex:1 1 160px;min-width:0}
 
 /* needs you: the side panel gives way to the cards */
 .needrow{align-items:flex-start;gap:28px}
