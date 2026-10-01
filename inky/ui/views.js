@@ -3,6 +3,7 @@ const LOOKS = { kinds: ["octopus", "cat", "blob"], colors: [["#E86F51", "Coral"]
   accs: ["none", "glasses", "beanie", "headphones", "bow"], earned: [[10, "scarf"], [50, "party"], [100, "star"], [500, "crown"]] };
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
+const OP_WORDS = { "<=": "at most", "<": "under", ">=": "at least", ">": "over", "==": "is", "!=": "isn’t", contains: "contains", not_contains: "doesn’t contain", in: "is one of", not_in: "isn’t one of" };
 
 // ================================================================ setup wizard
 const STEPS = ["Welcome", "Computers", "Model", "Your screen", "Phone", "Ready"];
@@ -96,7 +97,7 @@ VIEWS.setup = {
         <div class="between"><span class="mono small muted">${esc(shortcut())}</span><button class="btn p" id="start">Start</button></div></div>`;
       foot = nav(5, "#/bots", "Go to your bots");
     }
-    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${pills}</ol><span class="wcount small">Step ${n} of ${STEPS.length} · ${STEPS[n - 1]}</span><a href="#/bots" id="skipall" class="small muted${n === 6 ? " hidden" : ""}">Skip setup</a></header>
+    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${pills}</ol><span class="wcount small">Step ${n} of ${STEPS.length} · ${STEPS[n - 1]}</span><a href="#/bots" id="skipall" class="small muted"${n === 6 ? ' style="visibility:hidden"' : ""}>Skip setup</a></header>
       <div class="wbody"><div class="wcard"><div class="wstep ${dir}">${body}</div>${foot}</div></div></div>`;
     const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; try { if (!localStorage.getItem("inkyTour")) sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} };
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
@@ -331,11 +332,12 @@ VIEWS.bots = {
     $("#cards").innerHTML = S.bots.map((b) => {
       const m = botMeta(b);
       const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
+      const said = (STATUS[b.status] || [b.status.replace("_", " ")])[0];  // the line under it says this already
       const mid = b.status === "needs_you" ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:#F3C9BC"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
         : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
-          : `<div class="thumb idle">${esc(b.remote_id ? "on your server" : b.skills.length ? m.meta : "hasn’t learned yet")}</div>`;
+          : `<div class="thumb idle">${esc(b.remote_id ? "on your server" : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc(clip(b.summary || b.job || "", 70))}</span></span></span>
-        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc((STATUS[b.status] || [b.status.replace("_", " ")])[0])}</span><span>${plural(b.skills.length, "skill")}</span></span></a>`;
+        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc(said)}</span><span>${plural(b.skills.length, "skill")}</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
   },
   office() {  // the same bots, at their desks; the room follows the time of day
@@ -344,7 +346,7 @@ VIEWS.bots = {
     $("#cards").innerHTML = `<div class="office ${night ? "dim" : ""}" data-sky="${sky}"><div class="window" aria-hidden="true"><i class="sun"></i><i class="moon"></i><b></b><b></b><b></b></div>
       ${S.bots.map((b) => {
         const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status) && !b.remote;
-        const screen = live ? `<img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer">` : `<span>${esc(botMeta(b).meta.slice(0, 26))}</span>`;
+        const screen = live ? `<img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer">` : `<span>${esc(clip(botMeta(b).meta, 26))}</span>`;
         return `<a class="desk${botMeta(b).hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><div class="top">${botCritter(b, 70)}<div class="mon">${screen}</div></div><div class="table"></div><div class="plate"><b>${esc(b.name)}</b></div></a>`;
       }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`}</div>`;
   },
@@ -365,7 +367,7 @@ function siteUrl(v) {  // "books.toscrape.com" → "https://books.toscrape.com/"
 VIEWS.new = {
   async show(el, _, qs) {
     const job = qs.get("job") || "";
-    this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
+    this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null; this.leaving = false; this.job0 = job.trim();  // "edited", not "dirty": the router calls a page's dirty() before leaving it
     el.innerHTML = `${mobileBar("New bot")}<div class="page narrow"><h1>New bot</h1><p class="lede">Describe the job. It drafts the bot, you check it, then it learns the site once while you watch.</p>
       <div class="composer" style="width:100%"><label class="vh" for="job">Job</label><textarea id="job" rows="3" placeholder="e.g. Every morning, find flats in Bari under €150k on casafacile.it">${esc(job)}</textarea>
       <div class="between"><span class="small muted">Include the site if you know it.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox"></div></div>`;
@@ -374,6 +376,11 @@ VIEWS.new = {
     if (job) this.draft();
   },
   leave() { this.req++; },  // a draft that comes back after you left is dropped
+  dirty() {  // you typed a job or changed the draft, and haven't made the bot yet
+    const job = $("#job", this.el);
+    return !!job && (job.value.trim() !== this.job0 || this.edited.size > 0);
+  },
+  leaveText() { return "Leave without making this bot? Your draft will be lost."; },
   async draft() {
     const el = this.el, job = $("#job", el).value.trim(), box = $("#draftbox", el), btn = $("#draft", el);
     if (btn.disabled) return;  // a second Enter while it's thinking
@@ -402,7 +409,8 @@ VIEWS.new = {
     const d = { ...draft, ...this.kept() }, box = $("#draftbox", this.el), dirty = this.edited;
     const look = d.look || { kind: "octopus", color: "#E86F51", acc: "none" };
     const label = () => `Create ${$("#nm", box).value.trim() || "the bot"}`;
-    box.innerHTML = `<div class="card" style="margin-top:8px"><div class="row">${critter(look.kind, look.color, look.acc, 48)}<div class="grow"><label class="l" for="nm">Your new bot</label><input class="f" id="nm" value="${esc(d.name)}" maxlength="40"></div></div>
+    const notice = d.notice ? `<p class="small muted" role="status" style="margin:8px 0 0">${/\bModels\b/.test(d.notice) ? esc(d.notice).replace(/\bModels\b/, '<a href="#/models">Models</a>') : `${esc(d.notice)} <a href="#/models">Models</a>`}</p>` : "";
+    box.innerHTML = `${notice}<div class="card" style="margin-top:8px"><div class="row">${critter(look.kind, look.color, look.acc, 48)}<div class="grow"><label class="l" for="nm">Your new bot</label><input class="f" id="nm" value="${esc(d.name)}" maxlength="40"></div></div>
       ${d.summary ? `<div class="card panel">${esc(d.summary)}</div>` : ""}
       <div class="grid2"><div><label class="l" for="url">Start on this site</label><input class="f" id="url" value="${esc(d.start_url || "")}" placeholder="books.toscrape.com" inputmode="url" autocomplete="off" spellcheck="false"></div>
         <div><label class="l" for="every">Check every (minutes, 0 = only when I ask)</label><input class="f" id="every" type="number" min="0" step="1" inputmode="numeric" value="${esc(d.every_minutes || 0)}"></div></div>
@@ -418,7 +426,7 @@ VIEWS.new = {
     $("#nm", box).addEventListener("input", () => { if (!$("#create", box).disabled) $("#create", box).textContent = label(); });
     const filters = (this.filters = (d.filters || []).map((f) => ({ ...f })));
     const drawF = () => {
-      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><input class="f" data-i="${i}" data-k="field" value="${esc(f.field)}" aria-label="Field"><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option ${o === f.op ? "selected" : ""}>${o}</option>`).join("")}</select>
+      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><input class="f" data-i="${i}" data-k="field" value="${esc(f.field)}" aria-label="Field"><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
         <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">None: it keeps everything it finds.</span>`;
       $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); const f = filters[x.dataset.i]; f[x.dataset.k] = x.dataset.k === "value" && /,/.test(x.value) ? x.value.split(",").map((s) => s.trim()) : x.value; }));
       $$("#filters [data-del]", box).forEach((x) => (x.onclick = () => { dirty.add("filters"); filters.splice(+x.dataset.del, 1); drawF(); }));
@@ -450,6 +458,7 @@ VIEWS.new = {
       try { b = (await post("/api/bots", body)).bot; } catch (e) { busyBtn(btn, false); btn.textContent = label(); return toast(e.message); }
       if (body.start_url) await post(`/api/bots/${b.id}/learn`, {}).catch((e) => toast(e.message));
       await loadState();
+      this.leaving = true;  // it's made: nothing to lose
       location.hash = `#/bot/${b.id}/computer?hatch=1`;
     };
   },
@@ -467,6 +476,7 @@ const CONTROL_WORDS = { pause: "You paused it", resume: "You let it carry on", s
   speed: "You changed its speed", mode: "You changed where it works", "You handed its computer back": "You handed back" };
 const ruleText = (f) => f.text || `${f.field} ${f.op} ${f.value}`;
 const RULE_KINDS = { own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" };
+const BUILT_IN_RULES = new Set(["Read, search, take notes", "Send, post, reply, delete, submit forms, sign up", "Buy or pay"]);  // bots.DEFAULT_RULES: every bot has them, they can't be removed
 const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads "contact agencies"
   const k = RULE_KINDS[r.kind] || "", t = String(r.text || "");
   const rest = k && t.toLowerCase().startsWith(k.toLowerCase() + " ") ? t.slice(k.length + 1).trim() : t;
@@ -474,6 +484,7 @@ const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads
 };
 const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
 const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
+ICON.speakeroff = "M11 5L6 9H2v6h4l5 4z M23 9l-6 6 M17 9l6 6";  // the Call tab's speaker, turned off
 const DRAFTS = {};  // what you were typing to each bot, kept when you go to another page and back
 // ponytail: a copy of skills.parse_num()/keep(), so Results follow your rules the moment you change them; drop it if the results route re-checks rules itself
 function numOf(v) {
@@ -527,8 +538,11 @@ VIEWS.bot = {
     const asked = tab;
     if (tab === "chat" && !onPhone()) tab = "computer";
     if (!TABS.some(([k]) => k === tab)) tab = "computer";
-    this.id = +id; this.tab = tab; this.el = el; this.data = null; this.msgKey = this.headKey = this.tabSeen = this.chatTop = null; this.bringing = false;
+    this.id = +id; this.tab = tab; this.el = el; this.data = null; this.msgKey = this.headKey = this.tabSeen = this.chatTop = this.named = null; this.bringing = false;
     if (!/^\d+$/.test(id)) return this.missing(el, new Error("no such bot"));  // #/bot/abc
+    const known = S.bots.find((x) => x.id === +id);
+    if (known && (known.remote || known.status === "moved"))  // its server can take a few seconds: say so instead of a blank page
+      el.innerHTML = `${mobileBar(known.name)}<div class="page narrow"><p class="lede row" role="status"><span class="spin" aria-hidden="true"></span>Asking ${esc(known.remote || "its server")}…</p></div>`;
     let data;
     try { data = await get(`/api/bots/${this.id}`); } catch (e) { return this.missing(el, e); }
     if (this.id !== +id || !el.isConnected) return;  // you went elsewhere meanwhile
@@ -536,21 +550,30 @@ VIEWS.bot = {
     const b = data.bot;
     if (asked !== tab) history.replaceState(null, "", `#/bot/${b.id}/${tab}`);
     const hint = matchMedia("(pointer:coarse)").matches ? "" : `<span class="kbdhint"><span class="mono">${MAC ? "⌘K" : "Ctrl K"}</span> command bar · </span>`;
-    el.innerHTML = `${mobileBar(b.name)}<div class="botpage t-${tab}"><div class="bothead" id="bh"></div><div class="botbody">
+    el.innerHTML = `<a class="skipchat" href="#/bot/${b.id}/chat">Skip to chat</a>${mobileBar(b.name)}<div class="botpage t-${tab}"><div class="bothead" id="bh"></div><div class="botbody">
+      <section class="rightcol"><nav class="tabs" aria-label="Bot views">${TABS.map(([k, t]) => `<a href="#/bot/${b.id}/${k}" data-t="${k}" class="${k === tab ? "on" : ""}${k === "chat" ? " only-s" : ""}"${k === tab ? ' aria-current="page"' : ""}>${t}</a>`).join("")}</nav><div class="tabbody" id="tb"></div></section>
       <section class="chatcol" aria-label="Conversation"><div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages with ${esc(b.name)}"></div>
         <div class="chatin"><div class="chatbox"><label class="vh" for="say">Message ${esc(b.name)}</label><input id="say" placeholder="Message ${esc(b.name)}…" autocomplete="off">
-        <div class="between"><span class="small muted">${hint}say “slower”, “stop”, or give it a rule</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:#fff;border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section>
-      <section class="rightcol"><nav class="tabs" aria-label="Bot views">${TABS.map(([k, t]) => `<a href="#/bot/${b.id}/${k}" data-t="${k}" class="${k === tab ? "on" : ""}${k === "chat" ? " only-s" : ""}"${k === tab ? ' aria-current="page"' : ""}>${t}</a>`).join("")}</nav><div class="tabbody" id="tb"></div></section></div></div>`;
+        <div class="between"><span class="small muted">${hint}say “slower”, “stop”, or give it a rule</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:#fff;border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section></div></div>`;
+    $(".skipchat", el).onclick = (e) => { e.preventDefault(); if (onPhone()) this.go("chat"); $("#say").focus(); };  // before the tabs' own click: on a computer, chat isn't a tab
     const nav = $(".tabs", el), fade = () => { nav.classList.toggle("fr", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4); nav.classList.toggle("fl", nav.scrollLeft > 4); };
     nav.onscroll = fade;
     new ResizeObserver(fade).observe(nav);
     const on = $("a.on", nav); if (on) on.scrollIntoView({ block: "nearest", inline: "center" });
     const send = async () => {
-      const t = $("#say").value.trim(); if (!t) return;
+      const t = $("#say").value.trim(), id = this.id, mine = { role: "you", text: t, ts: Date.now() / 1000 }; if (!t) return;
       $("#say").value = "";
-      this.data.messages.push({ role: "you", text: t, ts: Date.now() / 1000 });
+      this.data.messages.push(mine);
       this.typing = true; this.drawMsgs(true);
-      try { await post(`/api/bots/${this.id}/chat`, { text: t }); } catch (e) { toast(e.message); }
+      try { await post(`/api/bots/${id}/chat`, { text: t }); }
+      catch (e) {  // it didn't go: your words go back in the box, to send again
+        const off = (String(e.message).match(/can’t reach (.+?):/) || [])[1];
+        toast(off ? `${off} isn’t answering, so your message didn’t reach ${this.data ? this.data.bot.name : "the bot"}. It’s back in the box.` : e.message);
+        if (id !== this.id || !this.data) { if (!DRAFTS[id]) DRAFTS[id] = t; return; }
+        this.data.messages = this.data.messages.filter((m) => m !== mine);
+        this.typing = false; this.drawMsgs(true);
+        const say = $("#say"); if (say && !say.value.trim()) { say.value = t; say.focus(); }
+      }
       this.typing = false; this.refresh();
     };
     $("#send").onclick = send;
@@ -595,16 +618,22 @@ VIEWS.bot = {
       ${gone ? `<h1 style="overflow-wrap:anywhere">It’s no longer on ${esc(gone[1])}</h1><p class="lede">${esc(known ? known.name : "This bot")} was deleted there, or that computer was reset. Only this computer still lists it.</p>
         <div class="row wrap"><button class="btn p" id="rmhere">Remove it here</button><a class="btn" href="#/bots">Your bots</a></div>`
       : away ? `<h1 style="overflow-wrap:anywhere">${esc(known.name)} is on ${esc(where)}</h1><p class="lede">That computer isn’t answering right now. It may be asleep, switched off or offline.</p>
-        <div class="row wrap"><button class="btn p" id="retry">Try again</button><button class="btn bringback">Bring back to this computer</button></div><span class="small muted" id="mvline" role="status"></span>`
+        <div class="row wrap"><button class="btn p" id="retry">Try again</button><button class="btn bringback">Bring back to this computer</button><button class="btn hot" id="rmhere">Remove it here</button></div><span class="small muted" id="mvline" role="status"></span>`
       : `<h1>This bot doesn’t exist anymore</h1><p class="lede">It may have been deleted, here or on another computer.</p><div><a class="btn p" href="#/bots">Your bots</a></div>`}</div>`;
     if (away) { $("#retry", el).onclick = () => route(); $(".bringback", el).onclick = () => this.bringBack(); }
-    if (gone) $("#rmhere", el).onclick = async (ev) => {
-      const btn = ev.currentTarget;
+    if (gone || away) $("#rmhere", el).onclick = async (ev) => {
+      const btn = ev.currentTarget, name = known ? known.name : "this bot";
+      if (away && !(await confirmBox(`Remove ${name} from this computer only? The copy on ${where} stays.`, "Remove it here", true))) return;
       busyBtn(btn, true, "Removing…");
       try { await del(`/api/bots/${this.id}?here=1`); } catch (err) { busyBtn(btn, false); return toast(err.message); }
       await loadState().catch(() => {});
       location.hash = "#/bots";
     };
+  },
+  oops(e) {  // an action that didn't go through
+    const b = this.data && this.data.bot;
+    if (b && b.remote && /can’t reach|isn’t answering/.test(e.message || "")) try { return this.missing(this.el, e); } catch (x) {}  // its server is off: say so, with Try again and Bring back
+    toast(e.message);
   },
   bringBack() {
     $$(".bringback").forEach((x) => (x.disabled = true));
@@ -624,7 +653,7 @@ VIEWS.bot = {
     const id = this.id;
     const go = async () => { const d = await get(`/api/bots/${id}`); if (id === this.id) return fn(d); };
     this.queue = (this.queue || Promise.resolve()).then(go, go);
-    return this.queue.catch((e) => { toast(e.message); });
+    return this.queue.catch((e) => this.oops(e));
   },
   onEvent(m) {
     if (m.kind !== "move" || m.bot !== this.id) return;
@@ -644,6 +673,12 @@ VIEWS.bot = {
   },
   drawHead() {
     const b = this.data.bot, m = botMeta(b), tk = b.takeover, show = b.run_kind === "show";
+    if (this.named !== b.name) {  // renamed: the chat box, its label and the bar above say the new name
+      this.named = b.name;
+      const say = $("#say"), mb = $(".mobilebar b", this.el);
+      if (say) { say.placeholder = `Message ${b.name}…`; $('label[for="say"]').textContent = `Message ${b.name}`; $("#msgs").setAttribute("aria-label", `Messages with ${b.name}`); }
+      if (mb) mb.textContent = b.name;
+    }
     const meta = tk ? (show ? "showing it once" : "you have control") : m.meta;
     const key = JSON.stringify([b.name, meta, m.hot, b.status, b.run_kind, tk, b.library, b.allowed_domains, b.remote, b.mode, b.look, moodOf(b, RECENT)]);
     $$('.tabs a[data-t="chat"]').forEach((a) => a.classList.toggle("dot", this.data.needs.length > 0));
@@ -659,8 +694,8 @@ VIEWS.bot = {
       <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s sharebot" title="Download it, make a link, or post it to the library">Share</button>
       <details class="more"${open ? " open" : ""}><summary class="iconbtn" aria-label="More">⋯</summary><div class="card menu">
         <a href="#/bot/${b.id}/call">${icon("phone", 16, 1.9)} Call ${esc(b.name)}</a><button class="sharebot">Share</button>${b.remote ? `<button class="bringback">Bring back to this computer</button>` : ""}</div></details></div>`;
-    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => toast(e.message));
-    const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => toast(e.message));
+    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => this.oops(e));
+    const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => this.oops(e));
     $$("#bh .sharebot").forEach((x) => (x.onclick = () => { const d = $("#bh details.more"); if (d) d.open = false; shareBot(b); }));
     $$("#bh .bringback").forEach((x) => (x.onclick = () => this.bringBack()));
     const more = $("#bh details.more");
@@ -752,7 +787,7 @@ VIEWS.bot = {
         <button class="btn s" id="tk"></button><button class="btn s" id="stop">Stop</button></span></div>
         <div class="row screenrow" style="align-items:flex-start;gap:14px"><div class="grow col" style="gap:8px;min-width:min(420px,100%)">
           <div class="screen" id="scr"><div class="bar"><span>Activities</span><span id="clock"></span><span>${esc(b.name.toLowerCase().replace(/\s+/g, "-"))}</span></div>
-          <img id="live" alt="${esc(b.name)}’s computer, live"><div class="idle hidden" id="idle">${botCritter(b, 64)}<b>Not running right now</b><span class="small">Press Run now, or Take over to use its computer yourself.</span></div>
+          <img id="live" alt="${esc(b.name)}’s computer, live"><div class="idle hidden" id="idle">${botCritter(b, 64)}<b>Not running right now</b><span class="small" id="idlehow"></span></div>
           <span class="over hidden" id="over">You have control · ${esc(b.name)} is waiting</span></div>
           <div class="col hidden" id="typebar" style="gap:8px">
             <div class="row wrap"><label class="vh" for="gourl">Go to an address</label><input class="f" id="gourl" style="flex:1 1 200px" placeholder="Go to an address, like example.com"><button class="btn s" id="gobtn">Go</button></div>
@@ -761,8 +796,8 @@ VIEWS.bot = {
           <div class="card hot hidden" id="showbar"><b>Show me once</b><span class="small">Click what it should click on its computer. Each click is recorded. <span id="shown"></span></span><div class="row"><button class="btn s p" id="showdone">Done showing</button></div></div>
         </div><aside class="card sidecard" id="side"></aside></div>
         <div class="col" style="gap:8px"><div class="between wrap"><b class="small" id="tlname"></b><span class="mono small muted" id="tlnote"></span></div><div class="steps" id="tl"></div></div>`;
-      $$("#speed button").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "speed", value: x.dataset.s }).then(refreshSoon)));
-      $("#stop").onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "stop" }).then(refreshSoon);
+      $$("#speed button").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "speed", value: x.dataset.s }).then(refreshSoon).catch((e) => this.oops(e))));
+      $("#stop").onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "stop" }).then(refreshSoon).catch((e) => this.oops(e));
       const img = $("#live");
       img.onclick = (e) => {
         if (!this.data.bot.takeover) return;
@@ -776,13 +811,15 @@ VIEWS.bot = {
       $("#gourl").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) goIt(); };
       $("#typbtn").onclick = typeIt; $("#gobtn").onclick = goIt;
       $$("#typebar [data-key]").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/input`, { kind: "key", key: x.dataset.key })));
-      $("#showdone").onclick = () => post(`/api/bots/${b.id}/show/done`, {}).then(refreshSoon).catch((e) => toast(e.message));
+      $("#showdone").onclick = () => post(`/api/bots/${b.id}/show/done`, {}).then(refreshSoon).catch((e) => this.oops(e));
       img.onerror = () => setTimeout(() => { if (img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg") + "&r=" + Date.now(); }, 2000);
     }
     const idle = idleBot(b), img = $("#live");  // an idle bot's computer is a blank page: show that it's resting, and don't start its browser for nothing
     if (idle) img.removeAttribute("src");
     else if (!img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg");
     img.classList.toggle("hidden", idle); $("#idle").classList.toggle("hidden", !idle);
+    const site = b.start_url || sk.length;  // Run now learns its site, or replays a skill; with neither it can only ask for a site
+    $("#idlehow").innerHTML = site ? "Press Run now, or Take over to use its computer yourself." : `Tell it a site in the chat, or in <a href="#/bot/${b.id}/skills">Skills</a> → Learn a new site.`;
     $("#clock").textContent = new Date().toTimeString().slice(0, 5);
     const name = esc(b.name), calls = nWord(b.ai_calls, "AI call");
     const [what, how, dot] = tk ? (show ? ["Show it once", "click what it should click", "var(--ink)"] : ["You have control", "click and type on it", "var(--ink)"])
@@ -795,7 +832,7 @@ VIEWS.bot = {
     const tkb = $("#tk");
     tkb.textContent = tk ? "Hand back" : "Take over";
     tkb.className = "btn s" + (tk ? " p" : "") + (show ? " hidden" : "");  // while showing, Done showing is the way out
-    tkb.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: tk ? "handback" : "takeover" }).then(refreshSoon).catch((e) => toast(e.message));
+    tkb.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: tk ? "handback" : "takeover" }).then(refreshSoon).catch((e) => this.oops(e));
     $("#stop").disabled = !run;
     $("#scr").classList.toggle("drive", !!tk);
     $("#over").classList.toggle("hidden", !tk || show);
@@ -827,7 +864,7 @@ VIEWS.bot = {
       $("#tlname").textContent = run === "learn" ? "Learning…" : "No skill yet";
       $("#tlnote").textContent = run === "learn" ? "you can correct any step in the chat" : "";
       $("#tl").innerHTML = learned.map((e, i) => `<div class="st ${i === learned.length - 1 && run === "learn" ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(one(e.text))}">${esc(one(e.text))}</span><span class="p"><i style="width:${i === learned.length - 1 && run === "learn" ? 55 : 100}%"></i></span></div>`).join("")
-        || `<span class="small muted">Tell it the site and the job, or press Run now.</span>`;
+        || `<span class="small muted">${b.start_url ? "Press Run now and it learns the site while you watch." : `Tell it a site and the job in the chat, or in <a href="#/bot/${b.id}/skills">Skills</a> → Learn a new site.`}</span>`;
     }
   },
 
@@ -841,7 +878,8 @@ VIEWS.bot = {
       const checked = f.filter((x) => !skip.includes(x));
       const rows = all.filter((r) => checked.every((x) => rowPasses(r, x)));  // your rules as they are now, also right after you change them
       const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !["id", "ts", "run", "skill", "new", "last", "first"].includes(k));
-      const cols = [...keys.filter((k) => k !== "link").slice(0, 5), ...keys.filter((k) => k === "link")];  // the link goes last
+      const lead = matchMedia("(max-width:640px)").matches && keys.includes("link") && (keys.find((k) => /title|name/i.test(k)) || keys.find((k) => k !== "link"));  // phones: the title is the link
+      const cols = [...keys.filter((k) => k !== "link").slice(0, 5), ...keys.filter((k) => k === "link" && !lead)];  // the link goes last
       const price = keys.find((k) => /price/i.test(k)), cost = (r) => numOf(r[price]) ?? Infinity;
       rows.sort((x, y) => (price ? cost(x) - cost(y) || 0 : (y.ts || 0) - (x.ts || 0) || (y.id || 0) - (x.id || 0)));  // cheapest first, else newest first
       const last = runs.find((r) => r.kind === "replay" && r.status !== "running" && r.items != null);
@@ -850,7 +888,7 @@ VIEWS.bot = {
         : last && last.items ? `None of the last ${nWord(last.items, "result")} ${last.items === 1 ? "passes" : "pass"}${rules}` : last ? "The last run found nothing to read" : "No results yet";
       tb.innerHTML = `<div class="between wrap"><b>${head}</b><span class="row wrap">${checked.map((x) => `<span class="chip">${esc(ruleText(x))}</span>`).join("")}</span></div>
         ${skip.length ? `<div class="card panel small" style="gap:4px"><b>Couldn’t check</b>${skip.map((x) => `<span>${esc(ruleText(x))} (this site doesn’t show ${esc(x.field)})</span>`).join("")}<span class="muted">Its search may already narrow it, or tell it another way to check in the chat.</span></div>` : ""}
-        ${rows.length ? `<div class="tscroll"><table class="t"><thead><tr><th><span class="vh">New</span></th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.new ? '<span class="badge hot">new</span>' : ""}</td>${cols.map((c) => `<td${c === "link" || String(r[c] ?? "").length <= 24 ? ' class="nw"' : ""}>${c === "link" && r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener">open ↗</a>` : esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+        ${rows.length ? `<div class="tscroll"><table class="t"><thead><tr><th><span class="vh">New</span></th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.new ? '<span class="badge hot">new</span>' : ""}</td>${cols.map((c) => `<td${c === "link" || String(r[c] ?? "").length <= 24 ? ' class="nw"' : ""}>${c === "link" && r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener">open ↗</a>` : c === lead && r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r[c] ?? "open")} ↗</a>` : esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
           : `<p class="muted">${last && last.items ? "Loosen a rule in Settings, or wait for the next run." : "Press Run now to check."}</p>`}`;
     }).catch((e) => { if (seq === this.resultsSeq && this.tab === "results") tb.innerHTML = `<p class="muted">Couldn’t load its results: ${esc(e.message)}</p>`; });
   },
@@ -860,7 +898,7 @@ VIEWS.bot = {
     tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
       <div id="skmain" style="display:contents"></div>
       <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
-    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => this.oops(e));
     $("#learn").onclick = learn; enterSends($("#lurl"), learn); enterSends($("#lgoal"), learn);
     $("#skf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -899,7 +937,7 @@ VIEWS.bot = {
       const i = +x.dataset.rm;
       if (await confirmBox(`Remove step ${i + 1}, “${sel.steps[i].text}”? It won’t do it on its next runs.`, "Remove step", true)) stepEdit(i, (st, j) => st.filter((_, k) => k !== j));
     }));
-    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => this.oops(e));
     if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/bots/${b.id}/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
     if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/bots/${b.id}/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
   },
@@ -924,7 +962,7 @@ VIEWS.bot = {
         <div class="autoform"><select class="f" id="aw" aria-label="When"><option value="new_results">When there are new results</option><option value="every_run">After every run</option></select><select class="f" id="as" aria-label="Connector"><option value="">Loading connectors…</option></select><select class="f" id="at" aria-label="Tool" disabled></select><input class="f" id="al" aria-label="Label" placeholder="Label"></div>
         <textarea class="f mono" id="aa" aria-label="Arguments as JSON" rows="2" placeholder='Arguments as JSON, e.g. {"description":"flats","prompt":"Add these to ~/flats.md: {{new_json}}"}'></textarea><div class="row wrap"><button class="btn s" id="addauto" disabled>Add automation</button><span class="small muted" id="autonote"></span></div></div>
       <div class="card" style="grid-column:1/-1"><div class="between"><span id="delwhat"></span><button class="btn hot" id="delbot">Delete bot…</button></div></div></div>`;
-    const save = (p) => this.save(p).catch((e) => toast(e.message));
+    const save = (p) => this.save(p).catch((e) => this.oops(e));
     const pick = (x) => $$("button", x.parentElement).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); });  // shows at once
     $("#bname").onchange = (e) => {
       const x = e.target, v = x.value.trim(), name = this.data.bot.name;
@@ -983,7 +1021,7 @@ VIEWS.bot = {
     $$("#every button", tb).forEach((x) => { const on = +x.dataset.v === (s.every_minutes || 0); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
     $("#memn").textContent = `${nWord((b.memory || []).length, "thing")} about you`;
     put("#delwhat", `<b>Delete ${esc(b.name)}</b><br><span class="small muted">Removes its skills, memory, results and computer${b.remote ? `, here and on ${esc(b.remote)}` : ""}. Can’t be undone.</span>`);
-    if (put("#rules", rules.map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><span class="badge">${esc(RULE_KINDS[r.kind] || r.kind)}</span><span>${esc(ruleBody(r))}</span>${r.kind === "filter" || i > 2 ? `<button class="chip" data-rr="${i}" aria-label="Remove the rule “${esc(r.text)}”">remove</button>` : "<span></span>"}</div>`).join("")))
+    if (put("#rules", rules.map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><span class="badge">${esc(RULE_KINDS[r.kind] || r.kind)}</span><span>${esc(ruleBody(r))}</span>${r.kind === "filter" || !BUILT_IN_RULES.has(r.text) ? `<button class="chip" data-rr="${i}" aria-label="Remove the rule “${esc(r.text)}”">remove</button>` : "<span></span>"}</div>`).join("")))
       $$("[data-rr]", tb).forEach((x) => (x.onclick = async () => {  // found again by what it says, in the bot as it is now
         const r = rules[+x.dataset.rr];
         await this.edit((d) => {
@@ -1078,7 +1116,9 @@ VIEWS.bot = {
       <b style="font-size:26px">${esc(b.name)}</b><span class="small" style="color:#F2957C;text-align:center" id="cstate" role="status">${canMic ? "Allow the microphone to talk…" : "Speech isn’t available in this browser. Type instead."}</span>
       <div id="trans" style="align-self:stretch;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:260px;overflow:auto;font-size:14px"></div>
       <div class="row" style="align-self:stretch"><label class="vh" for="ctype">Type instead</label><input class="f" id="ctype" placeholder="Type instead…" style="background:rgba(255,255,255,.08);border-color:transparent;color:#fff"></div>
-      <div class="row" style="gap:26px;margin-top:auto"><button class="callbtn" id="mute" aria-label="Mute" aria-pressed="false" disabled>${icon("mic", 22)}</button><button class="callbtn on" id="spk" aria-label="Speaker" aria-pressed="true">${icon("speaker", 22)}</button><a class="callbtn end" href="#/bot/${b.id}/computer" aria-label="End call">${icon("phone", 22)}</a></div></section>
+      <div class="row callctl" style="gap:22px;margin-top:auto"><span class="col"><button class="callbtn" id="mute" aria-label="Mute" aria-pressed="false" aria-describedby="mutecap" disabled>${icon("mic", 22)}</button><span class="callcap" id="mutecap">${canMic ? "Mic off" : "No mic"}</span></span>
+        <span class="col"><button class="callbtn" id="spk" aria-label="Speaker" aria-pressed="true" aria-describedby="spkcap">${icon("speaker", 22)}</button><span class="callcap" id="spkcap">Speaker on</span></span>
+        <span class="col"><a class="callbtn end" href="#/bot/${b.id}/computer" aria-label="End call">${icon("phone", 22)}</a><span class="callcap" aria-hidden="true">End</span></span></div></section>
       <aside class="col callside"><div class="card"><b id="cside"></b><div class="thumb" id="cthumb" style="height:160px"><img id="callimg" alt=""><span id="callidle">${botCritter({ ...b, schedule: null }, 72)}</span></div><span class="small muted" id="cstep"></span></div>
       <div class="card small"><b>Voice</b><span>${b.look.voice === "off" ? "Replies are text only (Make it yours → Voice)." : `Replies are spoken (${esc(b.look.voice || "soft")}). Changes it hears still show up as actions you can see in the chat.`}</span></div></aside></div>`;
     const t0 = Date.now();
@@ -1102,19 +1142,19 @@ VIEWS.bot = {
       if (rec) try { rec.abort(); } catch (e) {}
       rec = null;
       if (!$("#callbox")) return;
-      $("#mute").disabled = true;
+      $("#mute").disabled = true; $("#mutecap").textContent = "No mic";
       state(`${why}. Type instead.`);
       $("#ctype").focus({ preventScroll: true });
     };
+    const hushed = () => { if (!talking) return; talking = false; if ($("#rings")) $("#rings").classList.remove("talk"); calm(); hear(); };  // it stopped speaking, or you turned the speaker off
     const say = (text) => {
       if (!speaking || b.look.voice === "off" || !window.speechSynthesis) return false;
       const u = new SpeechSynthesisUtterance(text);
       u.pitch = b.look.voice === "bright" ? 1.25 : 0.95; u.rate = 1.02;
       talking = true; if (rec) try { rec.abort(); } catch (e) {}  // don't hear its own voice through your speakers
       $("#rings").classList.add("talk");
-      const done = () => { if (!talking) return; talking = false; if ($("#rings")) $("#rings").classList.remove("talk"); calm(); hear(); };
-      u.onend = u.onerror = done;
-      setTimeout(done, 3000 + text.length * 90);  // some browsers never say it's done
+      u.onend = u.onerror = hushed;
+      setTimeout(hushed, 3000 + text.length * 90);  // some browsers never say it's done
       speechSynthesis.speak(u);
       return true;
     };
@@ -1125,12 +1165,17 @@ VIEWS.bot = {
       catch (e) { line("bot", e.message); calm(); }
     };
     $("#ctype").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && e.target.value.trim()) { ask(e.target.value.trim()); e.target.value = ""; } };
-    $("#spk").onclick = (e) => { speaking = !speaking; const x = e.currentTarget; x.classList.toggle("on", speaking); x.setAttribute("aria-pressed", speaking); if (!speaking && window.speechSynthesis) speechSynthesis.cancel(); };
+    $("#spk").onclick = (e) => {
+      speaking = !speaking;
+      const x = e.currentTarget;
+      x.setAttribute("aria-pressed", speaking); x.innerHTML = icon(speaking ? "speaker" : "speakeroff", 22); $("#spkcap").textContent = speaking ? "Speaker on" : "Speaker off";
+      if (!speaking) { if (window.speechSynthesis) speechSynthesis.cancel(); hushed(); }
+    };
     $("#mute").onclick = (e) => {
       if (!micOk) return;
       muted = !muted;
       const x = e.currentTarget;
-      x.classList.toggle("on", muted); x.setAttribute("aria-pressed", muted); x.innerHTML = icon(muted ? "micoff" : "mic", 22);
+      x.setAttribute("aria-pressed", muted); x.innerHTML = icon(muted ? "micoff" : "mic", 22); $("#mutecap").textContent = muted ? "Muted" : "Mic on";
       if (muted) { if (rec) try { rec.stop(); } catch (err) {} } else hear();
       calm();
     };
@@ -1151,7 +1196,7 @@ VIEWS.bot = {
           network: "Speech recognition can’t reach its service", "language-not-supported": "Speech recognition doesn’t know this language" }[e.error];
         if (why) noMic(why);  // "no-speech" and "aborted" just start listening again
       };
-      $("#mute").disabled = false;
+      $("#mute").disabled = false; $("#mutecap").textContent = "Mic on";
       calm(); hear();
     }).catch((e) => { if (settled) return; settled = true; clearTimeout(timer); noMic(MIC[e && e.name] || "The microphone didn’t start"); });
     line("bot", `Hi, it’s ${b.name}. ${b.step ? `I’m on step ${b.step_n}: ${b.step}.` : "What can I do?"}`);
@@ -1295,13 +1340,15 @@ const needKind = (k) => NEED_KIND[k] || String(k || "").replace(/_/g, " ");
 const GONE = new Set();  // "bot:need" answered somewhere else (a 409): its card goes now, not when a moved bot's server is next asked
 VIEWS.needs = {
   async show(el, _, qs) {
-    this.el = el; this.tab = qs.get("tab") || "decisions"; this.health = null; await this.refresh();
+    const t = qs.get("tab");
+    this.el = el; this.tab = ["decisions", "problems"].includes(t) ? t : null; this.health = null; await this.refresh();
     if (this.tabFocus) { this.tabFocus = false; const t = $(".seg .on", el); if (t) t.focus(); }  // switching tabs keeps your place
   },
   async refresh() {
     const key = (n) => `${n.bot_id}:${n.id}`;
     const needs = (await get("/api/needs")).needs.filter((n) => !GONE.has(key(n)));
     const dec = needs.filter((n) => n.kind === "decision"), prob = needs.filter((n) => n.kind !== "decision");
+    if (!this.tab) this.tab = !dec.length && prob.length ? "problems" : "decisions";  // once per visit: it doesn't switch under you
     const list = this.tab === "decisions" ? dec : prob;
     const botOf = (n) => S.bots.find((b) => b.id === n.bot_id) || { look: {}, name: n.bot };
     if (this.tab === "problems" && !this.health) this.health = (await get("/api/health")).health;  // once per visit, or on Check again
@@ -1358,7 +1405,7 @@ VIEWS.activity = {
   async show(el) { this.el = el; await this.refresh(); },
   async refresh() {
     const a = await get("/api/activity");
-    const w = a.week, botOf = (id) => S.bots.find((b) => b.id === id);
+    const w = a.week, botOf = (id) => S.bots.find((b) => b.id === id), away = S.bots.filter((b) => b.remote || b.status === "moved").length;
     const row = (e) => {
       const b = botOf(e.bot_id), [label, tone = ""] = EV_KIND[e.kind] || [String(e.kind || "").replace(/_/g, " ")];
       const inner = `<span class="mono small muted">${ago(e.ts)}</span>${botCritter(b || { look: {}, name: "Inky" }, 24)}<span><b style="font-weight:500">${esc((b && b.name) || e.bot || "")}</b> · ${esc(e.text)}</span><span class="badge ${tone}">${esc(label)}</span>`;
@@ -1367,6 +1414,7 @@ VIEWS.activity = {
     this.el.innerHTML = `${mobileBar("Activity")}<div class="page" style="background:var(--panel);min-height:100%;max-width:none"><div><h1>Activity</h1><p class="lede">Everything your bots did this week, and what it cost. Learning uses the AI; repeating doesn’t.</p></div>
       <div class="grid5 stats5"><div class="stat"><span>Runs</span><b>${w.runs}</b></div><div class="stat"><span>AI calls</span><b>${w.ai_calls}</b></div><div class="stat"><span>If it asked the AI every step</span><b>≈ ${w.if_ai_every_step}</b></div>
       <div class="stat"><span>Spent on AI</span><b>$${w.cost.toFixed(2)}</b></div><div class="stat"><span>Asked you</span><b>${w.asked}</b></div></div>
+      ${away ? `<p class="small muted" style="margin:0">${away === 1 ? "1 of your bots runs on another computer; its runs show on that computer." : `${away} of your bots run on other computers; their runs show on those computers.`}</p>` : ""}
       <div class="card" style="padding:6px 18px"><div class="list">${a.events.map(row).join("") || `<p class="muted">Nothing yet.</p>`}</div></div>
       <span class="small muted">Every run leaves a log line. Nothing leaves your computers unless you connect something.</span></div>`;
   },
@@ -1478,8 +1526,12 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
     };
   });
 }
-async function copyText(text, btn, field) {  // Copy → Copied → Copy
-  try { await navigator.clipboard.writeText(text); } catch (e) { if (field) field.select(); return toast("Select it and copy with ⌘C."); }
+async function copyText(text, btn, field) {  // Copy → Copied → Copy; field: the input or block that shows the text
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {  // the browser said no: the text is selected for you, ready to copy
+    if (field && field.select) { field.focus(); field.select(); } else if (field) getSelection().selectAllChildren(field);
+    return toast(`${field ? "It’s selected" : "Select it"}: press ${MAC ? "⌘C" : "Ctrl+C"} to copy.`);
+  }
   btn.textContent = "Copied"; clearTimeout(btn._t); btn._t = setTimeout(() => (btn.textContent = "Copy"), 2000);
 }
 
@@ -1491,7 +1543,7 @@ function serverAdder(install) {
     <div class="col" style="gap:8px"><b>Set it up over SSH</b><span class="small muted">If you can ssh into it with a key, Inky installs itself there and pairs. Nothing to type on the server.</span>
       <div class="row keyrow"><input class="f grow mono" id="sshtarget" placeholder="you@your-server" autocomplete="off" spellcheck="false" aria-label="SSH user and host"><button class="btn" id="sshgo">Set up</button></div><div class="col" id="sshprog" style="gap:4px" role="status"></div></div>
     <div class="col" style="gap:8px"><b>Or run this once on the server</b>
-      <div class="row"><pre class="code grow" style="margin:0">${esc(install)}</pre><button class="btn s" id="copyinst">Copy</button></div>
+      <div class="row"><pre class="code grow" id="instcmd" style="margin:0">${esc(install)}</pre><button class="btn s" id="copyinst">Copy</button></div>
       <span class="small muted">It prints a pair link. Paste it here, or the address and code:</span>
       <input class="f mono" id="pairurl" placeholder="inky://pair?…  or  192.168.1.20:8800" autocomplete="off" spellcheck="false" aria-label="Pair link or server address">
       <div class="row keyrow"><input class="f grow mono" id="paircode" placeholder="Pairing code (not needed with a link)" autocomplete="off" spellcheck="false" aria-label="Pairing code"><button class="btn" id="pairgo">Pair</button></div>
@@ -1513,7 +1565,7 @@ function sshLine(m) {  // SSE "ssh" progress from the engine
 const NOT_ADDRESS = "That isn’t an address. It looks like 192.168.1.20:8800 or a pair link.";
 function bindServerAdder(install, onPaired) {
   onServerPaired = onPaired;
-  $("#copyinst").onclick = () => copyText(install, $("#copyinst"));
+  $("#copyinst").onclick = () => copyText(install, $("#copyinst"), $("#instcmd"));
   const pair = async () => {
     const url = $("#pairurl").value.trim(), code = $("#paircode").value.trim(), btn = $("#pairgo");
     if (btn.disabled) return;

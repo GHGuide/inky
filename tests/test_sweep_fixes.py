@@ -124,6 +124,18 @@ class FilesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 transfer.import_bot(E, bad)
 
+    def test_skill_edits_bump_the_version(self):
+        from inky import server
+        E = make_engine()
+        self.addCleanup(E.close)
+        b = E.create_bot({"name": "Twin", "goal": "x"})
+        steps = [{"action": "goto", "text": "Open the site"}, {"action": "click", "text": "Click Next", "approved_always": True}]
+        sid = E.store.insert("skills", {"name": "s", "steps": steps, "version": 1}, bot_id=b["id"], status="ok")
+        ask_again = [steps[0], {**steps[1], "approved_always": False}]
+        self.assertEqual(server.patch_skill(E, None, {}, {"steps": ask_again}, sid)["skill"]["version"], 2)
+        self.assertEqual(server.patch_skill(E, None, {}, {"steps": ask_again[:1]}, sid)["skill"]["version"], 3)
+        self.assertEqual(server.patch_skill(E, None, {}, {"name": "renamed"}, sid)["skill"]["version"], 3)  # only steps count
+
 
 if __name__ == "__main__":
     unittest.main()
