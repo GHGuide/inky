@@ -267,14 +267,17 @@ def minutes(v):
     except (TypeError, ValueError):
         return 0
 
+KNOWN_SITES = {"hacker news": "https://news.ycombinator.com/"}  # sites people name by a name that isn't in their address
+
 DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON object:
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
  "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <a number of minutes: 1440 for daily or every morning, 60 for hourly, 0 for only when asked>, "summary_at": "<HH:MM or null>",
- "filters": [{"field": "<price|size|title|…>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
+ "filters": [{"field": "<price|size|title|text>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
  "search": ["<2-3 web searches that find websites for this job; one in the local language if the job names a place>"],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
  "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}
-Filters: only limits the user actually stated (a price, a size, a place, a word). Never invent one. No question about which website: Inky searches for sites itself."""
+Filters: only limits the user actually stated (a price, a size, a place, a word). Never invent one. A word the results must mention (a place, "remote", a topic like "AI") is {"field": "text", "op": "contains", "value": "<the word>"}.
+start_url: when the job names a site, by its address or its well-known name, use that site. No question about which website: Inky searches for sites itself."""
 
 CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). Your job: {job}.
 Talk {tone}. Keep replies short (1–3 sentences). You can take actions. Reply with ONE JSON object:
@@ -316,6 +319,7 @@ class Run:
         self.thread = None
         self.need = None
         self.run_id = None
+        self.site = ""  # the site it's on now, in plain words: shown next to the bot's name
 
 
 class Ctx:
@@ -433,6 +437,7 @@ class Engine:
         self.hops = {}  # (from bot, to bot) -> times, so two bots can't talk in circles
         self.lock = threading.RLock()
         self._sched = None
+        self._tg_lock = threading.Lock()
 
     # ---------------------------------------------------------- bots
     def bot_view(self, b):
@@ -466,7 +471,7 @@ class Engine:
                                          "schedule", "automations", "mode", "computer", "last_run", "created", "allowed_domains", "library")},
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
-                "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
+                "status": status, "step": run.step if live else "", "step_n": run.n if live else 0, "site": getattr(run, "site", "") if live else "",
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), "sites_to_go": len(b.get("site_queue") or []) + (1 if b.get("site_batch") else 0), **self._found(b["id"]),
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
@@ -502,12 +507,16 @@ class Engine:
         d["every_minutes"] = minutes(d.get("every_minutes"))
         if d.get("start_url") and not skills.web_address(d["start_url"], ""):
             d["start_url"] = None
-        if d.get("start_url"):  # a site you didn't name is the model's guess: one suggestion among the ones found, not where it starts
+        known = next((u for n, u in KNOWN_SITES.items() if re.search(rf"\b{n}\b", job, re.I)), None)
+        if known:  # you named it, just not by its address
+            d["start_url"] = known
+        elif d.get("start_url"):  # a site you didn't name is the model's guess: one suggestion among the ones found, not where it starts
             site = skills.site_of(urlparse(skills.web_address(d["start_url"], "")).hostname)
-            if site and site not in job.lower():
+            if site and site not in job.lower() and site not in re.sub(r"[\s-]", "", job.lower()):  # “Stack Overflow” names stackoverflow.com
                 d["guess"], d["start_url"] = skills.web_address(d["start_url"], ""), None
         d["questions"] = [q for q in d.get("questions") or [] if isinstance(q, str) and not re.search(r"\b(website|web site|which site|what site|url)\b", q, re.I)][:2]
-        d["filters"] = [f for f in d.get("filters") or [] if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
+        said = lambda f: {**f, "value": [v for v in f["value"] if stated({**f, "value": v}, job)]} if isinstance(f.get("value"), list) else f
+        d["filters"] = [f for f in (said(f) for f in d.get("filters") or [] if isinstance(f, dict)) if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
         d["search"] = [q for q in d.get("search") or [] if isinstance(q, str) and q.strip()][:3] or [d.get("goal") or job]
         return d
 
@@ -671,7 +680,7 @@ class Engine:
             run.need = nid
         self.store.message(bid, "bot", title, need=nid)
         self.bus.publish("needs", bot=bid)
-        self.notify(bid, f"{title}\n{body}")
+        self.notify(bid, f"{title}\n{body}", need=nid)
         while not ev.wait(0.5):
             if run and run.stop:
                 self.store.update("needs", nid, status="resolved", decision="stopped")
@@ -705,7 +714,7 @@ class Engine:
         self.store.message(bid, "bot", f"{h.title}. {h.body}", need=nid)
         self.store.event(bid, "problem", h.title, need=nid)
         self.bus.publish("needs", bot=bid)
-        self.notify(bid, f"{h.title}\n{h.body}")
+        self.notify(bid, f"{h.title}\n{h.body}", need=nid)
         return nid
 
     def handle(self, bid, h, **meta):
@@ -1135,14 +1144,26 @@ class Engine:
                                          else "Tell me a site and what to look for, and I’ll learn it.")
             return s
         r, when = runs[0], when_words(runs[0]["ts"])
-        if r.get("kind") == "learn":
-            s = f"{when}, I learned {b.get('start_url') or 'the site'}" + ("." if r.get("status") == "ok" else f", but it stopped: {r.get('note') or r.get('status')}.")
+        sites = len(v["skills"])
+        lead = (f"So far I’ve found {v['found']} {'that pass your rules' if b.get('filters') else 'things'}"
+                + (f" on {sites} sites" if sites > 1 else "") + (f", {v['fresh']} new. " if v["fresh"] else ". ")) if v["found"] or sites else ""
+        last = {}  # the latest check of each site: with several sites, the last run alone is only one of them
+        for x in runs:
+            if x.get("kind") == "replay" and x.get("status") == "ok" and x.get("items") is not None:
+                last.setdefault(x.get("skill"), x)
+        if sites > 1 and len(last) > 1 and r.get("kind") == "replay":
+            ai = sum(x.get("ai_calls") or 0 for x in last.values())
+            s = lead + f"{when}, I checked {len(last)} sites: " + ", ".join(
+                f"{str(k or 'a site').removeprefix('Check ').removeprefix('www.')} {x.get('matched') or 0} of {x.get('items') or 0}" for k, x in last.items()) + \
+                (f", with {ai} AI call{'s' if ai != 1 else ''} to fix a step." if ai else ", no AI needed.")
+        elif r.get("kind") == "learn":
+            s = f"{when}, I learned {(urlparse(r.get('url') or b.get('start_url') or '').netloc or 'the site').removeprefix('www.')}" + ("." if r.get("status") == "ok" else f", but it stopped: {r.get('note') or r.get('status')}.")
         elif r.get("status") == "ok":
             pages = f" over {r['pages']} pages" if (r.get("pages") or 0) > 1 else ""
             reads = r.get("items") is not None and r.get("matched") is not None
             ai = r.get("ai_calls") or 0
-            s = (f"{when}, I ran “{r.get('skill') or 'my skill'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} pass your rules, "
-                 f"{r.get('new') or 0} new" if reads else f"{when}, I ran “{r.get('skill') or 'my skill'}”") + \
+            s = (f"{when}, I ran “{r.get('skill') or 'my check'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} pass your rules, "
+                 f"{r.get('new') or 0} new" if reads else f"{when}, I ran “{r.get('skill') or 'my check'}”") + \
                 (f", with {ai} AI call{'s' if ai != 1 else ''} to fix a step." if ai else ", no AI needed.")
             fresh = [x for x in self.store.find("results", bot_id=bid, limit=200) if x.get("new") and x.get("passed") is not False][:3]
             if fresh:
@@ -1150,6 +1171,8 @@ class Engine:
         else:
             s = f"{when}, my run {'stopped' if r.get('status') == 'stopped' else 'needed you' if r.get('status') == 'needs_you' else 'failed'}" + \
                 (f": {r['note']}." if r.get("note") else ".")
+        if not s.startswith(lead):
+            s = lead + s
         if busy:
             s += " I’m working again right now."
         elif b.get("held"):
@@ -1247,6 +1270,7 @@ class Engine:
 
     def _learn(self, bid, goal, url, run):
         run.run_id = self.store.insert("runs", {"kind": "learn", "goal": goal, "url": url}, bot_id=bid, status="running")
+        run.site = (urlparse(url).netloc or url).removeprefix("www.")
         b = self.store.get("bots", bid)
         batch = bool(b.get("site_batch"))  # one of several sites you picked: one progress message, one summary at the end
         if batch:
@@ -1411,6 +1435,7 @@ class Engine:
     def _replay(self, bid, sid, run, reason, repair_role="repair"):
         skill = self.store.get("skills", sid)
         run.run_id = self.store.insert("runs", {"kind": "replay", "skill": skill["name"], "reason": reason}, bot_id=bid, status="running")
+        run.site = (urlparse(skill.get("start_url") or "").netloc or "").removeprefix("www.")
         self.bus.publish("bots")
         try:
             was = [st.get("text") for st in skill["steps"]]  # a repair relabels its step; a failure names the step as it was
@@ -1639,14 +1664,27 @@ class Engine:
         return len(shown)
 
     # ---------------------------------------------------------- notify, schedule
-    def notify(self, bid, text):
+    def notify(self, bid, text, need=None):
         self.bus.publish("notify", bot=bid, text=text)
-        if self.store.setting("telegram", {}).get("enabled") and connectors.PROVIDERS["telegram"].configured(self):
+        if self._telegram_on():
             name = (self.store.get("bots", bid) or {}).get("name", "Inky") if bid else "Inky"
             try:
-                connectors.PROVIDERS["telegram"].send(self, f"{name}: {text}")
+                connectors.PROVIDERS["telegram"].send(self, f"{name}: {text}", need=self.store.get("needs", need) if need else None)
             except Exception:
                 pass
+
+    def _telegram_on(self):
+        return bool(self.store.setting("telegram", {}).get("enabled") and connectors.PROVIDERS["telegram"].configured(self))
+
+    def _poll_telegram(self):
+        if not self._tg_lock.acquire(blocking=False):  # the last check is still going
+            return
+        try:
+            connectors.PROVIDERS["telegram"].poll(self)
+        except Exception:
+            pass
+        finally:
+            self._tg_lock.release()
 
     def start_scheduler(self):
         if self._sched:
@@ -1673,6 +1711,8 @@ class Engine:
 
     def tick(self, now=None):
         now = now or time.time()
+        if self._telegram_on():  # answers you tapped on your phone
+            threading.Thread(target=self._poll_telegram, daemon=True).start()
         hm = datetime.fromtimestamp(now).strftime("%H:%M")
         today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
         for b in self.store.find("bots"):

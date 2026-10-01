@@ -200,13 +200,50 @@ class Telegram(Provider):
         E.store.set_setting("telegram", {**E.store.setting("telegram", {}), "chat_id": chats[-1], "enabled": True})
         return chats[-1]
 
-    def send(self, E, text):
+    APP_ONLY = {"Open its computer", "Show me once", "Open Models"}  # answers that need the app open in front of you
+
+    def send(self, E, text, need=None):
+        """A message to you. With a need, its answers come as buttons under it; tapping one answers it as in the app."""
         token, chat = E.keys.get("telegram"), E.store.setting("telegram", {}).get("chat_id")
         if not (token and chat):
             raise RuntimeError("Telegram isn’t set up yet")
-        r = httpx.post(self.api(token, "sendMessage"), json={"chat_id": chat, "text": text[:4000]}, timeout=15)
+        body = {"chat_id": chat, "text": text[:4000]}
+        opts = [(i, o) for i, o in enumerate((need or {}).get("options") or []) if o not in self.APP_ONLY]
+        if opts:
+            body["reply_markup"] = {"inline_keyboard": [[{"text": o, "callback_data": f"need:{need['id']}:{i}"}] for i, o in opts]}
+        r = httpx.post(self.api(token, "sendMessage"), json=body, timeout=15)
         r.raise_for_status()
         return r.json()
+
+    def poll(self, E):
+        """The buttons you tapped in Telegram since last time. Only taps in your own chat count. Returns how many it answered."""
+        token, tg = E.keys.get("telegram"), E.store.setting("telegram", {})
+        if not (token and tg.get("chat_id")):
+            return 0
+        ups = httpx.get(self.api(token, "getUpdates"), params={"offset": tg.get("offset", 0), "timeout": 0}, timeout=15).json().get("result", [])
+        done = 0
+        for u in ups:
+            E.store.set_setting("telegram", {**E.store.setting("telegram", {}), "offset": u["update_id"] + 1})
+            q = u.get("callback_query") or {}
+            m = re.fullmatch(r"need:(\d+):(\d+)", q.get("data") or "")
+            msg = q.get("message") or {}
+            if not m or (msg.get("chat") or {}).get("id") != tg["chat_id"]:
+                continue
+            n, i = E.store.get("needs", int(m.group(1))), int(m.group(2))
+            opts = (n or {}).get("options") or []
+            if not n or n.get("status") != "open" or i >= len(opts):
+                note = "That was already answered."
+            else:
+                try:
+                    E.resolve(n["id"], opts[i])
+                    note, done = f"Done: {opts[i]}", done + 1
+                except (KeyError, ValueError) as e:
+                    note = str(e)[:150] or "That was already answered."
+            httpx.post(self.api(token, "answerCallbackQuery"), json={"callback_query_id": q.get("id"), "text": note}, timeout=15)
+            if msg.get("message_id"):  # the buttons go, so an old question can't be answered twice
+                httpx.post(self.api(token, "editMessageText"), json={"chat_id": tg["chat_id"], "message_id": msg["message_id"],
+                                                                      "text": f"{msg.get('text') or ''}\n\n→ {note}"[:4000]}, timeout=15)
+        return done
 
     def test(self, E):
         if not E.keys.get("telegram"):

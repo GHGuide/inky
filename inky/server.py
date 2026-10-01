@@ -290,7 +290,7 @@ def move(E, h, q, body, bid):
 def _own_skill(E, bid, sid):
     s = E.store.get("skills", int(sid))
     if not s or s.get("bot_id") != int(bid):
-        raise HTTPError(404, "That skill is gone.")
+        raise HTTPError(404, "That site is gone: it was forgotten.")
     return s
 
 
@@ -326,12 +326,12 @@ def skill(E, h, q, body, sid):
 def patch_skill(E, h, q, body, sid):
     was = E.store.get("skills", int(sid))
     if not was:
-        raise HTTPError(404, "That skill is gone.")
+        raise HTTPError(404, "That site is gone: it was forgotten.")
     patch = {k: v for k, v in body.items() if k in ("name", "steps", "max_pages", "start_url")}
     if "steps" in patch:
         ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
         if not isinstance(patch["steps"], list) or not patch["steps"] or not all(isinstance(st, dict) and st.get("action") in ok for st in patch["steps"]):
-            raise HTTPError(400, "A skill needs at least one step.")
+            raise HTTPError(400, "It needs at least one step.")
         if patch["steps"] != was.get("steps"):  # removing a step or "ask again" is a new version, like Show me once
             patch["version"] = (was.get("version") or 1) + 1
     if "name" in patch:
@@ -361,13 +361,13 @@ def export_skill(E, h, q, body, sid):
 def import_skill(E, h, q, body, bid):
     bot_or_404(E, bid)
     if not isinstance(body, dict) or body.get("inky_skill") != 1:
-        raise HTTPError(400, "That isn’t an Inky skill file." + (" It’s a bot file: import it on Your bots." if isinstance(body, dict) and body.get("bundle") else ""))
+        raise HTTPError(400, "That isn’t an Inky file." + (" It’s a bot file: import it on Your bots." if isinstance(body, dict) and body.get("bundle") else ""))
     steps = body.get("steps")
     ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
     if not isinstance(steps, list) or not steps or not all(isinstance(st, dict) and st.get("action") in ok for st in steps):
-        raise HTTPError(400, "That skill file has no steps Inky can run.")
+        raise HTTPError(400, "That file has no steps Inky can run.")
     if not skills_mod.web_address(body.get("start_url"), ""):
-        raise HTTPError(400, "That skill file has no web address to start on.")
+        raise HTTPError(400, "That file has no web address to start on.")
     s = {k: body[k] for k in ("name", "site", "goal", "start_url", "version", "max_pages") if k in body}
     s["name"] = (str(s.get("name") or "Imported skill").strip() or "Imported skill")[:60]
     s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in steps]  # someone else's yes isn't yours: it asks again

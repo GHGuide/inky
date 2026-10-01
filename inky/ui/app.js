@@ -69,7 +69,7 @@ const STATUS = { working: ["working", "#2F9E5B"], learning: ["learning", "#E86F5
 function botMeta(b) {
   const [t, c] = STATUS[b.status] || [b.status, "#C9C5BD"];
   let meta = t;
-  if (b.status === "working" || b.status === "learning") meta = b.step ? `${t} · ${b.step}` : t;
+  if (b.status === "working" || b.status === "learning") meta = b.site ? `${b.status === "learning" ? "learning" : "checking"} ${b.site}${b.sites_to_go > 1 ? ` · ${b.sites_to_go - 1} more after` : ""}` : t;  // the site, not the model's step: "Click to reveal" reads like an order
   else if (b.status === "idle" && b.held) meta = "paused · runs when you ask";
   else if (b.status === "idle" && b.next_run) {
     const d = new Date(b.next_run * 1000), days = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString())) / 864e5);
@@ -212,8 +212,8 @@ async function importFile(text) {
   try {
     if (d.inky_skill) {
       const id = location.hash.match(/#\/bot\/(\d+)/);
-      if (!id) return toast("Open a bot first, then open the skill file again.");
-      await post(`/api/bots/${id[1]}/skills/import`, d); toast("Skill added"); return refreshSoon();
+      if (!id) return toast("Open a bot first, then open the file again.");
+      await post(`/api/bots/${id[1]}/skills/import`, d); toast("Added"); return refreshSoon();
     }
     const r = await post("/api/import", d);
     await loadState(); location.hash = `#/bot/${r.bot.id}/computer?hatch=1`;

@@ -349,6 +349,136 @@ def j_new_user():
         E.close()
 
 
+FIVE = [  # docs/acceptance.md section A: the release gate
+    {"name": "Book Bargains", "say": "Every morning, find books under £20 on books.toscrape.com", "min": 10, "under": 20, "every": 1440},
+    {"name": "E-bike Hunter", "say": "Find second-hand e-bikes under €1500 in the Netherlands", "min": 5, "under": 1500, "sites": 3},
+    {"name": "Python Jobs", "say": "Tell me about new remote Python jobs on python.org", "min": 3, "word": "remote", "site": "python.org"},
+    {"name": "HN Watch", "say": "Every hour, tell me new Hacker News front page stories about AI", "min": 1, "every": 60, "word": "ai", "site": "news.ycombinator.com"},
+    {"name": "Contact Form", "say": "Send the message 'Is the flat still free?' through the contact form on http://127.0.0.1:8766/contact?id=1", "do": True},
+]
+
+
+def make(E, say, max_sites=4):
+    """What the New bot screen does: draft from your sentence, find sites unless you named one, tick them all, create, learn."""
+    d = E.api("POST", "/api/bots/draft", {"job": say})["draft"]
+    sites = [d["start_url"]] if d.get("start_url") and not d.get("guess") else \
+        [s["url"] for s in E.api("POST", "/api/sites", {"job": d["job"], "queries": d.get("search"), "guess": d.get("guess")}).get("sites", [])][:max_sites]
+    body = {**d, "start_url": sites[0] if sites else None, "more_sites": sites[1:], "every_minutes": d.get("every_minutes") or 0,
+            "filters": [{**f, "text": f.get("text") or f"{f['field']} {f['op']} {f['value']}"} for f in d.get("filters") or []]}
+    b = E.api("POST", "/api/bots", body)["bot"]
+    if body["start_url"]:
+        E.api("POST", f"/api/bots/{b['id']}/learn", {})
+    return b["id"], d, sites
+
+
+def j_five():
+    from tests import site_server
+    site = site_server.start(8766) if not _up("http://127.0.0.1:8766/") else None
+    sent = lambda: len(json.loads(urllib.request.urlopen("http://127.0.0.1:8766/__sent").read()))
+    urllib.request.urlopen("http://127.0.0.1:8766/__layout?v=1").read()
+    E = Engine()
+    rows, all_ok = [], True
+    try:
+        E.use()
+        for spec in FIVE:
+            bad, t0 = [], time.time()
+            bid, d, sites = make(E, spec["say"])
+            if spec.get("do"):
+                n0, asked = sent(), False
+                for _ in range(450):  # it learns, then must stop and ask before sending
+                    v = E.bot(bid)
+                    if v["needs"]:
+                        asked = True
+                        E.api("POST", f"/api/bots/{bid}/needs/{v['needs'][0]['id']}", {"decision": "Always for this step"})
+                        break
+                    if v["bot"]["status"] not in ("working", "learning") and not v["bot"].get("run_kind"):
+                        break
+                    time.sleep(2)
+                E.idle(bid)
+                if not asked or sent() - n0 != 1:
+                    bad.append(f"learning: asked {asked}, sent {sent() - n0}")
+                n1 = sent()
+                E.api("POST", f"/api/bots/{bid}/run", {"wait": True}, timeout=400)
+                if E.bot(bid)["needs"] or sent() - n1 != 1:
+                    bad.append(f"after Always: asked again {bool(E.bot(bid)['needs'])}, sent {sent() - n1}")
+                line = f"sent once when learning, once more without asking" if not bad else ""
+            else:
+                E.idle(bid, 3600)
+                v = E.bot(bid)
+                learns = [r for r in v["runs"] if r.get("kind") == "learn"]
+                ai = max([r.get("ai_calls") or 0 for r in learns] or [0])
+                found = E.api("GET", f"/api/bots/{bid}/results").get("results", [])
+                named = [r for r in found if r.get("title") or r.get("name")]
+                if not v["skills"]:
+                    bad.append("nothing learned")
+                if spec.get("sites") and len(v["skills"]) < spec["sites"]:
+                    bad.append(f"{len(v['skills'])} sites learned, wanted {spec['sites']}")
+                if ai > 12:
+                    bad.append(f"{ai} AI calls to learn a site")
+                if len(found) < spec["min"] or len(named) < len(found):
+                    bad.append(f"{len(found)} found, {len(named)} named")
+                if spec.get("under"):
+                    over = [r for r in found if (skills_num(r.get("price")) or 0) > spec["under"]]
+                    if over:
+                        bad.append(f"{len(over)} over {spec['under']}: {over[0].get('price')}")
+                if spec.get("word"):
+                    from inky.skills import has_word, norm
+                    off = [r for r in found if not has_word(norm(str(r.get("text") or r.get("title") or "")), spec["word"])]
+                    if off:
+                        bad.append(f"{len(off)} without “{spec['word']}”: {str(off[0].get('title'))[:40]}")
+                if spec.get("site") and not (sites and spec["site"] in sites[0]):
+                    bad.append(f"started on {sites[0] if sites else 'nothing'}, not {spec['site']}")
+                if any(not str(r.get("link") or r.get("url") or "").startswith("http") for r in found[:5]):
+                    bad.append("items without a working link")
+                if v["needs"]:
+                    bad.append(f"asked you: {[n['title'] for n in v['needs']]}")
+                before = {r["id"] for r in E.api("GET", f"/api/bots/{bid}/results").get("results", [])}
+                n_runs = len(E.bot(bid)["runs"])
+                E.api("POST", f"/api/bots/{bid}/run", {"wait": True}, timeout=900)
+                again = E.bot(bid)["runs"][:len(E.bot(bid)["runs"]) - n_runs]  # one run per site
+                if sum(r.get("ai_calls") or 0 for r in again):
+                    bad.append(f"repeat used {sum(r.get('ai_calls') or 0 for r in again)} AI calls")
+                for r in again:
+                    if r.get("status") != "ok":
+                        bad.append(f"repeat on {r.get('skill')}: {r.get('status')} {r.get('error') or ''}"[:140])
+                fresh = [r for r in E.api("GET", f"/api/bots/{bid}/results").get("results", []) if r.get("new") and r["id"] in before]
+                if fresh:
+                    bad.append(f"{len(fresh)} old items still marked new")
+                b = E.bot(bid)["bot"]
+                if spec.get("every") and (b["schedule"]["every_minutes"] != spec["every"] or not b.get("next_run")):
+                    bad.append(f"schedule {b['schedule']['every_minutes']} min, next {b.get('next_run')}")
+                reply = E.api("POST", f"/api/bots/{bid}/chat", {"text": "what did you find?"}, timeout=300).get("reply") or ""
+                if str(b["found"]) not in reply:
+                    bad.append(f"chat says “{reply[:80]}” but Found has {b['found']}")
+                line = f"{len(v['skills'])} site(s) {', '.join(s.split('/')[2] for s in sites[:4])} · {ai} AI calls · {len(found)} found · e.g. {named[0].get('title', '')[:40] if named else '-'} {named[0].get('price', '') if named else ''}"
+            ok = not bad
+            all_ok = all_ok and ok
+            rows.append(f"{'ok ' if ok else 'BAD'} {spec['name']} ({round(time.time() - t0)} s): {line}{'; '.join(bad)}")
+            print("   ", rows[-1], flush=True)
+        # autonomous: one bot on a 1-minute schedule must run by itself, with no AI
+        bid = E.api("GET", "/api/bots")["bots"][0]["id"]
+        n = len(E.bot(bid)["runs"])
+        E.api("PATCH", f"/api/bots/{bid}", {"schedule": {**E.bot(bid)["bot"]["schedule"], "every_minutes": 1}})
+        for _ in range(60):
+            if len(E.bot(bid)["runs"]) > n and E.bot(bid)["runs"][0].get("status") not in (None, "running"):
+                break
+            time.sleep(5)
+        r = E.bot(bid)["runs"][0]
+        auto = len(E.bot(bid)["runs"]) > n and r.get("status") == "ok" and not r.get("ai_calls")
+        all_ok = all_ok and auto
+        rows.append(f"{'ok ' if auto else 'BAD'} on its own: a 1-minute schedule ran {'by itself' if auto else 'not at all'} ({r.get('status')}, {r.get('ai_calls')} AI calls)")
+        return all_ok, "\n    " + "\n    ".join(rows)
+    finally:
+        E.close()
+        if site:
+            site.shutdown()
+
+
+def skills_num(v):
+    from inky.skills import parse_num
+    return parse_num(v)
+
+
 def _up(url):
     try:
         urllib.request.urlopen(url, timeout=2)
@@ -358,7 +488,7 @@ def _up(url):
 
 
 JOURNEYS = {"newuser": j_new_user, "books": j_watch_books, "find": j_find_sites, "real": j_real_sites, "do": j_do_and_change, "chat": j_chat,
-            "batch": j_batch, "handled": j_handled, "stop": j_stop, "share": j_share}
+            "batch": j_batch, "handled": j_handled, "stop": j_stop, "share": j_share, "five": j_five}
 
 if __name__ == "__main__":
     names = sys.argv[1:] or list(JOURNEYS)

@@ -561,12 +561,12 @@ VIEWS.new = {
 };
 
 // ================================================================ a bot
-const TABS = [["chat", "Chat"], ["results", "Found"], ["computer", "Watch"], ["settings", "Settings"], ["diary", "Diary"], ["skills", "Skills"], ["about", "About you"], ["activity", "Activity"], ["call", "Call"]];  // Chat is a tab on phones only
+const TABS = [["chat", "Chat"], ["results", "Found"], ["computer", "Watch"], ["settings", "Settings"], ["diary", "Diary"], ["skills", "Sites"], ["about", "About you"], ["activity", "Activity"], ["call", "Call"]];  // Chat is a tab on phones only
 const MAIN_TABS = new Set(["chat", "results", "computer", "settings"]);  // the rest sit under More
 const resultCard = (r, keys) => {  // one thing it found: picture, name (opens the page), price, and what else it knows
   const title = r.title || r.name || r[keys.find((k) => !/link|image|price/i.test(k))] || "Untitled";
   const img = keys.find((k) => /image|img|photo|thumb/i.test(k)), price = keys.find((k) => /price/i.test(k));
-  const rest = keys.filter((k) => !/^(title|name|link|url)$/i.test(k) && k !== img && k !== price && r[k] != null && String(r[k]).length < 60).slice(0, 3);
+  const rest = keys.filter((k) => !/^(title|name|link|url|text)$/i.test(k) && k !== img && k !== price && r[k] != null && String(r[k]).length < 60).slice(0, 3);
   const pic = img && /^https?:/.test(r[img] || "") ? `<img class="rimg" src="${esc(r[img])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="rimg none"></span>`;
   const body = `${pic}<span class="col grow" style="gap:2px;min-width:0"><b class="rtitle">${esc(title)}</b>${rest.length ? `<span class="small muted">${rest.map((k) => esc(String(r[k]))).join(" · ")}</span>` : ""}</span>
     <span class="col" style="align-items:flex-end;gap:4px">${price && r[price] ? `<b class="rprice">${esc(String(r[price]))}</b>` : ""}${r.new ? '<span class="badge hot">new</span>' : ""}</span>`;
@@ -609,9 +609,12 @@ function numOf(v) {
   const n = Number(t);
   return Number.isNaN(n) ? null : n;
 }
-function rowPasses(it, f) {
+function rowPasses(it, f) {  // the same as keep() in skills.py
+  if (f.field === "text" && !("text" in it)) it = { ...it, text: Object.entries(it).filter(([k, x]) => typeof x === "string" && k !== "link" && k !== "image").map(([, x]) => x).join(" ") };
   if (!(f.field in it)) return true;  // the site doesn't show it: can't judge (Results says so)
   const { op } = f, want = f.value, v = it[f.field], low = (s) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const word = (s, w) => { w = low(w); if (!w) return false; const e = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<![\\p{L}\\p{N}])${e}${w.length <= 3 ? "(?![\\p{L}\\p{N}])" : ""}`, "u").test(s); };  // a word, or the start of one
   if (["<", "<=", ">", ">="].includes(op)) {
     const a = numOf(v), b = numOf(want);
     return a !== null && b !== null && { "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b }[op];
@@ -620,11 +623,11 @@ function rowPasses(it, f) {
   const s = low(v);
   if (op === "==") return s === low(want);
   if (op === "!=") return s !== low(want);
-  if (op === "contains") return s.includes(low(want));
-  if (op === "not_contains") return !s.includes(low(want));
+  if (op === "contains") return word(s, want);
+  if (op === "not_contains") return !word(s, want);
   if (op === "in" || op === "not_in") {
     const ws = typeof want === "string" ? want.split(/[,;]/) : want || [];
-    const hit = ws.some((w) => low(w) && s.includes(low(w)));
+    const hit = ws.some((w) => word(s, w));
     return op === "in" ? hit : !hit;
   }
   return true;
@@ -805,7 +808,7 @@ VIEWS.bot = {
     $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning", "takeover", "showing"].includes(b.status) ? "live" : ""}" title="${esc(meta)}"><i style="background:${tk ? "var(--ink)" : m.color}"></i><span>${esc(meta)}</span></span>${lib}
       ${b.remote || b.mode === "screen" ? `<span class="mono small muted hide-s row where" style="gap:5px">${icon(b.remote ? "server" : "monitor", 13)}<span>${esc(b.remote || "your screen")}</span></span>` : ""}</div>
       <div class="row" style="flex-shrink:0">${show || tk ? "" : b.run_kind ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `${b.held ? `<button class="btn s" id="pz" title="Its schedule is paused">Resume schedule</button>` : ""}<button class="btn s" id="runnow">Run now</button>`}
-      ${b.remote ? `<button class="btn s hide-s bringback" title="Move ${esc(b.name)}, its memory and skills back to this computer">Bring back</button>` : ""}
+      ${b.remote ? `<button class="btn s hide-s bringback" title="Move ${esc(b.name)}, its memory and what it learned back to this computer">Bring back</button>` : ""}
       <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s sharebot" title="Download it, make a link, or post it to the library">Share</button>
       <details class="more"${open ? " open" : ""}><summary class="iconbtn" aria-label="More">⋯</summary><div class="card menu">
         <a href="#/bot/${b.id}/call">${icon("phone", 16, 1.9)} Call ${esc(b.name)}</a><button class="sharebot">Share</button>${b.remote ? `<button class="bringback">Bring back to this computer</button>` : ""}</div></details></div>`;
@@ -821,8 +824,8 @@ VIEWS.bot = {
     const b = { ...this.data.bot, ...(S.bots.find((x) => x.id === this.data.bot.id) || {}) };  // the newest step, even while you type
     const t = (S.thinking || []).find((x) => x.bot === b.id), run = b.run_kind;
     if (!run && !t) { box.classList.add("hidden"); box.innerHTML = ""; this.liveKey = ""; return; }
-    let site = ""; try { site = new URL(b.start_url).hostname.replace(/^www\./, ""); } catch (e) {}
-    const what = run === "learn" ? `Learning ${site || "a site"}` : run === "show" ? "Watching you show it" : run ? "Working" : "Thinking";
+    let site = b.site || ""; if (!site) try { site = new URL(b.start_url).hostname.replace(/^www\./, ""); } catch (e) {}  // b.site: where it is now, in a batch too
+    const what = run === "learn" ? `Learning ${site || "a site"}` : run === "show" ? "Watching you show it" : run ? `Checking ${site || "its sites"}` : "Thinking";
     const key = JSON.stringify([what, b.step, b.ai_calls, b.status, t && t.model]);
     if (key === this.liveKey) return;
     this.liveKey = key;
@@ -958,14 +961,14 @@ VIEWS.bot = {
     else if (!img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg");
     img.classList.toggle("hidden", idle); $("#idle").classList.toggle("hidden", !idle);
     const site = b.start_url || sk.length;  // Run now learns its site, or replays a skill; with neither it can only ask for a site
-    $("#idlehow").innerHTML = site ? "Press Run now, or Take over to use its computer yourself." : `Tell it a site in the chat, or in <a href="#/bot/${b.id}/skills">Skills</a> → Learn a new site.`;
+    $("#idlehow").innerHTML = site ? "Press Run now, or Take over to use its computer yourself." : `Tell it a site in the chat, or in <a href="#/bot/${b.id}/skills">Sites</a> → Learn a new site.`;
     $("#clock").textContent = new Date().toTimeString().slice(0, 5);
     const name = esc(b.name), calls = nWord(b.ai_calls, "AI call");
     const [what, how, dot] = tk ? (show ? ["Show it once", "click what it should click", "var(--ink)"] : ["You have control", "click and type on it", "var(--ink)"])
       : paused ? [`${name} is paused`, "press Resume to carry on", "var(--faint)"]
       : run && b.status === "needs_you" ? [`${name} is waiting for you`, "answer in the chat", "var(--coral)"]
       : run === "learn" ? [`${name} is learning`, `asks the AI once per step · ${calls}`, "var(--coral)"]
-      : run ? [`${name} is driving`, `replaying a saved skill · ${calls}`, "var(--coral)"]
+      : run ? [`${name} is driving`, `repeating what it learned · ${calls}`, "var(--coral)"]
       : [`${name}’s computer`, "not running", "var(--line2)"];
     $("#drv").innerHTML = `<span class="dot" style="background:${dot}"></span><b>${what}</b><span class="muted">· ${how}</span>`;
     const tkb = $("#tk");
@@ -983,27 +986,27 @@ VIEWS.bot = {
     const n = sk.length, done = this.data.runs.find((r) => r.status !== "running"), row = (k, v) => `<div class="between"><span class="muted">${k}</span><span>${v}</span></div>`;
     const went = (r) => (r ? esc(RUN_WORDS[r.status] || r.status) + " · " + ago(r.ts) : "–");
     $("#side").innerHTML = (run ? `<div class="head"><b>This run</b><span class="mono small muted">${calls}</span></div>
-      <div class="col small" style="gap:6px">${row("Skill", run === "learn" ? "learning a new one" : esc(skill ? skill.name : "none yet"))}
+      <div class="col small" style="gap:6px">${row("Doing", run === "learn" ? "learning a new site" : esc(skill ? skill.name : "none yet"))}
       ${row("Step", `<span class="mono">${b.step_n || "–"}${skill && run !== "learn" ? " of " + skill.steps.length : ""}</span>`)}${row("Last run", went(done))}</div>`
       : `<div class="head"><b>Last run</b><span class="mono small muted">${done ? nWord(done.ai_calls || 0, "AI call") : ""}</span></div>
-      <div class="col small" style="gap:6px">${row("Skill", done && done.kind === "learn" ? esc((sk.find((s) => s.id === done.learned) || { name: "learning a new one" }).name) : esc((done && done.skill) || (skill ? skill.name : "none yet")))}
+      <div class="col small" style="gap:6px">${row("Did", done && done.kind === "learn" ? esc((sk.find((s) => s.id === done.learned) || { name: "learning a new site" }).name) : esc((done && done.skill) || (skill ? skill.name : "none yet")))}
       ${row("How it went", went(done))}${done && done.items != null ? row("Results", done.items) : ""}</div>`) + `
       <div style="height:1px;background:var(--line)"></div><div class="head"><b>It remembers</b><a class="small" href="#/bot/${b.id}/about">Edit</a></div><div class="row wrap" style="gap:6px">${mem}</div>
       <div style="height:1px;background:var(--line)"></div><div class="col" style="gap:6px">${this.data.events.filter((e) => ["fixed", "repair", "problem", "learned"].includes(e.kind)).slice(0, 3).map((e) => `<span class="logl">${hhmm(e.ts)} · ${esc(one(e.text))}</span>`).join("") || `<span class="small muted">No fixes yet</span>`}</div>
-      ${n ? `<a class="small" href="#/bot/${b.id}/skills" style="margin-top:auto;font-weight:600">${n === 1 ? "See its skill" : `See all ${n} skills`}</a>` : ""}`;
+      ${n ? `<a class="small" href="#/bot/${b.id}/skills" style="margin-top:auto;font-weight:600">${n === 1 ? "See what it learned" : `See all ${n} sites it learned`}</a>` : ""}`;
     if (skill && run !== "learn") {
       const avg = this.aiPerRun(skill);
       $("#tlname").textContent = `${skill.name} · ${nWord(skill.steps.length, "step")}`;
-      $("#tlnote").textContent = `${run ? "replaying now" : "replays a saved skill"} · ${nWord(avg, "AI call")} per run`;
+      $("#tlnote").textContent = `${run ? "replaying now" : "repeats what it learned"} · ${nWord(avg, "AI call")} per run`;
       const at = run ? b.step_n : 0;
       $("#tl").innerHTML = skill.steps.map((s, i) => `<div class="st ${i + 1 === at ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(one(s.text))}">${esc(one(s.text))}</span><span class="p"><i style="width:${i + 1 < at ? 100 : i + 1 === at ? 55 : 0}%"></i></span></div>`).join("");
     } else {  // learning: only this learning run's steps, not earlier tries
       const lr = this.data.runs.find((r) => r.kind === "learn");
       const learned = lr ? this.data.events.filter((e) => e.kind === "learn" && (e.run ? e.run === lr.id : e.ts >= lr.ts - 1)).reverse() : [];
-      $("#tlname").textContent = run === "learn" ? "Learning…" : "No skill yet";
+      $("#tlname").textContent = run === "learn" ? "Learning…" : "Nothing learned yet";
       $("#tlnote").textContent = run === "learn" ? "you can correct any step in the chat" : "";
       $("#tl").innerHTML = learned.map((e, i) => `<div class="st ${i === learned.length - 1 && run === "learn" ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(one(e.text))}">${esc(one(e.text))}</span><span class="p"><i style="width:${i === learned.length - 1 && run === "learn" ? 55 : 100}%"></i></span></div>`).join("")
-        || `<span class="small muted">${b.start_url ? "Press Run now and it learns the site while you watch." : `Tell it a site and the job in the chat, or in <a href="#/bot/${b.id}/skills">Skills</a> → Learn a new site.`}</span>`;
+        || `<span class="small muted">${b.start_url ? "Press Run now and it learns the site while you watch." : `Tell it a site and the job in the chat, or in <a href="#/bot/${b.id}/skills">Sites</a> → Learn a new site.`}</span>`;
     }
   },
 
@@ -1013,7 +1016,7 @@ VIEWS.bot = {
       if (seq !== this.resultsSeq || this.tab !== "results" || !tb.isConnected) return;  // you went to another tab, or a newer draw is coming
       const f = (b.filters || []).filter((x) => x && x.field);
       const fields = new Set(all.flatMap((r) => Object.keys(r)));
-      const skip = all.length ? f.filter((x) => !fields.has(x.field)) : [];  // rules this site's results can't be checked against
+      const skip = all.length ? f.filter((x) => !fields.has(x.field) && x.field !== "text") : [];  // "text" falls back to all it read  // rules this site's results can't be checked against
       const checked = f.filter((x) => !skip.includes(x));
       const rows = all.filter((r) => checked.every((x) => rowPasses(r, x)));  // your rules as they are now, also right after you change them
       const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !["id", "ts", "run", "skill", "new", "last", "first"].includes(k));
@@ -1034,7 +1037,7 @@ VIEWS.bot = {
 
   tab_skills(tb) {  // the skills redraw in place (live_skills); the Learn a new site box keeps what you typed
     const b = this.data.bot;
-    tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
+    tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Add from a file</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
       <div id="skmain" style="display:contents"></div>
       <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div class="row wrap"><button class="btn p" id="learn">Learn it once</button><span class="small" id="lmsg" role="status"></span></div></div>`;
     const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer"))
@@ -1044,8 +1047,8 @@ VIEWS.bot = {
     $("#skf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       e.target.value = "";
-      let d; try { d = JSON.parse(await f.text()); } catch (err) { return toast("That file isn’t valid JSON, so it can’t be a skill file."); }
-      try { const r = await post(`/api/bots/${this.id}/skills/import`, d); this.skillSel = r.skill.id; toast(`Added the skill “${r.skill.name}”`, this.data.bot); this.refresh(true); }
+      let d; try { d = JSON.parse(await f.text()); } catch (err) { return toast("That file isn’t valid JSON, so it can’t be an Inky file."); }
+      try { const r = await post(`/api/bots/${this.id}/skills/import`, d); this.skillSel = r.skill.id; toast(`Added “${r.skill.name}”`, this.data.bot); this.refresh(true); }
       catch (err) { toast(err.message); }  // the engine says what's wrong with it
     };
     this.live_skills(tb);
@@ -1063,7 +1066,7 @@ VIEWS.bot = {
           ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
           <div class="card small"><b>If the page changes</b><span>1. It finds the button again by its name. No AI.</span><span>2. If that fails, it asks the model once and only acts when sure.</span><span>3. Otherwise it stops and asks you.</span></div>
           <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/bots/${b.id}/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
-          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/bots/${b.id}/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`;
+          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/bots/${b.id}/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Forget this site</button></aside></div>` : `<p class="muted">No sites learned yet.</p>`;
     // a step is found again by what it does, in the skill as it is now: never by its place in what this page drew
     const stepEdit = (i, change) => this.edit(async (d) => {
       const was = sel.steps[i], now = (d.skills || []).find((s) => s.id === sel.id);
@@ -1093,7 +1096,7 @@ VIEWS.bot = {
       <div class="card"><b>Schedule</b><span class="seg" id="every" role="group" aria-label="How often">${[[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [1440, "Daily"]].map(([v, t]) => `<button data-v="${v}">${t}</button>`).join("")}</span>
         <div class="between small"><label for="sum">Summary at</label><input class="f" type="time" id="sum" value="${esc(s.summary_at || "")}" style="width:130px;height:36px"></div>
         <div class="between small"><span>Quiet hours</span><span class="row" style="gap:6px"><input class="f" type="time" id="qf" aria-label="Quiet from" value="${esc(s.quiet_from || "")}" style="width:120px;height:36px"><span class="muted">to</span><input class="f" type="time" id="qt" aria-label="Quiet until" value="${esc(s.quiet_to || "")}" style="width:120px;height:36px"></span></div>
-        <span class="small muted">Skills replay with no AI, so checking often costs nothing extra.</span></div>
+        <span class="small muted">Checks repeat with no AI, so checking often costs nothing extra.</span></div>
       <div class="card"><b>What it may do</b><div id="rules" style="display:contents"></div>
         <label class="vh" for="rule">Add a rule</label><input class="f" id="rule" placeholder="Add a rule in your words, e.g. skip ground floor flats"><span class="small muted" id="rulenote" role="status"></span></div>
       <div class="card"><div class="head"><b>It remembers</b><span class="small muted" id="memn"></span></div><a class="btn s" href="#/bot/${b.id}/about" style="align-self:flex-start">About you</a></div>
@@ -1161,7 +1164,7 @@ VIEWS.bot = {
     follow($("#bname"), b.name); follow($("#sum"), s.summary_at || ""); follow($("#qf"), s.quiet_from || ""); follow($("#qt"), s.quiet_to || "");
     $$("#every button", tb).forEach((x) => { const on = +x.dataset.v === (s.every_minutes || 0); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
     $("#memn").textContent = `${nWord((b.memory || []).length, "thing")} about you`;
-    put("#delwhat", `<b>Delete ${esc(b.name)}</b><br><span class="small muted">Removes its skills, memory, results and computer${b.remote ? `, here and on ${esc(b.remote)}` : ""}. Can’t be undone.</span>`);
+    put("#delwhat", `<b>Delete ${esc(b.name)}</b><br><span class="small muted">Removes what it learned, its memory, results and computer${b.remote ? `, here and on ${esc(b.remote)}` : ""}. Can’t be undone.</span>`);
     if (put("#rules", rules.map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><span class="badge">${esc(RULE_KINDS[r.kind] || r.kind)}</span><span>${esc(ruleBody(r))}</span>${r.kind === "filter" || !BUILT_IN_RULES.has(r.text) ? `<button class="chip" data-rr="${i}" aria-label="Remove the rule “${esc(r.text)}”">remove</button>` : "<span></span>"}</div>`).join("")))
       $$("[data-rr]", tb).forEach((x) => (x.onclick = async () => {  // found again by what it says, in the bot as it is now
         const r = rules[+x.dataset.rr];
@@ -1371,7 +1374,7 @@ function hatch(b, intro) {
 function goodbye(b) {  // b.remote: it lives on another computer, and is deleted there too (or, if that one isn't answering, only here)
   const packed = { octopus: "tentacles", cat: "whiskers", blob: "goo" }[(b.look || {}).kind] || "tentacles", far = b.remote;
   modal(`<div class="col" style="align-items:center;text-align:center;gap:10px"><div id="byecrit">${botCritter({ ...b, status: "needs_you", needs: 1, need_kind: "decision" }, 110)}</div>
-    <h2 style="overflow-wrap:anywhere">${esc(b.name)} packed its ${packed}.</h2><span class="small muted">Delete for good? Its skills, memory and results go too${far ? `, here and on ${esc(far)}` : ""}. This can’t be undone.</span>
+    <h2 style="overflow-wrap:anywhere">${esc(b.name)} packed its ${packed}.</h2><span class="small muted">Delete for good? What it learned, its memory and results go too${far ? `, here and on ${esc(far)}` : ""}. This can’t be undone.</span>
     <span class="small bad hidden" id="byeerr" role="alert" style="background:none"></span>
     <div class="row wrap" style="justify-content:center"><button class="btn" id="byeno">Keep ${esc(b.name)}</button><button class="btn hot" id="byeyes">Delete</button><button class="btn hot hidden" id="byehere">Remove only here</button></div></div>`, () => {
     $("#byeno").onclick = closeModal;
@@ -1523,7 +1526,7 @@ VIEWS.needs = {
       btns.forEach((y) => (y.disabled = true));  // one answer per question, even on a double click
       if (await answerNeed(bid, nid, x.dataset.o)) {
         const who = b.name || "the bot", as = S.bots.find((y) => y.id === bid);
-        if (x.dataset.o === "Always for this step") toast(`It won’t ask for that step again. To take it back, open ${who} → Skills and press “ask again”.`, as);
+        if (x.dataset.o === "Always for this step") toast(`It won’t ask for that step again. To take it back, open ${who} → More → Sites and press “ask again”.`, as);
         if (x.dataset.o === "Always for this automation") toast(`It won’t ask for that hand-off again. To take it back, open ${who} → Settings and remove the automation.`, as);
         await this.refresh();
         const next = $("[data-need]", this.el) || $("h1", this.el);  // on to the next question, never onto a button that's off now
@@ -1567,7 +1570,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
   let p;
   try { p = await post("/api/library/preview", { url }); } catch (e) { return toast(e.message); }
   const L = p.listing, c = p.check, look = L.look || {}, have = p.have || [];
-  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span>${L.unverified ? `<span class="small" style="display:block;color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
+  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "site")}</span>${L.unverified ? `<span class="small" style="display:block;color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
     <p class="small">${esc(L.summary || "")}</p>
     ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes ${have.length > 1 ? "another" : "a second"} copy with its own computer.</span></span></div>` : ""}
     ${c.ok ? `<div class="col" style="gap:8px">
@@ -1594,7 +1597,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
 VIEWS.library = {
   async show(el, _, qs) {
     this.el = el; this.q = qs.get("q") || ""; this.tag = qs.get("tag") || ""; this.data = await get("/api/library");
-    el.innerHTML = `${mobileBar("Library")}<div class="page"><div><h1>Library</h1><p class="lede">Agents other people made and shared. Get one and it moves in with its skills, ready to run. Anyone can post one, and every file is checked before it’s listed.</p></div>
+    el.innerHTML = `${mobileBar("Library")}<div class="page"><div><h1>Library</h1><p class="lede">Agents other people made and shared. Get one and it moves in already knowing its sites, ready to run. Anyone can post one, and every file is checked before it’s listed.</p></div>
       <div class="row wrap"><input class="f grow" id="lq" type="search" placeholder="Search agents, sites, tags, authors" value="${esc(this.q)}" aria-label="Search the library" style="min-width:220px"><span class="row wrap" id="ltags" style="gap:6px"></span></div>
       ${this.data.error && !this.data.agents.length ? `<div class="card panel small">${esc(this.data.error)}</div>` : ""}
       <div class="grid3" id="lgrid" aria-live="polite"></div>
@@ -1629,7 +1632,7 @@ VIEWS.library = {
   },
 };
 function shareBot(b) {  // Share: download the file, make a link anyone can open, or post it to the library
-  modal(`<div class="row">${botCritter(b, 44)}<h2>Share ${esc(b.name)}</h2></div><span class="small muted">What you share is its skills, rules, look and personality. Never your sign-ins, memory, results or chat.</span>
+  modal(`<div class="row">${botCritter(b, 44)}<h2>Share ${esc(b.name)}</h2></div><span class="small muted">What you share is what it learned, its rules, look and personality. Never your sign-ins, memory, results or chat.</span>
     <label class="l" for="shsum">One line about what it does</label><input class="f" id="shsum" value="${esc(b.summary || b.goal || "")}">
     <label class="l" for="shtags">Tags (optional, comma separated)</label><input class="f" id="shtags" placeholder="shopping, flats">
     <div class="col" style="gap:8px"><button class="btn p" id="shcode">${icon("link", 16)}Copy a share link</button>
@@ -1647,7 +1650,7 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
       busyBtn(btn, true, "Checking…");
       let p;
       try { p = await post(`/api/bots/${b.id}/publish/preview`, { meta: meta() }); } catch (e) { failed(e.message); return null; } finally { busyBtn(btn, false); }
-      if (!p.check.ok) { out(`<div class="chk"><i class="bad">!</i><span><b>Not shareable yet</b><br><span class="small">${p.check.problems.map(esc).join("<br>")}</span><br><span class="small muted">Fix these on the bot (tell it, or use its Settings and Skills), then press this again. Nothing was made public.</span></span></div>`); return null; }
+      if (!p.check.ok) { out(`<div class="chk"><i class="bad">!</i><span><b>Not shareable yet</b><br><span class="small">${p.check.problems.map(esc).join("<br>")}</span><br><span class="small muted">Fix these on the bot (tell it, or use its Settings and Sites), then press this again. Nothing was made public.</span></span></div>`); return null; }
       return p;
     };
     const confirmPublic = (p, go, label) => {
@@ -1674,7 +1677,7 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
       busyBtn(btn, false);
       if (r.mode === "blocked") return out(`<div class="chk"><i class="bad">!</i><span><b>Not shareable yet</b><br><span class="small">${r.problems.map(esc).join("<br>")}</span></span></div>`);
       if (r.mode !== "link") return failed(r.text || "Couldn’t make the link.");
-      out(`<span class="small good">✓ Link ready. It carries ${esc(b.name)}${/s$/i.test(b.name) ? "’" : "’s"} skills, rules and look, never your sign-ins, memory or results. Visits ${esc(r.check.domains.join(", ") || "no sites")}.</span>
+      out(`<span class="small good">✓ Link ready. It carries ${esc(b.name)}${/s$/i.test(b.name) ? "’" : "’s"} sites, rules and look, never your sign-ins, memory or results. Visits ${esc(r.check.domains.join(", ") || "no sites")}.</span>
         <div class="row"><input class="f mono grow" id="shl" value="${esc(r.link)}" readonly aria-label="Share link"><button class="btn s" id="shcopy">Copy</button></div>
         <span class="small muted">Send it in any chat or email. If it doesn’t open Inky when clicked, they paste it into Library → “Got a share link?”.</span>`);
       $("#shcopy").onclick = () => copyText(r.link, $("#shcopy"), $("#shl"));
@@ -1897,7 +1900,7 @@ VIEWS.computers = {
     $$("[data-move]", box).forEach((x) => (x.onclick = () => {
       const b = S.bots.find((y) => y.id === +x.dataset.move), targets = (this.computers || []).filter((c) => c.kind === "remote" && c.ok);
       modal(`<div class="row">${botCritter(b, 44)}<h2 class="cname">Move ${esc(b.name)}</h2></div><label class="l" for="mt">To</label><select class="f" id="mt">${targets.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select>
-        <span class="small muted">${targets.length ? "It pauses between runs, packs its memory, skills and sign-ins, runs one check there, and only then leaves this computer." : "No paired server answers right now. Pair one below, or check it’s on."}</span><div class="col" id="moveprog" role="status"></div>
+        <span class="small muted">${targets.length ? "It pauses between runs, packs its memory, what it learned and its sign-ins, runs one check there, and only then leaves this computer." : "No paired server answers right now. Pair one below, or check it’s on."}</span><div class="col" id="moveprog" role="status"></div>
         <div class="row" style="justify-content:flex-end"><button class="btn" id="mcancel">Cancel</button><button class="btn p" id="mgo" ${targets.length ? "" : "disabled"}>Move it</button><button class="btn p hidden" id="moveclose">Done</button></div>`, () => {
         $("#mcancel").onclick = closeModal;
         $("#mgo").onclick = () => this.starting(async () => {
@@ -1909,7 +1912,7 @@ VIEWS.computers = {
     }));
   },
   bringBack(b) {  // one bot that moved away comes home, with progress
-    modal(`<div class="row">${botCritter(b, 44)}<h2 class="cname">Bring ${esc(b.name)} back</h2></div><span class="small muted">It stops there, packs its memory, skills and sign-ins, and moves back to this computer.</span>
+    modal(`<div class="row">${botCritter(b, 44)}<h2 class="cname">Bring ${esc(b.name)} back</h2></div><span class="small muted">It stops there, packs its memory, what it learned and its sign-ins, and moves back to this computer.</span>
       <div class="col" id="moveprog" role="status"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="mcancel">Close</button><button class="btn p hidden" id="moveclose">Done</button></div>`, () => {
       $("#mcancel").onclick = closeModal;
       this.starting(() => { this.moving = b.id; post(`/api/bots/${b.id}/bring-back`, {}).catch((e) => this.progress({ bot: b.id, step: "failed", text: e.message })); });
@@ -2341,7 +2344,7 @@ VIEWS.connectors = {
           <div class="col" style="gap:4px"><label class="small" for="mc">Command that starts it</label><input class="f mono" id="mc" placeholder="npx -y @modelcontextprotocol/server-github" autocomplete="off" spellcheck="false"></div></div>
         <div class="col" style="gap:4px"><label class="small" for="me">Settings it needs (optional, one per line)</label><textarea class="f mono" id="me" rows="2" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=…" autocomplete="off" spellcheck="false"></textarea></div>
         <div><button class="btn s" id="madd">Add and connect</button></div><span class="small" id="mres" role="status"></span></form></section>
-      <section class="card"><b>Let Claude Code and Codex use your bots</b><span class="small muted">Inky is an MCP server too. They can list your bots, message them, run their skills and read what they found. Approving Needs-you items stays in this app.</span>
+      <section class="card"><b>Let Claude Code and Codex use your bots</b><span class="small muted">Inky is an MCP server too. They can list your bots, message them, run them and read what they found. Approving Needs-you items stays in this app.</span>
         <div class="row wrap">${agents.map((c) => `<button class="btn" data-addinky="${c.name}" ${c.installed ? "" : "disabled"}>${logo(c.logo, 20)}Add Inky to ${esc(c.label)}</button>`).join("")}</div><span class="small" id="addres" role="status"></span>
         <details data-keep="diy"><summary class="small">Or do it yourself</summary><div class="between"><label class="l">Claude Code</label><button type="button" class="btn s" data-copy="claude_cli">Copy</button></div><pre class="code">${esc(inky.claude_cli)}</pre>
           <div class="between"><label class="l">Codex (~/.codex/config.toml)</label><button type="button" class="btn s" data-copy="codex_toml">Copy</button></div><pre class="code">${esc(inky.codex_toml)}</pre></details></section></div>`;

@@ -76,6 +76,7 @@ EXTRACT_JS = r"""(spec) => {
       const [css, attr] = v.split('@');
       const el = css ? it.querySelector(css) : it;
       row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
+      if (k === 'text' && row[k]) row[k] = row[k].slice(0, 400);
       if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }
     return row;
@@ -88,7 +89,11 @@ LISTS_JS = r"""() => {
   const skip = (el) => el.closest('inky-overlay,nav,header,footer,[role=navigation],[role=banner],[role=contentinfo]');
   const cls = (el) => [...el.classList].filter((c) => !/^(active|selected|current|odd|even|first|last|hover|focus|open|show|is-|js-)|\d{3,}/.test(c)).slice(0, 2);
   const sig = (el) => el.tagName.toLowerCase() + cls(el).map((c) => '.' + CSS.escape(c)).join('');
-  const PRICE = /([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)\s*\d|\d[\d.,\s]*\s*([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)/i;
+  const CUR = /([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)\s*\d|\d[\d.,\s]*\s*([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)/i;
+  // a price shops print without the sign: "1.450,00", "1.450,-", "1,450.00" (cents may sit in their own element: "1.450,\n00")
+  const BARE = /^\d{1,3}(?:\.\d{3})*,(?:\d{2}|-{1,2}|—)$|^\d{1,3}(?:,\d{3})*\.\d{2}$/;
+  const PRICE = { test: (t) => CUR.test(t) || String(t).split('\n').some((l, i, a) => { const x = l.replace(/\s+/g, ''), y = x + (a[i + 1] || '').replace(/\s+/g, '');
+    return x.length < 14 && (BARE.test(x) || (/[.,]$/.test(x) && BARE.test(y))); }) };
   const path = (el) => {  // a selector for this element that's short and still points at it
     const parts = [];
     for (let n = el; n && n !== document.body && parts.length < 6; n = n.parentElement) {
@@ -133,20 +138,34 @@ LISTS_JS = r"""() => {
     peers = g.els.slice(0, 15);
     const links = [...first.querySelectorAll('a[href]')].concat(first.matches('a[href]') ? [first] : []);
     const head = first.querySelector('h1,h2,h3,h4,h5,h6,[class*=title],[class*=name]');
-    const a = links.find((l) => l.getAttribute('title')) || (head && (head.matches('a[href]') ? head : head.querySelector('a[href]'))) ||
-              links.sort((x, y) => (y.innerText || '').trim().length - (x.innerText || '').trim().length)[0];
-    if (a && a.getAttribute('title')) fields.title = (a === first ? '' : rel(first, a)) + '@title';
+    // the result's own link goes somewhere different in every result; "more jobs in Worldwide" or a category link repeats
+    const differs = (l) => { if (l === first) return peers.length; const c = rel(first, l);
+      return new Set(peers.map((it) => { try { const x = it.querySelector(c); return x && x.getAttribute('href'); } catch (e) { return null; } }).filter(Boolean)).size; };
+    const ranked = links.map((l, i) => ({ l, i, u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
+      .sort((x, y) => y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
+    const a = ranked.length ? ranked[0].l : null;
+    const atext = a ? (a.innerText || '').trim() : '', ttl = a ? (a.getAttribute('title') || '').trim() : '';
+    const sole = head && a && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
+    if (ttl && atext && ttl.toLowerCase().startsWith(atext.replace(/(\.\.\.|…)$/, '').trim().toLowerCase().slice(0, 12)))
+      fields.title = (a === first ? '' : rel(first, a)) + '@title';  // a cut-off name whose full name is in its title
+    else if (sole) fields.title = rel(first, head);
+    else if (a && a !== first && atext.length >= 3) fields.title = rel(first, a);
     else if (head) fields.title = rel(first, head);
     else if (a) fields.title = a === first ? '' : rel(first, a);
     if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
     const leaves = [...first.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
     // the price: not a discount badge ("€424 korting", "-20%"), not a struck-out old price; the sale/current one when there are two
     const OFF = /korting|discount|rabatt|réduction|sconto|descuento|reducere|bespaar|save|you save|\boff\b|%|was\b|before|vorher|avant|prima/i;
-    const OLD = (e) => e.closest('del,s,strike') || /old|was|compare|regular|strike|before|original|list-price/i.test(String(e.className || '') + ' ' + String((e.parentElement || {}).className || ''));
-    const prices = leaves.filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
+    const OLDW = 'old|was|compare|regular|strike|before|original|list-?price';  // whole words in class names: a random "kOLdPq" isn't one
+    const OLD = (e) => { const c = String(e.className || '') + ' ' + String((e.parentElement || {}).className || '');
+      return e.closest('del,s,strike') || new RegExp(`(^|[-_\\s])(${OLDW})([-_\\s]|$)`, 'i').test(c) || new RegExp(`(^|[-_\\s])(${OLDW})[A-Z]`).test(c); };
+    // a price split over a few tiny elements ("1.450," and "00") counts as one
+    const small = [...first.querySelectorAll('*')].filter((e) => e.children.length && e.children.length <= 3 && (e.innerText || '').trim().length < 20 && [...e.children].every((c) => !c.children.length));
+    const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
     const price = prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
       || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
     if (price) fields.price = rel(first, price);
+    if (fields.title !== '') fields.text = '';  // everything the result shows (place, company, tags), for rules like “remote”
     const img = first.querySelector('img');
     if (img) fields.image = rel(first, img) + '@src';
     out.push({ item, fields, count: document.querySelectorAll(item).length, priced: g.priced > 0.5 });

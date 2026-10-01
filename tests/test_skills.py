@@ -135,3 +135,13 @@ class SkillsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefusedPageTest(unittest.TestCase):
+    def test_block_pages_are_recognised_and_normal_pages_are_not(self):
+        blocked = {"title": "Attention Required! | Cloudflare", "heads": ["Sorry, you have been blocked"], "text": "You are unable to access bikefair.org", "elements": [{}] * 5}
+        self.assertTrue(skills.refused_page(blocked))
+        self.assertTrue(skills.refused_page({"title": "403 Forbidden", "heads": [], "text": "", "elements": []}))
+        shop = {"title": "E-bikes", "heads": ["Used e-bikes"], "text": "Access denied? Call us. 48 bikes in stock", "elements": [{}] * 120}
+        self.assertFalse(skills.refused_page(shop))  # a big real page that happens to use the words
+        self.assertFalse(skills.refused_page({"title": "Books", "heads": ["All products"], "text": "A Light in the Attic £51.77", "elements": [{}] * 10}))

@@ -101,8 +101,16 @@ def parse_num(v):
         return None
 
 
+def has_word(s, w):
+    """w in s as a word or the start of one: “remote” finds “Remote (EU)”, “bike” finds “bikes”, but “ai” doesn't find “rain”."""
+    w = norm(str(w))
+    return bool(w) and bool(re.search(rf"(?<![^\W_]){re.escape(w)}" + (r"(?![^\W_])" if len(w) <= 3 else ""), s))
+
+
 def keep(item, f):
     op, want = f.get("op"), f.get("value")
+    if f.get("field") == "text" and "text" not in item:  # anything shown in the result: what was read of it
+        item = {**item, "text": " ".join(str(x) for k, x in item.items() if isinstance(x, str) and k not in ("link", "image"))}
     if f.get("field") not in item:  # the site has no such field: can't judge, so keep (unchecked() reports it)
         return True
     v = item.get(f.get("field"))
@@ -120,12 +128,12 @@ def keep(item, f):
     if op == "!=":
         return s != norm(str(want))
     if op == "contains":
-        return norm(str(want)) in s
+        return has_word(s, want)
     if op == "not_contains":
-        return norm(str(want)) not in s
+        return not has_word(s, want)
     if op in ("in", "not_in"):
         ws = [w.strip() for w in re.split(r"[,;]", want)] if isinstance(want, str) else (want or [])  # "Bari, Lecce" or a list
-        hit = any(norm(str(w)) and norm(str(w)) in s for w in ws)
+        hit = any(has_word(s, w) for w in ws)
         return hit if op == "in" else not hit
     return True
 
@@ -138,7 +146,7 @@ def apply_filters(items, filters):
 def unchecked(items, filters):
     """Rules this site's results can't be checked against (their field isn't extracted)."""
     fields = {k for it in items[:20] for k in it}
-    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or [] if items and f.get("field") not in fields]
+    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or [] if items and f.get("field") not in fields | {"text"}]
 
 
 def item_key(it):
@@ -207,6 +215,16 @@ def error_page(page):
     head = f"{page.get('title') or ''} {' '.join(page.get('heads') or [])} {(page.get('text') or '')[:160]}"
     return bool(re.search(r"\b(404|410|500|502|503)\b|not found|page (doesn.t|does not) exist|niet gevonden|nicht gefunden|introuvable|no encontrad|non trovat|nu a fost găsit", head, re.I)) \
         and len(page.get("elements") or []) < 40
+
+
+REFUSED = re.compile(r"you have been blocked|you are unable to access|access (is )?denied|403 forbidden|request (was |has been )?blocked|"
+                     r"attention required|you don.t have permission to access|toegang geweigerd|zugriff verweigert|accès refusé", re.I)
+
+
+def refused_page(page):
+    """The site turned the bot away (Cloudflare's “Sorry, you have been blocked”, Access denied, 403): nothing to learn there."""
+    head = f"{page.get('title') or ''} {' '.join(page.get('heads') or [])} {(page.get('text') or '')[:300]}"
+    return bool(REFUSED.search(head)) and len(page.get("elements") or []) < 40
 
 
 def home_page(url):
@@ -287,6 +305,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
                             "Bots don’t solve these. Solve it once on its computer and it carries on, or skip it for now.", ["Open its computer", "Skip for now"])
+        if refused_page(page):
+            raise NeedsHelp("blocked", f"{urlparse(page['url']).netloc.removeprefix('www.')} doesn’t let bots in",
+                            f"It showed “{short(page.get('title') or (page.get('heads') or ['Access denied'])[0], 60)}”, so I skipped it. Nothing for you to do.")
         u = urlparse(page["url"])
         if watch and not extract and page["url"] not in looked and (steps or u.path.strip("/") or u.query):
             looked.add(page["url"])  # a page that already lists priced results: read them now, no need to go on clicking
@@ -546,6 +567,9 @@ def replay(ctx, skill, repair_role="repair"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
                             "Bots don’t solve these. Solve it once on its computer and it carries on, or skip this run.",
                             ["Open its computer", "Skip this run"], step=i)
+        if refused_page(page):  # it let us in before: most likely for a while only, so it's tried again later
+            raise NeedsHelp("error", f"{urlparse(page['url']).netloc.removeprefix('www.')} turned the bot away this time",
+                            f"It showed “{short(page.get('title') or 'Access denied', 60)}”.", step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])
             items += rows

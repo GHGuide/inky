@@ -19,6 +19,7 @@ from inky.store import Store
 class Fake(BaseHTTPRequestHandler):
     """Telegram (/bot<token>/…), n8n (/api/v1/…, /webhook/…) and Apify (/v2/…) in one server."""
     seen = []
+    updates = None  # set by a test: what getUpdates returns
 
     def _send(self, obj, status=200):
         data = json.dumps(obj).encode()
@@ -36,6 +37,8 @@ class Fake(BaseHTTPRequestHandler):
         Fake.seen.append(("GET", self.path, dict(self.headers)))
         if self.path.endswith("/getMe"):
             return self._send({"ok": True, "result": {"username": "inky_test_bot"}})
+        if "/getUpdates" in self.path and Fake.updates is not None:
+            return self._send({"ok": True, "result": Fake.updates})
         if "/getUpdates" in self.path:
             return self._send({"ok": True, "result": [
                 {"update_id": 1, "message": {"text": "hello", "chat": {"id": 111}}},
@@ -53,6 +56,8 @@ class Fake(BaseHTTPRequestHandler):
         Fake.seen.append(("POST", self.path, body))
         if self.path.endswith("/sendMessage"):
             return self._send({"ok": True, "result": {"message_id": 9}})
+        if self.path.endswith(("/answerCallbackQuery", "/editMessageText")):
+            return self._send({"ok": True, "result": True})
         if self.path == "/api/v1/credentials":
             return self._send({"id": "c1", "name": body["name"]})
         if self.path == "/api/v1/workflows":
@@ -131,6 +136,29 @@ class ConnectorTest(unittest.TestCase):
         r = tg.test(E)
         self.assertTrue(r["ok"])
         self.assertEqual(Fake.seen[-1][2]["chat_id"], 4242)
+
+    def test_telegram_buttons_answer_a_question_from_your_chat_only(self):
+        E = make_env()
+        tg = connectors.PROVIDERS["telegram"]
+        tg.save(E, {"token": "123456789:AAfakeTokenForTestsOnly_0123456"})
+        tg.find_chat(E)
+        nid = E.store.insert("needs", {"kind": "decision", "title": "Send it?", "options": ["Approve", "Deny", "Show me once"]}, bot_id=1, status="open")
+        tg.send(E, "Agency Note: Send it?", need=E.store.get("needs", nid))
+        keys = [b["callback_data"] for row in Fake.seen[-1][2]["reply_markup"]["inline_keyboard"] for b in row]
+        self.assertEqual(keys, [f"need:{nid}:0", f"need:{nid}:1"])  # “Show me once” needs the app, so it isn't offered
+        chosen = []
+        E.resolve = lambda n, d: (chosen.append((n, d)), E.store.update("needs", n, status="resolved", decision=d))
+        Fake.updates = [{"update_id": 7, "callback_query": {"id": "q1", "data": f"need:{nid}:0", "message": {"message_id": 9, "chat": {"id": 111}, "text": "x"}}},
+                        {"update_id": 8, "callback_query": {"id": "q2", "data": f"need:{nid}:1", "message": {"message_id": 9, "chat": {"id": 4242}, "text": "Send it?"}}},
+                        {"update_id": 9, "callback_query": {"id": "q3", "data": f"need:{nid}:0", "message": {"message_id": 9, "chat": {"id": 4242}, "text": "Send it?"}}}]
+        try:
+            self.assertEqual(tg.poll(E), 1)
+        finally:
+            Fake.updates = None
+        self.assertEqual(chosen, [(nid, "Deny")])  # a stranger's tap (chat 111) did nothing; the second tap came too late
+        self.assertEqual(E.store.setting("telegram")["offset"], 10)
+        notes = [b["text"] for m, p, b in Fake.seen if p.endswith("/answerCallbackQuery")]
+        self.assertEqual(notes[-2:], ["Done: Deny", "That was already answered."])
 
     def test_n8n_lists_workflows_sends_skills_and_triggers(self):
         E = make_env()
