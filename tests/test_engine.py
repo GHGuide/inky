@@ -151,7 +151,18 @@ class EngineTest(unittest.TestCase):
         urllib.request.urlopen(self.base + "/__layout?v=2").read()
         E.run(bid)
         self.assertTrue(wait(lambda: not E.busy(bid), 60))
+        # the first time it doesn't ask you: it plans to try again on its own (learning the site again) and says so
+        self.assertFalse([n for n in E.store.find("needs", bot_id=bid, status="open") if n["kind"] == "fix_failed"])
+        b = E.store.get("bots", bid)
+        self.assertEqual([r["do"] for r in b["retries"]], ["learn"])
+        self.assertIn("nothing for you to do", E.store.find("messages", bot_id=bid, limit=1)[0]["text"])
+        # the third failure in a row is worth your time, once
+        sid = E.store.find("skills", bot_id=bid)[0]["id"]
+        E.store.update("bots", bid, fails={f"skill:{sid}": 2}, retries=[])
+        E.run(bid)
+        self.assertTrue(wait(lambda: not E.busy(bid), 60))
         need = next(n for n in E.store.find("needs", bot_id=bid, status="open") if n["kind"] == "fix_failed")
+        self.assertIn("3 times in a row", need["title"])
         self.assertEqual(need["confidence"], 0.3)
         E.resolve(need["id"], "Show me once")
         self.assertTrue(wait(lambda: E.runs[bid].paused.is_set(), 60))

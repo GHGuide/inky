@@ -110,6 +110,7 @@ def is_question(t):
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
 
 
+SELF_HANDLED = {"error", "fix_failed", "learn_failed", "batch_failed", "blocked"}  # a bot sorts these out itself; Needs you is for what only you can do
 ACTIONS = {"add_rule", "remove_rule", "remember", "forget", "learn", "run", "schedule", "pause", "resume", "stop", "speed",
            "delegate", "ask_bot", "add_automation"}
 CHANGES = ACTIONS - {"remember", "learn", "ask_bot"}  # those two have their own checks; asking another bot changes nothing
@@ -399,6 +400,17 @@ class Engine:
         self.computers, self.runs, self.waits = {}, {}, {}
         for r in self.store.find("runs", status="running", limit=1000):  # a restart ended them: say so instead of "running" forever
             self.store.update("runs", r["id"], status="stopped", note="Inky restarted")
+        for n in self.store.find("needs", status="open", limit=500):  # problems the bot handles itself now: closed, and tried again soon
+            if n.get("kind") in SELF_HANDLED and not n.get("asked"):
+                self.store.update("needs", n["id"], status="resolved", decision="Handled by the bot")
+                b = self.store.get("bots", n["bot_id"])
+                if b:
+                    urls = n.get("urls") or [n.get("url") or (self.store.get("skills", n["skill_id"]) or {}).get("start_url") if n.get("skill_id") else n.get("url")]
+                    rs = list(b.get("retries") or [])
+                    for i, u in enumerate(u for u in urls if u):
+                        rs.append({"key": f"need:{n['id']}:{i}", "at": time.time() + 60 * (len(rs) + 1), "sid": n.get("skill_id"), "url": u, "goal": n.get("goal") or b.get("goal"),
+                                   "do": "learn" if n.get("kind") == "fix_failed" or not n.get("skill_id") else "run"})
+                    self.store.update("bots", b["id"], retries=rs)
         self.hops = {}  # (from bot, to bot) -> times, so two bots can't talk in circles
         self.lock = threading.RLock()
         self._sched = None
@@ -649,6 +661,10 @@ class Engine:
             self.store.event(bid, "denied", h.title)
             self.bus.publish("messages", bot=bid)
             return None
+        if h.kind in SELF_HANDLED and not meta.pop("ask", False):  # the bot deals with it; you only hear about it
+            return self.handle(bid, h, **meta)
+        if h.kind in SELF_HANDLED:
+            meta["asked"] = True  # it asked on purpose (tried three times, or you were showing it): never closed on its own
         roles = self.llm.roles()
         opts = [o for o in h.options if not (o == "Try a smarter model" and roles.get("smart") == roles.get("repair"))]  # same model: no point
         if not (meta.get("skill_id") or h.meta.get("skill_id")):  # nothing to replay up to: showing it once can't record anything
@@ -666,6 +682,50 @@ class Engine:
         self.bus.publish("needs", bot=bid)
         self.notify(bid, f"{h.title}\n{h.body}")
         return nid
+
+    def handle(self, bid, h, **meta):
+        """A problem the bot sorts out itself: it tries again later (learning the site again when a step broke), and only after
+        the third time in a row does it ask you, once. A rule or a site fence that stopped it is just said."""
+        b = self.store.get("bots", bid)
+        if h.kind == "blocked":
+            self.store.message(bid, "bot", f"{h.title}. {h.body}")
+            self.store.event(bid, "handled", h.title)
+            self.bus.publish("messages", bot=bid)
+            return None
+        sid = meta.get("skill_id") or h.meta.get("skill_id")
+        sk = self.store.get("skills", sid) if sid else None
+        urls = [u for u in (meta.get("urls") or h.meta.get("urls") or [meta.get("url") or h.meta.get("url") or (sk or {}).get("start_url")]) if u]
+        host = lambda u: (urlparse(u).netloc or u).removeprefix("www.")
+        fails, retries, later = dict(b.get("fails") or {}), list(b.get("retries") or []), []
+        for u in urls or [None]:
+            key = f"skill:{sid}" if sid else f"site:{skills.site_of(urlparse(u or '').hostname or '')}"
+            n = fails.get(key, 0) + 1
+            fails[key] = n
+            if n >= 3:  # it keeps failing: now it's worth your time, once
+                fails[key] = 0
+                self.store.update("bots", bid, fails=fails)
+                opts = ["Show me once", "Learn it again", "Remove this site"] if sid else ["Show me once", "Try again", "Skip this site"]
+                return self.problem(bid, skills.NeedsHelp(h.kind, f"{host(u or '') or 'A site'} hasn’t worked {n} times in a row",
+                                                          f"{h.body} I tried again each time on my own.", opts),
+                                    ask=True, **{k: v for k, v in {**h.meta, **meta, "url": u, "skill_id": sid}.items() if k != "urls"})
+            if not any(r.get("key") == key for r in retries):
+                at = time.time() + (1800 if n == 1 else 7200)  # in half an hour, then in two hours
+                retries.append({"key": key, "at": at, "sid": sid, "url": u, "goal": meta.get("goal") or b.get("goal"),
+                                "do": "learn" if (h.kind == "fix_failed" and sk) or not sid else "run"})
+                later.append(at)
+        self.store.update("bots", bid, fails=fails, retries=retries)
+        when = datetime.fromtimestamp(min(later)).strftime("%H:%M") if later else "soon"
+        what = ", ".join(host(u) for u in urls[:3]) + (f" and {len(urls) - 3} more" if len(urls) > 3 else "") if urls else "it"
+        text = f"{h.title} ({what}). I’ll try again on my own at {when}; nothing for you to do."
+        self.store.message(bid, "bot", text, handled=True)
+        self.store.event(bid, "handled", text)
+        self.bus.publish("messages", bot=bid)
+        return None
+
+    def _worked(self, bid, key):
+        b = self.store.get("bots", bid) or {}
+        if key in (b.get("fails") or {}):
+            self.store.update("bots", bid, fails={k: v for k, v in b["fails"].items() if k != key})
 
     def resolve(self, nid, decision, bot_id=None):
         n = self.store.get("needs", nid)
@@ -690,6 +750,20 @@ class Engine:
     def _follow_up(self, n, decision):
         """Answers to Problems (the run already ended)."""
         bid = n["bot_id"]
+        if decision == "Learn it again":
+            sk = self.store.get("skills", n.get("skill_id")) if n.get("skill_id") else None
+            u = n.get("url") or (sk or {}).get("start_url")
+            if u:
+                self.learn(bid, n.get("goal") or (self.store.get("bots", bid) or {}).get("goal"), u, replace=n.get("skill_id"))
+            return
+        if decision == "Remove this site":
+            if n.get("skill_id"):
+                self.store.delete("skills", n["skill_id"])
+                self.store.message(bid, "bot", "Done: I won’t check that site any more.")
+                self.bus.publish("messages", bot=bid)
+            return
+        if decision == "Skip this site":
+            return
         if decision in ("Try a smarter model", "Try again"):
             smart = decision == "Try a smarter model"
             try:
@@ -1116,11 +1190,12 @@ class Engine:
         self.bus.publish("bots")
         return run
 
-    def learn(self, bid, goal, url):
+    def learn(self, bid, goal, url, replace=None):
         url = skills.web_address(url, "")
         if not url:
             raise ValueError("It needs a web address to start on, like https://example.com")
         run = Run("learn")
+        run.replace = replace  # learning a site again: its new skill takes the broken one's place
         return self._start(bid, run, lambda: self._learn(bid, goal, url, run))
 
     def _learn(self, bid, goal, url, run):
@@ -1135,6 +1210,10 @@ class Engine:
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
             sid = self.store.insert("skills", skill, bot_id=bid, status="ok")
+            if getattr(run, "replace", None):
+                self.store.delete("skills", run.replace)
+                self._worked(bid, f"skill:{run.replace}")
+            self._worked(bid, f"site:{skills.site_of(urlparse(url).hostname or '')}")
             self.store.event(bid, "learned", f"Learned {skill['name']}: {len(skill['steps'])} steps, {run.ai_calls} AI calls")
             self._finish(run, "ok", learned=sid)
             reads = any(st["action"] == "extract" for st in skill["steps"])
@@ -1318,6 +1397,7 @@ class Engine:
                 if r.get("new") and r.get("run") != run.run_id:
                     self.store.update("results", r["id"], new=False)
             self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"], steps=len(skill["steps"]))
+            self._worked(bid, f"skill:{sid}")
             self.store.event(bid, "replay", f"{nres(len(out['items']))}, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
             if new and reason != "silent":
@@ -1488,7 +1568,7 @@ class Engine:
             run.takeover = False
             self.store.message(bid, "bot", "You didn’t click anything, so the step is unchanged. Press Show me once again when you’re ready.")
             if need:  # a fresh card: the old one stays answered
-                self.problem(bid, skills.NeedsHelp(need["kind"], need["title"], need["body"], need.get("options")),
+                self.problem(bid, skills.NeedsHelp(need["kind"], need["title"], need["body"], need.get("options")), ask=True,
                              **{k: need[k] for k in ("skill_id", "step", "guess", "confidence", "url") if k in need})
             self.bus.publish("messages", bot=bid)
             self.bus.publish("needs", bot=bid)
@@ -1556,6 +1636,18 @@ class Engine:
             if s.get("quiet_from") == hm and b.get("night_day") != today:
                 self.store.update("bots", b["id"], night_day=today)
                 threading.Thread(target=self.evening, args=(b["id"], now), daemon=True).start()
+            due = [r for r in b.get("retries") or [] if r.get("at", 0) <= now]
+            if due and not b.get("held") and not self.busy(b["id"]) and not quiet(hm, s.get("quiet_from"), s.get("quiet_to")):
+                r = due[0]
+                self.store.update("bots", b["id"], retries=[x for x in b["retries"] if x is not r and x != r])
+                try:
+                    if r.get("do") == "run" and r.get("sid") and self.store.get("skills", r["sid"]):
+                        self.run(b["id"], r["sid"], reason="trying again")
+                    elif r.get("url"):
+                        self.learn(b["id"], r.get("goal") or b.get("goal"), r["url"], replace=r.get("sid"))
+                except Exception:
+                    pass
+                continue
             if not s.get("every_minutes") or b.get("held") or self.busy(b["id"]) or not self.store.find("skills", bot_id=b["id"], limit=1):
                 continue
             if quiet(hm, s.get("quiet_from"), s.get("quiet_to")):

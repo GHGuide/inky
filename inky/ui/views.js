@@ -1463,42 +1463,37 @@ const NEED_KIND = { decision: "wants your yes", error: "stopped", robot: "robot 
 const needKind = (k) => NEED_KIND[k] || String(k || "").replace(/_/g, " ");
 const GONE = new Set();  // "bot:need" answered somewhere else (a 409): its card goes now, not when a moved bot's server is next asked
 VIEWS.needs = {
-  async show(el, _, qs) {
-    const t = qs.get("tab");
-    this.el = el; this.tab = ["decisions", "problems"].includes(t) ? t : null; this.health = null; await this.refresh();
-    if (this.tabFocus) { this.tabFocus = false; const t = $(".seg .on", el); if (t) t.focus(); }  // switching tabs keeps your place
+  async show(el) {
+    this.el = el; this.health = null; await this.refresh();
   },
   async refresh() {
     const key = (n) => `${n.bot_id}:${n.id}`;
-    const needs = (await get("/api/needs")).needs.filter((n) => !GONE.has(key(n)));
-    const dec = needs.filter((n) => n.kind === "decision"), prob = needs.filter((n) => n.kind !== "decision");
-    if (!this.tab) this.tab = !dec.length && prob.length ? "problems" : "decisions";  // once per visit: it doesn't switch under you
-    const list = this.tab === "decisions" ? dec : prob;
+    const data = await get("/api/needs");
+    const needs = data.needs.filter((n) => !GONE.has(key(n))).sort((a, b) => (a.kind === "decision" ? 0 : 1) - (b.kind === "decision" ? 0 : 1));
+    if (!this.health) this.health = (await get("/api/health").catch(() => ({ health: [] }))).health;  // once per visit, or on Check again
+    const broken = (this.health || []).filter((h) => !h.ok && !h.info);
     const botOf = (n) => S.bots.find((b) => b.id === n.bot_id) || { look: {}, name: n.bot };
-    if (this.tab === "problems" && !this.health) this.health = (await get("/api/health")).health;  // once per visit, or on Check again
-    const health = this.health || [];
-    const empty = !S.bots.length ? `<p class="muted">Nothing here yet: you have no bots. <a href="#/bots">Make your first one</a>, and when it needs a yes or gets stuck, it waits here.</p>`
-      : `<p class="muted">${this.tab === "decisions" ? "Nothing to decide. Your bots are fine." : "No problems. Your bots are fine."}</p>`;
-    const tab = (t, label, n) => `<a href="#/needs?tab=${t}" data-tab="${t}" class="${this.tab === t ? "on" : ""}"${this.tab === t ? ' aria-current="page"' : ""}>${label} · ${n}</a>`;
-    const card = (n, i) => {
+    const card = (n) => {
       const b = botOf(n), picked = CHOSEN[key(n)], opts = (n.options || []).length ? n.options : ["Dismiss"];
-      return `<div class="card need ${i === 0 && this.tab === "decisions" && !picked ? "hot" : ""}">
-        <div class="between"><span class="row small" style="font-weight:600;min-width:0">${botCritter(b, 22)}<span class="nwho">${esc(b.name)}${n.remote ? `<span class="muted" style="font-weight:400"> on ${esc(n.remote)}</span>` : ""} · ${esc(needKind(n.kind))}</span></span><span class="mono small muted">${ago(n.ts)}</span></div>
-        <b style="font-size:16.5px">${esc(n.title)}</b>${n.body ? `<span class="small muted" style="line-height:1.5">${esc(n.body)}</span>` : ""}
-        <div class="opts">${opts.map((o, j) => `<button class="btn ${j === 0 && !picked ? "p" : ""}${picked === o ? " chosen" : ""}" data-need="${n.id}" data-bot="${n.bot_id}" data-o="${esc(o)}"${picked ? " disabled" : ""}>${esc(o)}</button>`).join("")}<a class="btn" href="#/bot/${n.bot_id}/computer">Watch it</a></div>
+      return `<div class="card need${n.kind === "decision" && !picked ? " hot" : ""}"><div class="needhead">${botCritter(b, 34)}
+          <div class="col grow" style="gap:2px;min-width:0"><span class="small muted nwho"><b style="color:var(--ink)">${esc(b.name)}</b>${n.remote ? ` on ${esc(n.remote)}` : ""} · ${esc(needKind(n.kind))} · ${ago(n.ts)}</span>
+            <b class="ntitle">${esc(n.title)}</b>${n.body ? `<span class="small muted" style="line-height:1.5">${esc(n.body)}</span>` : ""}</div></div>
+        <div class="opts">${opts.map((o, j) => `<button class="btn s ${j === 0 && !picked ? "p" : ""}${picked === o ? " chosen" : ""}" data-need="${n.id}" data-bot="${n.bot_id}" data-o="${esc(o)}"${picked ? " disabled" : ""}>${esc(o)}</button>`).join("")}<a class="btn s" href="#/bot/${n.bot_id}/computer">Watch it</a></div>
         ${picked ? `<span class="small muted" role="status">You chose “${esc(picked)}”.</span>` : ""}</div>`;
     };
-    redraw(this.el, () => (this.el.innerHTML = `${mobileBar("Needs you")}<div class="page"><div><h1>Needs you</h1><p class="lede">Your bots decide small things on their own. They stop here before anything that can’t be undone, and when something breaks.</p></div>
-      <span class="seg" style="align-self:flex-start">${tab("decisions", "Decisions", dec.length)}${tab("problems", "Problems", prob.length)}</span>
-      <div class="row needrow"><section class="col grow" style="gap:12px">${list.map(card).join("") || empty}</section>
-      <aside class="col needside">${this.tab === "decisions" ? `<div class="card panel"><b>Rules for every bot</b><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, reply, delete, submit forms, sign up, hand work to connectors</span></div><div class="rule"><b>Never</b><span>Buy or pay</span></div><div class="rule"><b>Passwords</b><span>You type them</span></div><span class="small muted">Change a bot’s rules by telling it, or in its Settings.</span></div>`
-        : `<div class="card panel small"><b>How bots handle problems</b><span>1. Cheap fixes first: wait, find the button by its name.</span><span>2. Ask the model once, and only act when it’s sure.</span><span>3. Otherwise stop, tell you here and on your phone.</span><span>4. Keep the parts that still work running.</span></div>
-        <div class="card"><div class="between"><b>Health</b><button class="btn s" id="hagain">Check again</button></div>${health.map((h) => `<div class="between small" style="align-items:flex-start;gap:12px"><span style="flex-shrink:0">${esc(h.name)}</span><span style="display:flex;gap:5px;text-align:right;color:${h.ok ? "var(--green-t)" : h.info ? "var(--muted)" : "var(--coral-t)"}"><i aria-hidden="true" style="font-style:normal;flex-shrink:0">●</i><span>${esc(h.detail)}</span></span></div>`).join("")}</div>`}</aside></div></div>`));
-    $$("[data-tab]", this.el).forEach((a) => (a.onclick = () => (this.tabFocus = true)));
+    const empty = !S.bots.length ? `<div class="card panel nempty">${critter("octopus", "#E86F51", "none", 56, "happy")}<span><b>Nothing here yet.</b><br><span class="small muted">You have no bots. <a href="#/new">Make your first one</a>.</span></span></div>`
+      : `<div class="card panel nempty">${critter("octopus", "#E86F51", "none", 56, "happy")}<span><b>Nothing needs you.</b><br><span class="small muted">Your bots deal with slow sites and small changes themselves, and try again on their own.</span></span></div>`;
+    const done = (data.handled || []).map((e) => { const b = S.bots.find((x) => x.id === e.bot_id) || { look: {}, name: e.bot };
+      return `<div class="hrow">${botCritter(b, 22)}<span class="small grow"><b>${esc(b.name || "")}</b> ${esc(e.text)}</span><span class="mono small muted">${ago(e.ts)}</span></div>`; }).join("");
+    redraw(this.el, () => (this.el.innerHTML = `${mobileBar("Needs you")}<div class="page narrow"><div><h1>Needs you</h1>
+        <p class="lede">Only what your bots can’t do without you: a yes before anything that can’t be undone, a sign-in, or a robot check.</p></div>
+      ${broken.length ? `<div class="card hot"><div class="between"><b>Something to fix</b><button class="btn s" id="hagain">Check again</button></div>${broken.map((h) => `<div class="between small"><span>${esc(h.name)}: ${esc(h.detail)}</span>${h.fix ? `<a class="btn s" href="${esc(h.fix)}">Fix it</a>` : ""}</div>`).join("")}</div>` : ""}
+      <section class="col" style="gap:12px">${needs.map(card).join("") || empty}</section>
+      ${done ? `<section class="col" style="gap:8px"><h2 style="font-size:16px">Handled by your bots <span class="small muted" style="font-weight:400">· last 3 days, nothing for you to do</span></h2><div class="card hlist">${done}</div></section>` : ""}
+      <p class="small muted">Every bot reads and searches on its own, asks before sending, posting or submitting anything, and never buys, pays or types your passwords.</p></div>`));
     if ($("#hagain", this.el)) $("#hagain", this.el).onclick = async () => {
       busyBtn($("#hagain", this.el), true, "Checking…"); this.health = null;
-      try { await this.refresh(); } catch (e) { toast(e.message); busyBtn($("#hagain", this.el), false); }
-      if ($("#hagain", this.el)) $("#hagain", this.el).focus();
+      try { await this.refresh(); } catch (e) { toast(e.message); }
     };
     $$("[data-need]", this.el).forEach((x) => (x.onclick = async () => {
       const bid = +x.dataset.bot, nid = +x.dataset.need, k = `${bid}:${nid}`, btns = $$("button", x.closest(".need")), b = botOf(needs.find((y) => y.id === nid && y.bot_id === bid) || { bot_id: bid });
@@ -1508,8 +1503,8 @@ VIEWS.needs = {
         if (x.dataset.o === "Always for this step") toast(`It won’t ask for that step again. To take it back, open ${who} → Skills and press “ask again”.`, as);
         if (x.dataset.o === "Always for this automation") toast(`It won’t ask for that hand-off again. To take it back, open ${who} → Settings and remove the automation.`, as);
         await this.refresh();
-        const tab = $(".seg .on", this.el);  // its buttons are off now: back to the tab, never onto another question's Yes
-        if (tab && (!document.activeElement || document.activeElement === document.body)) tab.focus();
+        const next = $("[data-need]", this.el) || $("h1", this.el);  // on to the next question, never onto a button that's off now
+        if (next && (!document.activeElement || document.activeElement === document.body)) { next.setAttribute("tabindex", next.tagName === "H1" ? "-1" : "0"); next.focus(); }
         return;
       }
       if (CHOSEN[k]) return;  // already answered from this window

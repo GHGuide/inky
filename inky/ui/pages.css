@@ -72,3 +72,13 @@ a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
   .ev{grid-template-columns:80px 24px minmax(0,1fr);gap:8px 10px}  /* "now" and "12 min ago" line up */
   .ev>.badge{grid-column:3;justify-self:start}
 }
+/* Needs you: one list of real questions, then what the bots handled themselves */
+.need{gap:12px;padding:16px 18px}
+.needhead{display:flex;gap:12px;align-items:flex-start}
+.needhead .ntitle{font-size:16px;line-height:1.35}
+.need .opts{padding-left:46px}
+.nempty{flex-direction:row;align-items:center;gap:16px;padding:18px 20px}
+.hlist{gap:0;padding:4px 16px}
+.hrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.hrow:last-child{border-bottom:0}
+@media (max-width:640px){.need .opts{padding-left:0}}

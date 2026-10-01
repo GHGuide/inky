@@ -452,7 +452,9 @@ def needs(E, h, q, body):
                           if n["bot_id"] in bots and (bots[n["bot_id"]].get("home") or {}).get("engine") == q["home"]]}
     if q.get("status", "open") == "open":
         rows = sorted(rows + remote_needs(E), key=lambda n: n.get("ts") or 0, reverse=True)  # newest first, wherever the bot runs
-    return {"needs": rows}
+    handled = [dict(e, bot=(bots.get(e["bot_id"]) or {}).get("name")) for e in E.store.find("events", status="handled", limit=30)
+               if e.get("ts", 0) > time.time() - 3 * 86400 and e["bot_id"] in bots]  # what bots sorted out themselves lately
+    return {"needs": rows, "handled": handled[:15]}
 
 
 @route("POST", r"/api/bots/(\d+)/needs/(\d+)")
