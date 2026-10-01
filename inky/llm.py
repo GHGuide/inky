@@ -12,7 +12,7 @@ import httpx
 
 PROVIDERS = {
     "ollama": {"label": "Ollama", "base": "http://127.0.0.1:11434/v1", "local": True},
-    "custom": {"label": "OpenAI-compatible server", "base": "http://127.0.0.1:1234/v1", "local": True},
+    "custom": {"label": "Your own server", "base": "http://127.0.0.1:1234/v1", "local": True},
     "openrouter": {"label": "OpenRouter", "base": "https://openrouter.ai/api/v1"},
     "anthropic": {"label": "Anthropic", "base": "https://api.anthropic.com/v1", "kind": "anthropic"},
     "openai": {"label": "OpenAI", "base": "https://api.openai.com/v1"},

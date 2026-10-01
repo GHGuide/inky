@@ -904,7 +904,7 @@ def add_computer(E, h, q, body):
         raise HTTPError(400, f"Couldn’t reach {url}. Is Inky running there, and is the port open?")
     if body.get("name"):
         E.store.update("computers", cid, name=body["name"])
-    return {"id": cid}
+    return {"id": cid, "name": (E.store.get("computers", cid) or {}).get("name")}
 
 
 @route("POST", "/api/computers/link")

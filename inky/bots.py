@@ -337,7 +337,7 @@ class Engine:
                 h, m = map(int, end.split(":"))  # quiet hours: the first run after they end
                 t = datetime.fromtimestamp(nxt).replace(hour=h, minute=m, second=0)
                 nxt = t.timestamp() if t.timestamp() > nxt else t.timestamp() + 86400
-        return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "rules", "filters", "memory",
+        return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "rules", "filters", "memory", "home",
                                          "schedule", "automations", "mode", "computer", "last_run", "created", "allowed_domains", "library")},
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),

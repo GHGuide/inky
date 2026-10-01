@@ -201,7 +201,7 @@ VIEWS.setup = {
     try { loc = await get("/api/models/local"); } catch (e) { box.innerHTML = `<span class="small bad">${esc(e.message)}</span><button class="btn s" data-lrefresh>Check again</button>`; $("[data-lrefresh]", box).onclick = () => this.renderLocal(); return; }
     if (!box.isConnected) return;
     const o = loc.ollama, pulls = loc.pulls || {}, chat = o.models.filter((m) => !NOT_CHAT.test(m.name));
-    const head = (s, t) => `<div class="lrow"><span class="row">${logo(s, 34)}<span><b>${s === "ollama" ? "Ollama" : "LM Studio"}</b><br><span class="small muted">${t}</span></span></span>`;
+    const head = (s, t, name) => `<div class="lrow"><span class="row">${logo(s, 34)}<span><b>${name || (s === "ollama" ? "Ollama" : "LM Studio")}</b><br><span class="small muted">${t}</span></span></span>`;
     let h;
     if (!o.installed && !o.running) h = `${head("ollama", "not installed yet")}<span class="row"><a class="btn" href="https://ollama.com/download" target="_blank" rel="noopener">Install Ollama ↗</a><button class="btn s" data-lrefresh>Check again</button></span></div>
       <span class="small muted">Ollama runs models on this computer for free. Install it, then press Check again.</span>`;
@@ -214,7 +214,8 @@ VIEWS.setup = {
         <span class="row">${p && p.status !== "success" && !String(p.status).startsWith("failed") ? `<span class="prog" data-prog="${esc(c.name)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Downloading ${esc(c.name)}"><i style="width:${Math.max(2, pct)}%"></i></span><span class="small mono" data-pct="${esc(c.name)}">${pct}%</span>` : `<button class="btn s" data-pull="${esc(c.name)}" data-gb="${c.gb}">Download</button>`}</span></div>`;
       }).join("") || `<span class="small muted">No model in our list fits this computer’s memory. Use an API key instead.</span>`}<span class="small" id="lmsg" role="status"></span>`;
     } else h = `${head("ollama", "running")}</div>${chat.map((m) => `<div class="lrow"><b class="mono">${esc(m.name)}</b>${this.using && this.using.provider === "ollama" && this.using.model === m.name ? `<span class="small good">✓ In use</span>` : `<button class="btn s" data-use="${esc(m.name)}">Use this</button>`}</div>`).join("")}<span class="small" id="lmsg" role="status"></span>`;
-    if (loc.custom.reachable) h += `${head("lmstudio", "running at " + esc(loc.custom.base))}<button class="btn s" id="uselms">Use LM Studio</button></div>`;
+    if (loc.custom.reachable) h += loc.lmstudio.installed ? `${head("lmstudio", "running at " + esc(loc.custom.base))}<button class="btn s" id="uselms">Use LM Studio</button></div>`
+      : `${head("server", "running at " + esc(loc.custom.base), "Your own server")}<button class="btn s" id="uselms">Use it</button></div>`;
     else if (loc.lmstudio.installed) h += `${head("lmstudio", "installed · start its local server to use it")}<button class="btn s" data-lrefresh>Check again</button></div>`;
     box.innerHTML = h;
     $$("[data-lrefresh]", box).forEach((b) => (b.onclick = () => this.renderLocal()));
@@ -1426,7 +1427,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
   let p;
   try { p = await post("/api/library/preview", { url }); } catch (e) { return toast(e.message); }
   const L = p.listing, c = p.check, look = L.look || {}, have = p.have || [];
-  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span></div></div>
+  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span>${L.unverified ? `<span class="small" style="color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
     <p class="small">${esc(L.summary || "")}</p>
     ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes ${have.length > 1 ? "another" : "a second"} copy with its own computer.</span></span></div>` : ""}
     ${c.ok ? `<div class="col" style="gap:8px">
@@ -1812,7 +1813,7 @@ const KEY_SOURCE = { keychain: "saved in your Keychain", file: "saved on this co
 const keyErr = (status) => ([401, 403].includes(+status) ? `refused (${status})` : `error ${status}`);
 
 // ================================================================ models
-const provLabel = (p) => (p.name === "custom" ? "Your own server" : p.label);  // the engine calls it "OpenAI-compatible server"
+const provLabel = (p) => (p.name === "custom" ? "Your own server" : p.label);
 const ROLE_ABOUT = { learn: "reads the page and plans the steps, once per site", chat: "understands “euro only” and turns it into a rule",
   repair: "when a button moves and its name isn’t enough", smart: "when you choose “Try a smarter model”" };
 VIEWS.models = {
