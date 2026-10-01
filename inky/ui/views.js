@@ -540,6 +540,9 @@ VIEWS.bot = {
     if (!TABS.some(([k]) => k === tab)) tab = "computer";
     this.id = +id; this.tab = tab; this.el = el; this.data = null; this.msgKey = this.headKey = this.tabSeen = this.chatTop = this.named = null; this.bringing = false;
     if (!/^\d+$/.test(id)) return this.missing(el, new Error("no such bot"));  // #/bot/abc
+    const known = S.bots.find((x) => x.id === +id);
+    if (known && (known.remote || known.status === "moved"))  // its server can take a few seconds: say so instead of a blank page
+      el.innerHTML = `${mobileBar(known.name)}<div class="page narrow"><p class="lede row" role="status"><span class="spin" aria-hidden="true"></span>Asking ${esc(known.remote || "its server")}…</p></div>`;
     let data;
     try { data = await get(`/api/bots/${this.id}`); } catch (e) { return this.missing(el, e); }
     if (this.id !== +id || !el.isConnected) return;  // you went elsewhere meanwhile
@@ -564,7 +567,8 @@ VIEWS.bot = {
       this.typing = true; this.drawMsgs(true);
       try { await post(`/api/bots/${id}/chat`, { text: t }); }
       catch (e) {  // it didn't go: your words go back in the box, to send again
-        toast(e.message);
+        const off = (String(e.message).match(/can’t reach (.+?):/) || [])[1];
+        toast(off ? `${off} isn’t answering, so your message didn’t reach ${this.data ? this.data.bot.name : "the bot"}. It’s back in the box.` : e.message);
         if (id !== this.id || !this.data) { if (!DRAFTS[id]) DRAFTS[id] = t; return; }
         this.data.messages = this.data.messages.filter((m) => m !== mine);
         this.typing = false; this.drawMsgs(true);
@@ -614,16 +618,22 @@ VIEWS.bot = {
       ${gone ? `<h1 style="overflow-wrap:anywhere">It’s no longer on ${esc(gone[1])}</h1><p class="lede">${esc(known ? known.name : "This bot")} was deleted there, or that computer was reset. Only this computer still lists it.</p>
         <div class="row wrap"><button class="btn p" id="rmhere">Remove it here</button><a class="btn" href="#/bots">Your bots</a></div>`
       : away ? `<h1 style="overflow-wrap:anywhere">${esc(known.name)} is on ${esc(where)}</h1><p class="lede">That computer isn’t answering right now. It may be asleep, switched off or offline.</p>
-        <div class="row wrap"><button class="btn p" id="retry">Try again</button><button class="btn bringback">Bring back to this computer</button></div><span class="small muted" id="mvline" role="status"></span>`
+        <div class="row wrap"><button class="btn p" id="retry">Try again</button><button class="btn bringback">Bring back to this computer</button><button class="btn hot" id="rmhere">Remove it here</button></div><span class="small muted" id="mvline" role="status"></span>`
       : `<h1>This bot doesn’t exist anymore</h1><p class="lede">It may have been deleted, here or on another computer.</p><div><a class="btn p" href="#/bots">Your bots</a></div>`}</div>`;
     if (away) { $("#retry", el).onclick = () => route(); $(".bringback", el).onclick = () => this.bringBack(); }
-    if (gone) $("#rmhere", el).onclick = async (ev) => {
-      const btn = ev.currentTarget;
+    if (gone || away) $("#rmhere", el).onclick = async (ev) => {
+      const btn = ev.currentTarget, name = known ? known.name : "this bot";
+      if (away && !(await confirmBox(`Remove ${name} from this computer only? The copy on ${where} stays.`, "Remove it here", true))) return;
       busyBtn(btn, true, "Removing…");
       try { await del(`/api/bots/${this.id}?here=1`); } catch (err) { busyBtn(btn, false); return toast(err.message); }
       await loadState().catch(() => {});
       location.hash = "#/bots";
     };
+  },
+  oops(e) {  // an action that didn't go through
+    const b = this.data && this.data.bot;
+    if (b && b.remote && /can’t reach|isn’t answering/.test(e.message || "")) try { return this.missing(this.el, e); } catch (x) {}  // its server is off: say so, with Try again and Bring back
+    toast(e.message);
   },
   bringBack() {
     $$(".bringback").forEach((x) => (x.disabled = true));
@@ -643,7 +653,7 @@ VIEWS.bot = {
     const id = this.id;
     const go = async () => { const d = await get(`/api/bots/${id}`); if (id === this.id) return fn(d); };
     this.queue = (this.queue || Promise.resolve()).then(go, go);
-    return this.queue.catch((e) => { toast(e.message); });
+    return this.queue.catch((e) => this.oops(e));
   },
   onEvent(m) {
     if (m.kind !== "move" || m.bot !== this.id) return;
@@ -684,8 +694,8 @@ VIEWS.bot = {
       <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s sharebot" title="Download it, make a link, or post it to the library">Share</button>
       <details class="more"${open ? " open" : ""}><summary class="iconbtn" aria-label="More">⋯</summary><div class="card menu">
         <a href="#/bot/${b.id}/call">${icon("phone", 16, 1.9)} Call ${esc(b.name)}</a><button class="sharebot">Share</button>${b.remote ? `<button class="bringback">Bring back to this computer</button>` : ""}</div></details></div>`;
-    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => toast(e.message));
-    const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => toast(e.message));
+    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => this.oops(e));
+    const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => this.oops(e));
     $$("#bh .sharebot").forEach((x) => (x.onclick = () => { const d = $("#bh details.more"); if (d) d.open = false; shareBot(b); }));
     $$("#bh .bringback").forEach((x) => (x.onclick = () => this.bringBack()));
     const more = $("#bh details.more");
@@ -786,8 +796,8 @@ VIEWS.bot = {
           <div class="card hot hidden" id="showbar"><b>Show me once</b><span class="small">Click what it should click on its computer. Each click is recorded. <span id="shown"></span></span><div class="row"><button class="btn s p" id="showdone">Done showing</button></div></div>
         </div><aside class="card sidecard" id="side"></aside></div>
         <div class="col" style="gap:8px"><div class="between wrap"><b class="small" id="tlname"></b><span class="mono small muted" id="tlnote"></span></div><div class="steps" id="tl"></div></div>`;
-      $$("#speed button").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "speed", value: x.dataset.s }).then(refreshSoon)));
-      $("#stop").onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "stop" }).then(refreshSoon);
+      $$("#speed button").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "speed", value: x.dataset.s }).then(refreshSoon).catch((e) => this.oops(e))));
+      $("#stop").onclick = () => post(`/api/bots/${b.id}/control`, { cmd: "stop" }).then(refreshSoon).catch((e) => this.oops(e));
       const img = $("#live");
       img.onclick = (e) => {
         if (!this.data.bot.takeover) return;
@@ -801,7 +811,7 @@ VIEWS.bot = {
       $("#gourl").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) goIt(); };
       $("#typbtn").onclick = typeIt; $("#gobtn").onclick = goIt;
       $$("#typebar [data-key]").forEach((x) => (x.onclick = () => post(`/api/bots/${b.id}/input`, { kind: "key", key: x.dataset.key })));
-      $("#showdone").onclick = () => post(`/api/bots/${b.id}/show/done`, {}).then(refreshSoon).catch((e) => toast(e.message));
+      $("#showdone").onclick = () => post(`/api/bots/${b.id}/show/done`, {}).then(refreshSoon).catch((e) => this.oops(e));
       img.onerror = () => setTimeout(() => { if (img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg") + "&r=" + Date.now(); }, 2000);
     }
     const idle = idleBot(b), img = $("#live");  // an idle bot's computer is a blank page: show that it's resting, and don't start its browser for nothing
@@ -822,7 +832,7 @@ VIEWS.bot = {
     const tkb = $("#tk");
     tkb.textContent = tk ? "Hand back" : "Take over";
     tkb.className = "btn s" + (tk ? " p" : "") + (show ? " hidden" : "");  // while showing, Done showing is the way out
-    tkb.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: tk ? "handback" : "takeover" }).then(refreshSoon).catch((e) => toast(e.message));
+    tkb.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: tk ? "handback" : "takeover" }).then(refreshSoon).catch((e) => this.oops(e));
     $("#stop").disabled = !run;
     $("#scr").classList.toggle("drive", !!tk);
     $("#over").classList.toggle("hidden", !tk || show);
@@ -888,7 +898,7 @@ VIEWS.bot = {
     tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
       <div id="skmain" style="display:contents"></div>
       <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
-    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => this.oops(e));
     $("#learn").onclick = learn; enterSends($("#lurl"), learn); enterSends($("#lgoal"), learn);
     $("#skf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -927,7 +937,7 @@ VIEWS.bot = {
       const i = +x.dataset.rm;
       if (await confirmBox(`Remove step ${i + 1}, “${sel.steps[i].text}”? It won’t do it on its next runs.`, "Remove step", true)) stepEdit(i, (st, j) => st.filter((_, k) => k !== j));
     }));
-    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => this.oops(e));
     if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/bots/${b.id}/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
     if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/bots/${b.id}/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
   },
@@ -952,7 +962,7 @@ VIEWS.bot = {
         <div class="autoform"><select class="f" id="aw" aria-label="When"><option value="new_results">When there are new results</option><option value="every_run">After every run</option></select><select class="f" id="as" aria-label="Connector"><option value="">Loading connectors…</option></select><select class="f" id="at" aria-label="Tool" disabled></select><input class="f" id="al" aria-label="Label" placeholder="Label"></div>
         <textarea class="f mono" id="aa" aria-label="Arguments as JSON" rows="2" placeholder='Arguments as JSON, e.g. {"description":"flats","prompt":"Add these to ~/flats.md: {{new_json}}"}'></textarea><div class="row wrap"><button class="btn s" id="addauto" disabled>Add automation</button><span class="small muted" id="autonote"></span></div></div>
       <div class="card" style="grid-column:1/-1"><div class="between"><span id="delwhat"></span><button class="btn hot" id="delbot">Delete bot…</button></div></div></div>`;
-    const save = (p) => this.save(p).catch((e) => toast(e.message));
+    const save = (p) => this.save(p).catch((e) => this.oops(e));
     const pick = (x) => $$("button", x.parentElement).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); });  // shows at once
     $("#bname").onchange = (e) => {
       const x = e.target, v = x.value.trim(), name = this.data.bot.name;
@@ -1395,7 +1405,7 @@ VIEWS.activity = {
   async show(el) { this.el = el; await this.refresh(); },
   async refresh() {
     const a = await get("/api/activity");
-    const w = a.week, botOf = (id) => S.bots.find((b) => b.id === id);
+    const w = a.week, botOf = (id) => S.bots.find((b) => b.id === id), away = S.bots.filter((b) => b.remote || b.status === "moved").length;
     const row = (e) => {
       const b = botOf(e.bot_id), [label, tone = ""] = EV_KIND[e.kind] || [String(e.kind || "").replace(/_/g, " ")];
       const inner = `<span class="mono small muted">${ago(e.ts)}</span>${botCritter(b || { look: {}, name: "Inky" }, 24)}<span><b style="font-weight:500">${esc((b && b.name) || e.bot || "")}</b> · ${esc(e.text)}</span><span class="badge ${tone}">${esc(label)}</span>`;
@@ -1404,6 +1414,7 @@ VIEWS.activity = {
     this.el.innerHTML = `${mobileBar("Activity")}<div class="page" style="background:var(--panel);min-height:100%;max-width:none"><div><h1>Activity</h1><p class="lede">Everything your bots did this week, and what it cost. Learning uses the AI; repeating doesn’t.</p></div>
       <div class="grid5 stats5"><div class="stat"><span>Runs</span><b>${w.runs}</b></div><div class="stat"><span>AI calls</span><b>${w.ai_calls}</b></div><div class="stat"><span>If it asked the AI every step</span><b>≈ ${w.if_ai_every_step}</b></div>
       <div class="stat"><span>Spent on AI</span><b>$${w.cost.toFixed(2)}</b></div><div class="stat"><span>Asked you</span><b>${w.asked}</b></div></div>
+      ${away ? `<p class="small muted" style="margin:0">${away === 1 ? "1 of your bots runs on another computer; its runs show on that computer." : `${away} of your bots run on other computers; their runs show on those computers.`}</p>` : ""}
       <div class="card" style="padding:6px 18px"><div class="list">${a.events.map(row).join("") || `<p class="muted">Nothing yet.</p>`}</div></div>
       <span class="small muted">Every run leaves a log line. Nothing leaves your computers unless you connect something.</span></div>`;
   },

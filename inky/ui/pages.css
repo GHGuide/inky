@@ -69,6 +69,6 @@ a.ev{text-decoration:none;color:inherit}
 a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
 @media (max-width:760px){
   .stats5{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .ev{grid-template-columns:auto 24px minmax(0,1fr);gap:8px 10px}
+  .ev{grid-template-columns:80px 24px minmax(0,1fr);gap:8px 10px}  /* "now" and "12 min ago" line up */
   .ev>.badge{grid-column:3;justify-self:start}
 }
