@@ -28,8 +28,11 @@ class Stopped(Exception):
 
 
 CONFIDENT = 0.7
-CONSENT = re.compile(r"\b(accept|accept all|accepta|acceptă|accetta|aceptar|aceitar|akzeptieren|accepter|agree|de acord|allow all|ok|got it|zgadzam|akceptuję|"
-                     r"akkoord|close|chiudi|cerrar|принять|принимаю|согласен)\b", re.I)
+CONSENT = re.compile(r"\b(accept\w*|accepta|acceptă|accetta\w*|acept\w*|aceit\w*|akzept\w*|zustimmen|einverstanden|agree|de acord|allow( all)?|alle(s)? toestaan|toestaan|"
+                     r"ok|okay|got it|zgadzam|akceptuj\w*|akkoord|ik ga akkoord|godta|godkänn\w*|close|chiudi|cerrar|fermer|sluiten|schließen|"
+                     r"принять|принимаю|согласен|cookies?|consent\w*|tout accepter)\b", re.I)
+FILTER_FIELD = re.compile(r"\b(price|prices|prijs|prijzen|preis|prix|prezzo|precio|preço|cena|cen[ay]|pre[tț]|цена|min|max|minimum|maximum|from|to|van|tot|von|bis|"
+                          r"budget|size|grootte|größe|m²|m2|year|jaar|km|mileage)\b", re.I)
 
 # ---------------------------------------------------------------- finding elements again
 
@@ -152,7 +155,7 @@ Rules: close cookie banners first. Use "fill" for text boxes and "select" for dr
 Never type into a box marked ALREADY TYPED. After filling a search form, click its search button. After typing a message or
 filling a form the job wants sent, click the button that sends or submits it (Inky asks the user before it really sends).
 Don't set the site's own filters for price, size or the like: Inky filters the results itself. As soon as the page lists
-results for the job (after a search, or in the right category), use "extract". After extracting, if there is a next-page link use
+results for the job (after a search, or in the right category; not the categories or featured items on a home page), use "extract". After extracting, if there is a next-page link use
 "next_page" with its index, otherwise "done". Never type passwords. Never click buy/pay. Prefer the user's corrections."""
 
 EXTRACT_SYSTEM = """You write CSS selectors to extract a list of results from a page outline.
@@ -168,13 +171,39 @@ Use null and low confidence when no element clearly does the same thing. A diffe
 NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)\b", re.I)
 
 
+def said_number(v, text):
+    """Is this number one you stated (150000 for “under 150k”, 20 for “£20”)?"""
+    n = parse_num(v)
+    if n is None or n == 0:
+        return False
+    t = re.sub(r"(?<=\d)[ ,.\u00a0'’](?=\d{3}\b)", "", (text or "").lower())  # 150.000 / 150,000 / 150 000 → 150000
+    whole = str(int(n)) if float(n).is_integer() else str(n)
+    return bool(re.search(rf"(?<![\d.]){re.escape(whole)}(?!\d)", t) or (n >= 1000 and n % 1000 == 0 and re.search(rf"(?<![\d.]){int(n // 1000)}k\b", t)))
+
+
+def is_optional(step):
+    """A step that may be missing on a later run: a cookie banner (even one learned before this check existed), or a next page."""
+    t = step.get("target") or {}
+    where = f"{t.get('name') or ''} {t.get('placeholder') or ''}"
+    return bool(step.get("optional") or step.get("next_page") or (step.get("action") == "click" and
+                (CONSENT.search(t.get("name") or "") or re.search(r"cookie|consent|banner", step.get("text") or "", re.I)))
+                or (step.get("action") in ("fill", "select") and FILTER_FIELD.search(f"{where} {step.get('text') or ''}")  # a site's price filter: Inky filters anyway
+                    and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", where, re.I)))
+
+
 def next_link(page):
-    """The page's “next page” link or button, if it has one."""
+    """The page's “next page” link (or button, off the home page: there a “Next” is usually a slideshow arrow)."""
+    home = not urlparse(page.get("url") or "").path.strip("/") and not urlparse(page.get("url") or "").query
     for e in page.get("elements") or []:
         name = (e.get("name") or "").strip()
-        if e.get("role") in ("link", "button") and name and len(name) < 40 and NEXT.match(name):
+        if name and len(name) < 40 and NEXT.match(name) and (e.get("role") == "link" and e.get("href") or e.get("role") == "button" and not home):
             return e
     return None
+
+
+def home_page(url):
+    u = urlparse(url or "")
+    return not u.path.strip("/") and not u.query
 
 
 SUBMIT = re.compile(r"\b(search|find|go|submit|cerca|trova|buscar|rechercher|suchen|szukaj|caută|cauta|найти|поиск|zoeken|sök|ok)\b", re.I)
@@ -188,6 +217,8 @@ def read_results(ctx, goal, page):
     Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
     comp = ctx.computer
     lists = comp.call("lists")
+    if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
+        lists = [c for c in lists if c["count"] >= 6]
     if lists:
         pick = 1
         if len(lists) > 1:
@@ -196,8 +227,10 @@ def read_results(ctx, goal, page):
             try:
                 d, _ = ctx.llm.ask_json("learn", PICK_LIST_SYSTEM, f"GOAL: {goal}\nPAGE: {page['title']}\nLISTS:\n{menu}", bot_id=ctx.bot["id"])
                 pick = int(d.get("pick") or 0)
-            except (ValueError, TypeError):
-                pick = 1  # a reply that isn't a number: the likeliest list (they're ranked)
+            except Exception as e:
+                if type(e).__name__ == "ModelStopped":
+                    raise
+                pick = 1  # any reply that isn't a number: the likeliest list (they're ranked)
             if not 1 <= pick <= len(lists):
                 pick = 1 if any(c.get("priced") for c in lists[:1]) else 0
         if pick:
@@ -206,6 +239,8 @@ def read_results(ctx, goal, page):
             rows = [r for r in comp.call("extract", spec) if any(r.values())]
             if rows:
                 return spec, rows
+    if home_page(page.get("url")):
+        return None, []  # on a home page, only a real list counts; the outline would find its tiles again
     outline = comp.call("sample")
     for note in ("", "Your selectors found nothing. Use class names that are in the outline. "):
         try:
@@ -228,6 +263,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
+    watch, looked, idle = bool(FINDING.search(goal or "")), set(), 0
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
         if len(steps) >= max_steps:
@@ -236,6 +272,28 @@ def learn(ctx, goal, start_url, max_steps=24):
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
                             "Bots don’t solve these. Solve it once on its computer and it carries on, or skip it for now.", ["Open its computer", "Skip for now"])
+        u = urlparse(page["url"])
+        if watch and not extract and page["url"] not in looked and (steps or u.path.strip("/") or u.query):
+            looked.add(page["url"])  # a page that already lists priced results: read them now, no need to go on clicking
+            lists = comp.call("lists")
+            if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
+                spec, rows = read_results(ctx, goal, page)
+                if rows:
+                    extract = spec
+                    steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
+                    ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
+                    page = comp.call("elements")
+                    nxt = next_link(page)
+                    if nxt:
+                        steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
+                        ctx.emit("learn", "Next page", step=len(steps), target=nxt["name"])
+                    finished = True
+                    break
+        idle += 1
+        if idle > 10:  # ten replies without a new step: it's going round in circles
+            raise NeedsHelp("learn_failed", "Learning got stuck on this site",
+                            f"The model tried for a while on {u.netloc} without getting further. Show it once, or try a smarter model.",
+                            ["Show me once", "Try a smarter model", "Try again"])
         fixes = ctx.corrections()
         user = (f"GOAL: {goal}\nBOT RULES: {'; '.join(r['text'] for r in ctx.bot.get('rules', []))}\n"
                 f"CORRECTIONS FROM THE USER: {'; '.join(fixes) or 'none'}\n"
@@ -268,6 +326,9 @@ def learn(ctx, goal, start_url, max_steps=24):
             if extract:
                 break
             spec, rows = read_results(ctx, goal, page)
+            if rows and home_page(page["url"]) and len(rows) < 6:  # a home page's few tiles are its categories or featured items
+                rows = []
+                history.append("these are the shop's categories or featured items, not results: open the right category or search first")
             if not rows:  # reading nothing is never a learned step: say so to the model and go on looking
                 empty += 1
                 history.append("there are no results to read on this page yet; search or open the list first")
@@ -301,10 +362,16 @@ def learn(ctx, goal, start_url, max_steps=24):
         elif el is None:
             history.append(f"element {idx} does not exist")
             continue
+        if watch and act in ("fill", "select") and el and FILTER_FIELD.search(f"{el.get('name')} {el.get('placeholder')} {d.get('step') or ''}") \
+                and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", f"{el.get('name')} {el.get('placeholder')}", re.I) \
+                and not said_number(d.get("value"), f"{goal} {' '.join(r['text'] for r in ctx.bot.get('rules', []))}"):
+            # a site filter only with a limit you stated (“under 150k”); a made-up one breaks on the next run
+            history.append("don’t set the site’s price or size filters with your own numbers: Inky filters the results itself; search or read the results")
+            continue
         label = d.get("step") or f"{act} {el['name'] if el else d.get('value')}"
         step = {"action": "click" if act == "next_page" else act, "target": descriptor(el) if el else None,
                 "value": d.get("value"), "text": label, "next_page": act == "next_page",
-                "optional": bool(act == "click" and el and CONSENT.search(el["name"] or ""))}
+                "optional": bool(act == "click" and el and (CONSENT.search(el["name"] or "") or re.search(r"cookie|consent|banner", label, re.I)))}
         from inky.safety import classify
         if el and classify(step["action"], el, page)[0] == "irreversible":
             step["sends"] = True  # this is the step that sends or submits: a job that never has one never does anything
@@ -338,6 +405,7 @@ def learn(ctx, goal, start_url, max_steps=24):
             page = page_after  # a cookie banner is answered once; a second click on one isn't a new step
             continue
         steps.append(step)
+        idle = 0
         ctx.emit("learn", label, step=len(steps), target=el and el["name"])
         page = page_after
         if act == "next_page":
@@ -464,7 +532,7 @@ def replay(ctx, skill, repair_role="repair"):
             page = comp.call("elements")
             idx, how = locate(step["target"], page["elements"])
         el = next((e for e in page["elements"] if e["i"] == idx), None)
-        if idx is None and step.get("optional"):
+        if idx is None and is_optional(step):
             ctx.emit("replay", f"Skipped “{step['text']}”: not shown this time", step=i + 1)
             i += 1
             continue
@@ -498,7 +566,19 @@ def replay(ctx, skill, repair_role="repair"):
             idx = el["i"]
             ctx.emit("repair", f"Trying “{el['name']}” for step {i + 1} ({round(conf * 100)}% sure)", step=i + 1)
         ctx.gate(step, el, page)
-        page = _do(comp, step, idx, el, i + 1)
+        try:
+            page = _do(comp, step, idx, el, i + 1)
+        except (NeedsHelp, Stopped, CheckedUpTo):
+            raise
+        except Exception:  # it's on the page but can't be used now (hidden behind a menu, covered, gone while loading)
+            if is_optional(step):
+                ctx.emit("replay", f"Skipped “{step['text']}”: it couldn’t be used this time", step=i + 1)
+                page = comp.call("elements")
+                i += 1
+                continue
+            raise NeedsHelp("fix_failed", f"Couldn’t do step {i + 1} ({step['text']})",
+                            "The page has it, but it couldn’t be used this time (it may be hidden behind a menu now). Show it once, or try again later.",
+                            ["Show me once", "Try again", "Skip this run"], step=i, url=page.get("url"))
         fence(ctx, page.get("url"))  # a click can lead off the site too
         ctx.emit("replay", step["text"], step=i + 1, how=how)
         i += 1

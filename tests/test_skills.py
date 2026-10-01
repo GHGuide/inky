@@ -23,6 +23,8 @@ class ScriptedModel:
 
     def ask_json(self, role, system, user, bot_id=None, **kw):
         self.calls += 1
+        if system == skills.PICK_LIST_SYSTEM:
+            return {"pick": 1}, {}
         if system == skills.EXTRACT_SYSTEM:
             return {"item": ".card", "fields": {"title": ".title", "price": ".price", "size": ".size", "link": "a.details@href"}}, {}
         if system == skills.REPAIR_SYSTEM:
@@ -94,7 +96,7 @@ class SkillsTest(unittest.TestCase):
         skill, model = self.learned()
         self.assertEqual([s["text"] for s in skill["steps"]][:4], ["Close cookies", "Type Bari", "Set max price", "Search"])
         self.assertTrue(skill["steps"][-1]["next_page"])
-        self.assertGreater(model.calls, 4)
+        self.assertGreaterEqual(model.calls, 4)  # it used the model to learn (results it finds by itself need fewer calls)
         out = skills.replay(Ctx(self.comp, NoModel()), skill)
         self.assertGreaterEqual(out["pages"], 2)
         self.assertTrue(all(skills.parse_num(i["price"]) <= 150000 for i in out["items"]))

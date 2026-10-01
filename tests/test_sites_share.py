@@ -69,3 +69,18 @@ class ShareLinkTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LearningChecksTest(unittest.TestCase):
+    def test_stated_numbers_optional_steps_and_next_links(self):
+        from inky import skills
+        self.assertTrue(skills.said_number("150000", "Flats in Bari under 150k, remember balconies"))
+        self.assertFalse(skills.said_number("0", "used e-bikes") or skills.said_number("500", "e-bikes under 1500"))
+        cookie = {"action": "click", "text": "Accept cookies", "target": {"role": "button", "name": "Accepteren"}}
+        price = {"action": "fill", "text": "Type minimum price", "target": {"role": "textbox", "name": "Prijs van"}}
+        search = {"action": "fill", "text": "Type e-bike", "target": {"role": "searchbox", "name": "Zoeken"}}
+        self.assertEqual([skills.is_optional(x) for x in (cookie, price, search)], [True, True, False])
+        carousel = {"url": "https://shop.example/", "elements": [{"role": "button", "name": "Next", "href": ""}]}
+        paging = {"url": "https://shop.example/bikes?page=1", "elements": [{"role": "link", "name": "Volgende", "href": "/bikes?page=2"}]}
+        self.assertIsNone(skills.next_link(carousel))
+        self.assertEqual(skills.next_link(paging)["name"], "Volgende")
