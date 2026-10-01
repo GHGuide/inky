@@ -116,6 +116,12 @@ def limit_filter(text):
     return {"field": m.group(1).lower(), "op": op, "value": float(m.group(3).replace(",", "."))}
 
 
+def every_words(m):
+    """60 → “hour”, 120 → “2 hours”, 5 → “5 minutes”: what follows “every”."""
+    n, unit = (m // 1440, "day") if m % 1440 == 0 else (m // 60, "hour") if m % 60 == 0 else (m, "minute")
+    return unit if n == 1 else f"{n} {unit}s"
+
+
 def nres(n):
     return f"{n} result{'' if n == 1 else 's'}"
 
@@ -712,7 +718,7 @@ class Engine:
                 raise ValueError(f"no rule like “{a.get('text')}”")
             gone = rules[i]["text"]
             self.store.update("bots", bid, rules=rules[:i] + rules[i + 1:], filters=[f for f in b.get("filters", []) if f.get("text", "") != gone])
-            return f"removed: {gone}"
+            return f"removed rule: {gone}"
         if t == "remember":
             if said is not None and is_question(said) and not re.search(r"\bremember\b", said, re.I):
                 raise Guard("a question isn't something to remember")
@@ -735,20 +741,22 @@ class Engine:
             if b.get("allowed_domains") and url and skills.site_of(urlparse(url).hostname) not in {skills.site_of(d) for d in b["allowed_domains"]}:
                 raise ValueError(f"I only work on {', '.join(b['allowed_domains'])}")
             self.learn(bid, a.get("goal") or b.get("goal"), url)
-            return "learning"
+            return f"learning {urlparse(url).hostname or url}"
         if t == "run":
             self.run(bid)
-            return "running"
+            return "started a run"
         if t == "schedule":
             s = {**b.get("schedule", {}), **{k: a[k] or None for k in ("every_minutes", "summary_at", "quiet_from", "quiet_to") if a.get(k) is not None}}
             self.store.update("bots", bid, schedule=s)
-            return "schedule"
+            m = minutes(s.get("every_minutes"))
+            return f"schedule: every {every_words(m)}" if m else "schedule: only when you say"
         if t in ("pause", "resume", "stop"):
             self.control(bid, t)
-            return t
+            return {"pause": "paused", "resume": "resumed", "stop": "stopped"}[t]
         if t == "speed":
-            self.update_bot(bid, {"look": {"speed": a.get("value", "normal")}})
-            return "speed"
+            v = a.get("value") if a.get("value") in ("slow", "normal", "turbo") else "turbo" if a.get("value") == "fast" else "normal"
+            self.update_bot(bid, {"look": {"speed": v}})
+            return f"speed: {v}"
         if t == "delegate":
             threading.Thread(target=self.delegate, args=(bid, a), daemon=True).start()
             return f"handing to {a.get('server')}"
