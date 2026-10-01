@@ -130,6 +130,26 @@ Plan: [plans/2026-09-30-inky-round3.md](plans/2026-09-30-inky-round3.md). Unit a
 | Domain guard | A library agent's step leading to another site | Stops with "This agent only works on …" (test); a same-site subdomain is allowed |
 | Posting | Share → Post to the library shows the exact public file and the checker's result | Checked up to the final button. Not pressed: it would open a real pull request on your GitHub |
 
+## Fifth pass: every function, every interaction (2026-10-01)
+
+Goal: try every function and fix every interaction. Method: QA agents swept the whole app on isolated engines (scratch data folders, the local test site, a local Ollama model, no cloud keys), each in its own area; fix agents worked in separate git worktrees; then two verifiers re-checked every fix on fresh engines built from the merged code. About 250 findings across three sweep rounds, then a final round of three sweeps and a verification round. **82 Python and UI tests OK; CI green on macOS, Windows and Linux.**
+
+| Area | What the final round found and fixed | Verified |
+|---|---|---|
+| Chat only does what you ask | Questions ("Should you run every 5 minutes?") changed the schedule; the rule box could delete another rule (even a built-in Never) and save memories | Questions change nothing (polite requests still work); the rule box only adds; replies never promise what didn't happen; action lines read as sentences |
+| Rules | "price under 15" saved a rule that filtered nothing | Becomes a real filter, once, even when the model also proposes one |
+| Moved bots and id safety | A server whose database was reset showed, answered for and deleted a stranger bot that reused the id | Forwarded calls carry the bot's home; a server only answers for that very bot (410 otherwise); Computers and Unpair match by home, never by id |
+| Moved bots, offline | Blank page for 20 s; no way to remove it while its server was off; raw "[Errno 61]" | "Asking …" then the offline page in about 3 s; Remove it here; plain wording; the live view streams through |
+| Privacy on disk | Deleted and moved bots kept their browser profiles (sign-in cookies) | Profiles go with the bot, and a new id never inherits an old one |
+| Problems | The same failure added a card and a notification on every rerun; Done showing with no clicks left a dead card | One card per problem; a fresh card after an empty Show me once; hand back resumes only that skill |
+| Repairs | A small model's "90% sure" repair that then found nothing was saved for good | The old step is kept and you're asked |
+| New bot | Leaving with a draft lost it silently; the model invented a start site and started learning there | Asks before leaving (links, Back, reload); a site you didn't name becomes a question |
+| Library | An install link could claim a library agent's name, author and slug | Only library entries are trusted; other links say nobody reviewed them; posted agents carry your GitHub name |
+| Pause | "Pause" on an idle bot did nothing | Holds its schedule, with Resume schedule |
+| UI | Focus lost after dialogs and redraws, phone toasts over the chat box, stale names, raw operators, "Error: Error" | Focus always lands in the page; toasts at the top on phones; names follow; words instead of operators; page titles |
+
+Rule slips by QA agents during the sweeps, all on scratch engines and all reverted: one agent turned on phone/LAN access on its test engine for about 5 minutes; one pressed Claude Code Connect on its test engine (checked afterwards: ~/.claude.json has no Inky entry, ~/.codex/config.toml unchanged); one tried SSH to an unresolvable host; one touched another agent's test engine. None touched your own Inky or its data.
+
 ## Limits
 
 - **The desktop app is unsigned**: macOS asks you to right-click → Open the first time; Windows SmartScreen asks too.
@@ -140,3 +160,5 @@ Plan: [plans/2026-09-30-inky-round3.md](plans/2026-09-30-inky-round3.md). Unit a
 - **The public library, the one-line install and "Set up over SSH" use the `main` branch** (`library/index.json`, `install.sh`). Until `build` is merged into `main`, the Library tab shows the two starters that ship with the app, and the install line and SSH setup won't find `install.sh`.
 - **No install counts or ratings** in the library: they would need a server.
 - **Found on your network needs macOS's Local Network permission** for the app, which macOS asks for the first time you open Computers.
+- **A very small local model (qwen3:1.7b) chats fine but learns poor skills.** Learning now refuses repeated steps and empty loops, but for learning real sites use a bigger model (the local list recommends qwen3:8b) or a cloud key.
+- **Saving real cloud keys, Telegram tokens, posting to the library and share links** were checked up to the last step only, since each of those contacts an outside service.
