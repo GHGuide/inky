@@ -330,7 +330,7 @@ class Engine:
             status = "needs_you"
         sched = b.get("schedule") or {}
         nxt = None
-        if sched.get("every_minutes") and sk and b.get("status") != "moved":
+        if sched.get("every_minutes") and sk and b.get("status") != "moved" and not b.get("held"):
             nxt = max(time.time(), (b.get("last_run") or 0) + sched["every_minutes"] * 60)  # never ran: due now
             end = sched.get("quiet_to")
             if end and quiet(datetime.fromtimestamp(nxt).strftime("%H:%M"), sched.get("quiet_from"), end):
@@ -342,7 +342,7 @@ class Engine:
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
-                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
+                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")),
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
@@ -358,7 +358,9 @@ class Engine:
             d, _ = self.llm.ask_json("chat", DRAFT_SYSTEM, job)
         except (NoModel, httpx.HTTPError, ValueError):
             url = re.search(r"https?://\S+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:/\S*)?", job, re.I)
-            words = [w for w in re.findall(r"[A-Za-z]+", job) if len(w) > 3][:2]
+            filler = {"every", "morning", "daily", "check", "find", "keep", "watch", "look", "with", "that", "this", "from", "your", "want",
+                      "please", "could", "would", "eye", "new", "cheap", "each", "week", "hour", "hourly", "night", "evening", "tell", "when"}
+            words = [w for w in re.findall(r"[A-Za-z]+", job) if len(w) > 3 and w.lower() not in filler][:2]
             d = {"name": " ".join(w.title() for w in words) or "New Bot", "summary": job[:140], "goal": job,
                  "start_url": url and url.group(0).rstrip(".,)"), "every_minutes": 0, "filters": [], "questions": [],
                  "notice": "I couldn’t reach my model, so this is a rough draft from your words. Check Models."}
@@ -369,6 +371,11 @@ class Engine:
         d["every_minutes"] = minutes(d.get("every_minutes"))
         if d.get("start_url") and not skills.web_address(d["start_url"], ""):
             d["start_url"] = None
+        if d.get("start_url"):  # a site you didn't name is the model's guess: ask, don't start learning on it
+            site = skills.site_of(urlparse(skills.web_address(d["start_url"], "")).hostname)
+            if site and site not in job.lower():
+                d["questions"] = [f"Which website should it use? (A guess: {site}. Type its address in “Start on this site”.)"] + list(d.get("questions") or [])
+                d["start_url"] = None
         return d
 
     def create_bot(self, d):
@@ -612,7 +619,8 @@ class Engine:
             self.store.message(bid, "you", text, source=source)
         self.bus.publish("messages", bot=bid)
         run = self.runs.get(bid)
-        if run and run.kind == "learn" and run.thread and run.thread.is_alive():
+        correcting = bool(run and run.kind == "learn" and run.thread and run.thread.is_alive())
+        if correcting:  # while it learns, what you say steers the learner
             run.fixes.append(text)
         results = [r for r in self.store.find("results", bot_id=bid, limit=10) if r.get("passed") is not False][:3]
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
@@ -659,10 +667,13 @@ class Engine:
         except NoModel as e:
             d = {"reply": str(e), "actions": []}
         except Exception as e:
-            why = llm_plain(e, "my model")
+            from inky.llm import PROVIDERS
+            prov = (self.llm.roles().get("chat") or {}).get("provider")
+            why = llm_plain(e, PROVIDERS.get(prov, {}).get("label", "my model"))
             d = {"reply": f"{why[:1].upper()}{why[1:]} Check Models.", "actions": []}
-        done, held = [], False
+        done, held, failed = [], False, False
         new_rule = not sender and text.lower().startswith("new rule:")
+        pre = self.store.get("bots", bid)  # the rules before the model touched them
         for a in d.get("actions") or []:
             for k in ("text", "goal", "label"):  # the model sometimes copies the /no_think switch into what it saves
                 if isinstance(a.get(k), str):
@@ -674,6 +685,7 @@ class Engine:
             except Guard:
                 held = True
             except Exception as e:
+                failed = True
                 done.append(f"Couldn’t do that: {e}")
         if new_rule:
             rule = text.split(":", 1)[1].strip()
@@ -683,14 +695,15 @@ class Engine:
             seen = self.store.find("results", bot_id=bid, limit=1)
             if f and seen and f["field"] not in seen[0]:  # “books under 10”: the number is a price when results have one
                 f = {**f, "field": "price"} if "price" in seen[0] else None
-            if f and not any(x.get("field") == f["field"] and x.get("value") == f["value"] for x in bb.get("filters", [])):
-                kind = "filter"  # “price under 15” is a limit on results, whatever the model made of it
-                if any(str(x).startswith("rule:") for x in done):  # replace the plain rule the model added
-                    bb = {**bb, "rules": bb["rules"][:-1]}
-                self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": "filter", "text": rule}],
-                                  filters=bb.get("filters", []) + [{**f, "text": rule}])
-                done = [x for x in done if not str(x).startswith("rule:")] + [f"rule: {rule}"]
-            elif rule and not any(str(x).startswith("rule:") for x in done):  # a small model returned no action: add it anyway
+            added = any(str(x).startswith("rule:") for x in done)
+            if f:  # “price under 15” is a limit on results, whatever the model made of it: the exact limit replaces its version
+                kind, bb = "filter", pre
+                same = lambda x: x.get("field") == f["field"] and x.get("op") == f["op"] and skills.parse_num(x.get("value")) == f["value"]
+                have = any(same(x) for x in bb.get("filters", []))
+                self.store.update("bots", bid, rules=bb.get("rules", []) + ([] if have else [{"kind": "filter", "text": rule}]),
+                                  filters=bb.get("filters", []) + ([] if have else [{**f, "text": rule}]))
+                done = [x for x in done if not str(x).startswith("rule:")] + [f"already a rule: {rule}" if have else f"rule: {rule}"]
+            elif rule and not added:  # a small model returned no action: add it anyway
                 self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": kind, "text": rule}])
                 done.append(f"rule: {rule}")
             elif rule and kind in ("never", "ask"):  # it said Never / Ask first: that's the kind, whatever the model picked
@@ -699,8 +712,11 @@ class Engine:
                     self.store.update("bots", bid, rules=rules[:-1] + [{**rules[-1], "kind": kind}],
                                       filters=[f for f in bb.get("filters", []) if f.get("text") != rules[-1].get("text")])
         reply = re.sub(r"\s*/no_think\b", "", d.get("reply") or "").strip() or "OK."
-        if held and not done and not sender:  # it talked about doing something you didn't ask for: say nothing changed
-            reply += " (I haven’t changed anything. Ask me straight out if you want that.)"
+        did = [x for x in done if not str(x).startswith(("Couldn’t", "already a rule"))]
+        if (held or failed) and not did and not sender and not correcting:  # it talked about doing something that didn't happen
+            promise = re.search(r"\b(I'?ll|I will|I’ll|I've|I’ve|I have|done|handled|consider it|updated|changed|set|added|removed|scheduled)\b", reply, re.I)
+            note = "That didn’t work, so nothing changed." if failed else "I haven’t changed anything. Ask me straight out if you want that."
+            reply = note if promise else f"{reply} ({note})"
         self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
@@ -763,8 +779,11 @@ class Engine:
             m = minutes(s.get("every_minutes"))
             return f"schedule: every {every_words(m)}" if m else "schedule: only when you say"
         if t in ("pause", "resume", "stop"):
+            running = self.busy(bid)
+            if t == "stop" and not running:
+                raise Guard("nothing to stop")
             self.control(bid, t)
-            return {"pause": "paused", "resume": "resumed", "stop": "stopped"}[t]
+            return {"pause": "paused" if running else "paused its schedule", "resume": "resumed", "stop": "stopped"}[t]
         if t == "speed":
             v = a.get("value") if a.get("value") in ("slow", "normal", "turbo") else "turbo" if a.get("value") == "fast" else "normal"
             self.update_bot(bid, {"look": {"speed": v}})
@@ -1036,10 +1055,14 @@ class Engine:
         b = self.store.get("bots", bid)
         if cmd == "pause" and alive:
             run.paused.set()
+        elif cmd == "pause":  # nothing running: pausing holds its schedule until you resume it
+            self.store.update("bots", bid, held=True)
         elif cmd in ("resume", "handback"):
             if run:
                 run.paused.clear()
                 run.takeover = False
+            if cmd == "resume" and b.get("held"):
+                self.store.update("bots", bid, held=False)
             if cmd == "handback":
                 self.store.event(bid, "handback", "You handed back")
                 open_takeover = [n for n in self.store.find("needs", bot_id=bid, status="open") if n.get("kind") in ("robot", "sign_in")]
@@ -1072,7 +1095,7 @@ class Engine:
             self.update_bot(bid, {"look": {"speed": kw.get("value", "normal")}})
         elif cmd == "mode":
             self.update_bot(bid, {"mode": kw.get("value", "own")})
-        said = {"pause": "Paused", "resume": "Resumed", "stop": "Stopped", "takeover": "You took over its computer",
+        said = {"pause": "Paused" if alive else "Paused its schedule", "resume": "Resumed" if alive or not b.get("held") else "Its schedule is back on", "stop": "Stopped", "takeover": "You took over its computer",
                 "handback": "You handed its computer back", "speed": f"Speed: {kw.get('value', 'normal')}",
                 "mode": "Now works in a window on your screen" if kw.get("value") == "screen" else "Now works on its own computer"}.get(cmd, cmd)
         self.store.event(bid, "control", f"{said} · {reason}" if reason and cmd in ("stop", "pause") and len(reason) < 80 else said)
@@ -1115,7 +1138,10 @@ class Engine:
             self.bus.publish("messages", bot=bid)
             while run.paused.is_set() and not run.stop:
                 time.sleep(0.2)
-            self._finish(run, "ok")
+            if run.show:
+                self._finish(run, "ok")
+            else:
+                self._finish(run, "stopped", note="You didn’t click anything")
         self._start(bid, run, go)
         return run
 
@@ -1199,7 +1225,7 @@ class Engine:
             if s.get("quiet_from") == hm and b.get("night_day") != today:
                 self.store.update("bots", b["id"], night_day=today)
                 threading.Thread(target=self.evening, args=(b["id"], now), daemon=True).start()
-            if not s.get("every_minutes") or self.busy(b["id"]) or not self.store.find("skills", bot_id=b["id"], limit=1):
+            if not s.get("every_minutes") or b.get("held") or self.busy(b["id"]) or not self.store.find("skills", bot_id=b["id"], limit=1):
                 continue
             if quiet(hm, s.get("quiet_from"), s.get("quiet_to")):
                 continue

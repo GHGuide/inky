@@ -84,6 +84,14 @@ class ActionsTest(unittest.TestCase):
         b = self.E.store.get("bots", bid)
         self.assertIn({"field": "price", "op": "<", "value": 15.0, "text": "price under 15"}, b["filters"])
         self.assertEqual(b["rules"][-1], {"kind": "filter", "text": "price under 15"})
+        # the model's own version of the same limit never doubles it, and asking again doesn't add it twice
+        dup = '{"reply": "OK", "actions": [{"type": "add_rule", "text": "price under 15", "filter": {"field": "price", "op": "<=", "value": "15"}}]}'
+        self.E.llm.chat = lambda *a, **k: (dup, {})
+        r = self.E.chat(bid, "New rule: price under 15")
+        b = self.E.store.get("bots", bid)
+        self.assertEqual(sum(1 for f in b["filters"] if f["field"] == "price"), 1)
+        self.assertEqual([x["text"] for x in b["rules"]].count("price under 15"), 1)
+        self.assertIn("already a rule: price under 15", r["done"])
 
 
 class ResultsAndScheduleTest(unittest.TestCase):

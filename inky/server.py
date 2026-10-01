@@ -493,6 +493,10 @@ def set_role(E, h, q, body):
         raise HTTPError(400, "Pick or type a model name first.")
     E.llm.set_role(body["role"], prov, model)
     warn = None if PROVIDERS[prov].get("local") or E.keys.get(prov) else f"There’s no {PROVIDERS[prov]['label']} key yet, so this role won’t work until you add one in API keys."
+    if prov == "ollama":
+        have = {m["name"] for m in E.llm.local_status()["ollama"]["models"]}
+        if have and model not in have and f"{model}:latest" not in have:
+            warn = f"Ollama doesn’t have “{model}”. Saved anyway: download it in Models → On this computer, or pick one it has ({', '.join(sorted(have)[:4])})."
     return {"roles": E.llm.roles(), "warning": warn}
 
 
@@ -633,7 +637,7 @@ def set_key(E, h, q, body):
     if not key:
         if "limit" in body:
             return {"ok": True, "source": E.keys.source(prov)}
-        raise HTTPError(400, "Paste a key first.")
+        raise HTTPError(400, "Paste the token from @BotFather first." if prov == "telegram" else "Paste a key first.")
     if prov == "telegram":  # same check as Connectors: Telegram must know the token
         r = connectors.PROVIDERS["telegram"].save(E, {"token": key})
         if not r["ok"]:

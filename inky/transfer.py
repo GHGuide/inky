@@ -66,6 +66,9 @@ def import_bot(engine, bundle):
     if old and old.get("status") == "moved":  # it's coming home: take its old place back
         name = old["name"]
     bot = dict(bundle["bot"], name=name, computer="local", pending_cookies=bundle.get("cookies") or None, remote=None, remote_id=None)
+    if not bot.get("rules"):  # a hand-made file without rules still gets the three that keep you safe
+        from inky.bots import DEFAULT_RULES
+        bot["rules"] = list(DEFAULT_RULES)
     if old and old.get("status") == "moved":
         bid = old["id"]
         for tb in ("skills", "results", "messages", "needs", "runs", "events"):

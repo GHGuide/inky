@@ -69,6 +69,7 @@ function botMeta(b) {
   const [t, c] = STATUS[b.status] || [b.status, "#C9C5BD"];
   let meta = t;
   if (b.status === "working" || b.status === "learning") meta = b.step ? `${t} · ${b.step}` : t;
+  else if (b.status === "idle" && b.held) meta = "paused · runs when you ask";
   else if (b.status === "idle" && b.next_run) {
     const d = new Date(b.next_run * 1000), today = new Date().toDateString() === d.toDateString();
     meta = `next run ${today ? "" : d.toLocaleDateString(undefined, { weekday: "short" }) + " "}${d.toTimeString().slice(0, 5)}`;
@@ -304,6 +305,8 @@ async function route() {
         el.innerHTML = `${mobileBar("Inky")}<div class="page"><h1>Something went wrong</h1><p class="lede">${esc((e && e.message) || "Something went wrong.")}</p>${homeLink}</div>`;
       }
       if (document.activeElement === document.body && el.isConnected) el.focus({ preventScroll: true });  // keyboard users land in the page (#view has tabindex=-1)
+      const h = el.isConnected && $("h1", el);  // the window and tab say where you are
+      document.title = h && h.textContent.trim() ? `${h.textContent.trim().slice(0, 60)} · Inky` : "Inky";
     })();
     return Promise.race([shown, new Promise((r) => setTimeout(r, 300))]);  // a slow page never freezes the screen mid-transition
   };
@@ -371,6 +374,12 @@ function cmdItems(q) {
   act("Connectors · Claude Code, Codex", "", "plug", () => (location.hash = "#/connectors"));
   act("Library · agents other people made", "", "store", () => (location.hash = "#/library"));
   if (!at) S.bots.forEach(send(text ? "OR SEND TO" : "BOTS"));  // below the actions: a bot gets your text only when you pick it
+  if (text && !at) {  // “open needs”, “models”: the page you named comes first, before making a bot of it
+    const words = text.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+    const hit = (it) => it.sec === "ACTIONS" && !it.make && words.length && words.every((w) => it.label.replace(/<[^>]+>/g, "").toLowerCase().includes(w));
+    const hits = items.filter(hit);
+    if (hits.length) return [...hits.map((it) => ({ ...it, sec: "GO TO" })), ...items.filter((it) => !hit(it))];
+  }
   return items;
 }
 async function pauseAll() {

@@ -338,7 +338,7 @@ VIEWS.bots = {
         : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
           : `<div class="thumb idle">${esc(b.remote_id ? `runs on ${b.remote || "your server"}` : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc(clip(b.summary || b.job || "", 70))}</span></span></span>
-        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc(said)}</span><span>${b.status === "moved" ? "" : plural(b.skills.length, "skill")}</span></span></a>`;
+        ${mid}<span class="between mono small muted"><span style="color:${m.color}">${m.hot ? "" : `● ${esc(said)}`}</span><span>${b.status === "moved" ? "" : plural(b.skills.length, "skill")}</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
   },
   office() {  // the same bots, at their desks; the room follows the time of day
@@ -398,7 +398,9 @@ VIEWS.new = {
       if (redraft) busyBtn($("#create", box), false); else box.innerHTML = `<p class="bad" style="background:none">${esc(err.message)}</p>`;
       return;
     }
+    const had = box.contains(document.activeElement) || document.activeElement === document.body;
     this.render(d);
+    if (had && redraft) { const to = $("#draftbox [id^=qa]", el) || $("#create", el); if (to) to.focus(); }  // an answered question: focus stays in the draft
   },
   kept() {  // what you changed in the draft survives a redraft
     const box = $("#draftbox", this.el), k = {};
@@ -452,7 +454,7 @@ VIEWS.new = {
       if (!every.reportValidity()) return;  // whole minutes, 0 or more
       if (start) url.value = start;
       const body = { ...d, name: $("#nm", box).value.trim() || d.name, start_url: start, goal: $("#goal", box).value, every_minutes: +every.value || 0,
-        filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: `${f.field} ${f.op} ${f.value}` })) };
+        filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: `${f.field} ${OP_WORDS[f.op] || f.op} ${f.value}` })) };
       const btn = $("#create", box);
       busyBtn(btn, true, "Creating…");
       let b;
@@ -694,12 +696,12 @@ VIEWS.bot = {
     // while you have its computer, Hand back (Computer tab) is the way on: Resume or Run now would take it from you
     $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning", "takeover", "showing"].includes(b.status) ? "live" : ""}" title="${esc(meta)}"><i style="background:${tk ? "var(--ink)" : m.color}"></i><span>${esc(meta)}</span></span>${lib}
       <span class="mono small muted hide-s row where" style="gap:5px">${icon(b.remote ? "server" : "monitor", 13)}<span>${esc(b.remote || (b.mode === "screen" ? "your screen" : "its own computer"))}</span></span></div>
-      <div class="row" style="flex-shrink:0">${show || tk ? "" : b.run_kind ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `<button class="btn s" id="runnow">Run now</button>`}
+      <div class="row" style="flex-shrink:0">${show || tk ? "" : b.run_kind ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `${b.held ? `<button class="btn s" id="pz" title="Its schedule is paused">Resume schedule</button>` : ""}<button class="btn s" id="runnow">Run now</button>`}
       ${b.remote ? `<button class="btn s hide-s bringback" title="Move ${esc(b.name)}, its memory and skills back to this computer">Bring back</button>` : ""}
       <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s sharebot" title="Download it, make a link, or post it to the library">Share</button>
       <details class="more"${open ? " open" : ""}><summary class="iconbtn" aria-label="More">⋯</summary><div class="card menu">
         <a href="#/bot/${b.id}/call">${icon("phone", 16, 1.9)} Call ${esc(b.name)}</a><button class="sharebot">Share</button>${b.remote ? `<button class="bringback">Bring back to this computer</button>` : ""}</div></details></div>`;
-    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" ? "resume" : "pause" }).then(refreshSoon).catch((e) => this.oops(e));
+    const pz = $("#pz"); if (pz) pz.onclick = () => post(`/api/bots/${b.id}/control`, { cmd: b.status === "paused" || (b.held && !b.run_kind) ? "resume" : "pause" }).then(refreshSoon).catch((e) => this.oops(e));
     const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => this.oops(e));
     $$("#bh .sharebot").forEach((x) => (x.onclick = () => { const d = $("#bh details.more"); if (d) d.open = false; shareBot(b); }));
     $$("#bh .bringback").forEach((x) => (x.onclick = () => this.bringBack()));
@@ -741,7 +743,8 @@ VIEWS.bot = {
         : picked ? `<span class="logl">● You chose “${esc(picked)}”</span>` : "";
       const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(one(x))}</span>`).join("");
       const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
-      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(one(m.text))}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>${done}${chips}${card}</div></div>`;
+      const said = need ? "" : `<span>${esc(one(m.text))}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>`;  // an open question's card says it already
+      return `${day}<div class="m">${botCritter(b, 26)}<div class="body">${said}${done}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.bot, +x.dataset.need, x.dataset.o)));
@@ -902,8 +905,10 @@ VIEWS.bot = {
     const b = this.data.bot;
     tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
       <div id="skmain" style="display:contents"></div>
-      <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
-    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => this.oops(e));
+      <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div class="row wrap"><button class="btn p" id="learn">Learn it once</button><span class="small" id="lmsg" role="status"></span></div></div>`;
+    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer"))
+      .catch((e) => { if (this.data.bot.remote && /can’t reach|isn’t answering/.test(e.message || "")) return this.oops(e);  // the error sits by the field
+        const m = $("#lmsg"); if (!m) return toast(e.message); m.className = "small bad"; m.style.background = "none"; m.textContent = e.message; $("#lurl").setAttribute("aria-invalid", "true"); $("#lurl").focus(); });
     $("#learn").onclick = learn; enterSends($("#lurl"), learn); enterSends($("#lgoal"), learn);
     $("#skf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -974,7 +979,7 @@ VIEWS.bot = {
       if (!v || v === name) { x.value = x.defaultValue = name; return; }  // emptied: it keeps its name, and the field says so
       x.defaultValue = x.value; save({ name: v });
     };
-    $("#bname").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) e.target.blur(); };
+    $("#bname").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.target.blur(); e.target.focus(); } };  // saves, and you stay in the field
     // only what you changed is sent: the engine keeps the rest of the schedule as it is now
     $$("#every button").forEach((x) => (x.onclick = () => { pick(x); save({ schedule: { every_minutes: +x.dataset.v } }); }));
     $("#sum").onchange = (e) => { e.target.defaultValue = e.target.value; save({ schedule: { summary_at: e.target.value || null } }); };
@@ -1334,7 +1339,7 @@ VIEWS.team = {  // bots talking to each other, morning papers, milestones
       return `<div class="m">${botCritter(speaker, 30)}<div class="body"><span class="small" style="font-weight:600">${who} <span class="muted" style="font-weight:400;white-space:nowrap" title="${esc(new Date(f.ts * 1000).toLocaleString())}">${ago(f.ts)}</span></span>${re}<span>${esc(f.text)}</span></div></div>`;
     };
     this.el.innerHTML = `${mobileBar("Team")}<div class="page"><div><h1>Team</h1><p class="lede">Your bots talk to each other here: hand-offs, morning papers and milestones. Anything that can’t be undone still waits for you.</p></div>
-      <div class="card"><div class="msgs" style="display:flex;flex-direction:column-reverse;gap:12px">${feed.map(line).join("") || `<span class="small muted">Quiet so far. Tell a bot “ask Flat Checker to …” and they’ll talk here.</span>`}</div></div></div>`;
+      <div class="card"><div class="msgs" style="display:flex;flex-direction:column-reverse;gap:12px">${feed.map(line).join("") || `<span class="small muted">Quiet so far. ${S.bots.length > 1 ? `Tell ${esc(S.bots[0].name)} “ask ${esc(S.bots[1].name)} to …”` : "Make two bots and tell one to ask the other"}, and they’ll talk here.</span>`}</div></div></div>`;
   },
 };
 
@@ -1491,7 +1496,8 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
     <label class="l" for="shtags">Tags (optional, comma separated)</label><input class="f" id="shtags" placeholder="shopping, flats">
     <div class="col" style="gap:8px"><button class="btn" data-dl="/api/bots/${b.id}/export" data-name="${esc(b.name)}.inky">Download the file</button>
       <button class="btn" id="shlink">${logo("github", 18)}Make a share link</button><button class="btn p" id="shpost">Post to the library</button></div>
-    <div class="col" id="shout" style="gap:8px" role="status"></div>`, () => {
+    <div class="col" id="shout" style="gap:8px" role="status"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="shclose">Close</button></div>`, () => {
+    $("#shclose").onclick = closeModal;
     const meta = () => ({ summary: $("#shsum").value.trim(), tags: $("#shtags").value.split(",").map((t) => t.trim()).filter(Boolean) });
     const out = (html) => ($("#shout").innerHTML = html);
     const next = "Nothing was made public. Try again in a moment, or use Download the file and share it yourself.";
@@ -2185,8 +2191,9 @@ VIEWS.connectors = {
       try { args = JSON.parse($(`#args-${n}`, this.el).value.trim() || "{}"); if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("not an object"); }
       catch (e) { return show("Arguments must be JSON, like {\"name\": \"value\"}.", true); }
       const SAFE = /^(Read|Glob|Grep|LS|WebSearch|WebFetch|TaskOutput|ListMcpResources|ReadMcpResource)$/;  // look, never change
-      if (n === "codex" && !(await confirmBox(`Run ${tool} in Codex now? It uses your ChatGPT plan’s Codex quota.`, "Run it"))) return;
-      if (n !== "codex" && !SAFE.test(tool) && !(await confirmBox(`Run ${tool} in ${label(n)} now? It can change files or run commands on this computer.`, "Run it", true))) return;
+      const no = () => { out.textContent = ""; out.classList.add("hidden"); };  // cancelled: no output from the tool before it
+      if (n === "codex" && !(await confirmBox(`Run ${tool} in Codex now? It uses your ChatGPT plan’s Codex quota.`, "Run it"))) return no();
+      if (n !== "codex" && !SAFE.test(tool) && !(await confirmBox(`Run ${tool} in ${label(n)} now? It can change files or run commands on this computer.`, "Run it", true))) return no();
       busy(b, true); show("Running…");
       try { const r = await post(`/api/mcp/${n}/call`, { tool, args }); show(r.error && !/^error\b/i.test(r.text || "") ? `Error: ${r.text || "the tool didn’t say why."}` : pretty(r.text || ""), r.error); }  // never "Error: Error: …"
       catch (e) { show(e.message, true); }

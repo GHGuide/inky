@@ -253,7 +253,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     host = urlparse(start_url).netloc
     name = f"Check {host}" if extract else (short(goal.strip().rstrip("."), 48) or f"Job on {host}")
     return {"name": name, "site": host, "goal": goal, "start_url": start_url, "steps": steps,
-            "version": 1, "learned_at": time.time(), "max_pages": 3}
+            "version": 1, "learned_at": time.time(), "max_pages": 3 if any(st.get("next_page") for st in steps) else 1}
 
 
 ACTIONS = {"click", "fill", "select", "press", "next_page"}
