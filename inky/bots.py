@@ -191,6 +191,8 @@ def stated(f, job):
     vals = f["value"] if isinstance(f["value"], list) else [f["value"]]
     low = job.lower()
     for v in vals:
+        if not re.search(r"[^\W_]", str(v)):  # only symbols (“£”, “-”): not a limit anyone states
+            return False
         n = skills.parse_num(v)
         if isinstance(v, bool) or str(v).lower() in ("true", "false"):
             return False
@@ -276,7 +278,7 @@ DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON obj
  "search": ["<2-3 web searches that find websites for this job; one in the local language if the job names a place>"],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
  "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}
-Filters: only limits the user actually stated (a price, a size, a place, a word). Never invent one. A word the results must mention (a place, "remote", a topic like "AI") is {"field": "text", "op": "contains", "value": "<the word>"}.
+Filters: only limits the user actually stated (a price, a size, a place, a word). Never invent one. A word the user said the results must mention (a place, "remote", a topic like "AI") is {"field": "text", "op": "contains", "value": "<that word>"}; prices and currencies are never a text rule.
 start_url: when the job names a site, by its address or its well-known name, use that site. No question about which website: Inky searches for sites itself."""
 
 CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). Your job: {job}.
@@ -549,6 +551,8 @@ class Engine:
         b = self.store.get("bots", bid)
         allowed = {"name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory", "schedule", "automations", "mode", "computer", "persona"}
         patch = {k: v for k, v in patch.items() if k in allowed}
+        if patch.get("mode") == "screen" and not self.screen_allowed():
+            raise ValueError("Bots may not use your screen yet. Turn on “Allow bots on my screen” in Settings first.")
         if "look" in patch:
             patch["look"] = {**b.get("look", {}), **patch["look"]}
         if "schedule" in patch:
@@ -598,7 +602,7 @@ class Engine:
             if c and c.alive:
                 return c
             b = self.store.get("bots", bid)
-            headful = b.get("mode") == "screen" and not os.environ.get("INKY_HEADLESS")  # INKY_HEADLESS: tests, servers
+            headful = b.get("mode") == "screen" and self.screen_allowed() and not os.environ.get("INKY_HEADLESS")  # INKY_HEADLESS: tests, servers
             c = Computer(bid, self.home / "profiles" / f"bot-{bid}", look=b.get("look"), headful=headful,
                          on_frame=None, on_control=self._on_control)
             self.computers[bid] = c
@@ -607,6 +611,10 @@ class Engine:
                 self.store.update("bots", bid, pending_cookies=None)
             self.apply_overlay(bid)
             return c
+
+    def screen_allowed(self):
+        """You allowed bots on your screen (Settings). Off until you say so; turning it off keeps every bot off it."""
+        return bool(self.store.setting("app", {}).get("screen_allowed"))
 
     def close_computer(self, bid):
         c = self.computers.pop(bid, None)

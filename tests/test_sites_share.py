@@ -86,3 +86,14 @@ class LearningChecksTest(unittest.TestCase):
         self.assertEqual(skills.next_link(paging)["name"], "Volgende")
         self.assertFalse(skills.named([{"link": "/a"}, {"link": "/b"}, {"link": "/c"}, {"title": None, "link": "/d"}]))
         self.assertTrue(skills.named([{"title": "Gazelle", "price": "€220"}, {"title": "Batavus"}, {"price": "€99"}]))
+
+    def test_word_rules(self):
+        from inky import skills
+        from inky.bots import stated
+        job = {"title": "Senior Dev", "text": "Senior Dev Acme Remote (UK / EU)"}
+        self.assertTrue(skills.keep(job, {"field": "text", "op": "contains", "value": "remote"}))
+        self.assertTrue(skills.keep({"title": "Pi brings AI agents"}, {"field": "text", "op": "in", "value": ["AI", "LLM"]}))  # no text: its title
+        self.assertFalse(skills.keep({"title": "Rain in Spain"}, {"field": "title", "op": "contains", "value": "ai"}))
+        self.assertTrue(skills.has_word("£51.77 in stock", "£"))
+        self.assertFalse(stated({"field": "text", "op": "contains", "value": "£"}, "books under £20"))  # a symbol is never your rule
+        self.assertTrue(stated({"field": "text", "op": "contains", "value": "remote"}, "remote Python jobs"))

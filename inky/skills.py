@@ -104,7 +104,11 @@ def parse_num(v):
 def has_word(s, w):
     """w in s as a word or the start of one: “remote” finds “Remote (EU)”, “bike” finds “bikes”, but “ai” doesn't find “rain”."""
     w = norm(str(w))
-    return bool(w) and bool(re.search(rf"(?<![^\W_]){re.escape(w)}" + (r"(?![^\W_])" if len(w) <= 3 else ""), s))
+    if not w:
+        return False
+    left = r"(?<![^\W_])" if w[0].isalnum() else ""  # boundaries only where the word itself starts or ends with a letter: “£” finds “£5”
+    right = r"(?![^\W_])" if len(w) <= 3 and w[-1].isalnum() else ""
+    return bool(re.search(left + re.escape(w) + right, s))
 
 
 def keep(item, f):

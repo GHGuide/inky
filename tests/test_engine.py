@@ -191,6 +191,9 @@ class ScreenModeTest(unittest.TestCase):
         E = make_engine()
         try:
             b = E.create_bot({"name": "Screen Bot", "start_url": f"http://127.0.0.1:{site.server_port}/"})
+            with self.assertRaises(ValueError):  # off until you allow bots on your screen
+                E.update_bot(b["id"], {"mode": "screen"})
+            E.store.set_setting("app", {**E.store.setting("app", {}), "screen_allowed": True})
             E.update_bot(b["id"], {"mode": "screen"})
             E.llm.chat_reply = {"reply": "Sure, skipping ground floors.", "actions": []}
             E.computer(b["id"])
