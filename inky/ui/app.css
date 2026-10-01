@@ -42,9 +42,9 @@ button.chip{border:0;cursor:pointer}
 .seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--chip2);font-size:13.5px}
 .seg button,.seg a{height:32px;padding:0 14px;border:0;border-radius:999px;background:transparent;color:var(--muted);cursor:pointer;text-decoration:none;display:flex;align-items:center}
 .seg .on{background:#fff;color:var(--ink);font-weight:500}
-.toggle{position:relative;width:40px;height:24px;border-radius:999px;background:var(--line2);border:0;cursor:pointer;flex-shrink:0}
+.toggle{position:relative;width:40px;height:24px;border-radius:999px;background:var(--line2);border:0;box-shadow:inset 0 0 0 1.5px var(--faint);cursor:pointer;flex-shrink:0}  /* the off track's edge: 3:1 on white and panel cards */
 .toggle::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
-.toggle.on{background:var(--ink)}.toggle.on::after{left:19px}
+.toggle.on{background:var(--ink);box-shadow:none}.toggle.on::after{left:19px}
 .row{display:flex;align-items:center;gap:10px}.col{display:flex;flex-direction:column;gap:10px}.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
 .between{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .card{border:1px solid var(--line);border-radius:18px;padding:16px 18px;background:#fff;display:flex;flex-direction:column;gap:10px}
@@ -345,4 +345,9 @@ body.buddymode #view{display:flex;align-items:flex-end;justify-content:center;he
 @media (prefers-reduced-motion:reduce){.buddy,.rings.talk span{animation:none}.coach .ring,.prog i,.office{transition:none}}
 .mobilebar .btn{white-space:nowrap;flex-shrink:0}
 @media (prefers-reduced-motion:reduce){.toggle::after{transition:none!important}}
+@media (max-width:640px){  /* phones: toasts drop in from the top, never over the chat box and Send */
+  #toasts{top:calc(12px + env(safe-area-inset-top));bottom:auto;left:calc(12px + env(safe-area-inset-left));right:calc(12px + env(safe-area-inset-right))}
+  .toast{animation-name:toast-in-top}.toast.out{animation-name:toast-out-top}
+}
+@keyframes toast-in-top{from{opacity:0;transform:translateY(-20px) scale(.94)}}@keyframes toast-out-top{to{opacity:0;transform:translateY(-12px) scale(.97)}}
 .wsteps li{color:var(--muted)}
