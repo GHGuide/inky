@@ -312,13 +312,16 @@ def skill(E, h, q, body, sid):
 
 @route("PATCH", r"/api/skills/(\d+)")
 def patch_skill(E, h, q, body, sid):
-    if not E.store.get("skills", int(sid)):
+    was = E.store.get("skills", int(sid))
+    if not was:
         raise HTTPError(404, "That skill is gone.")
     patch = {k: v for k, v in body.items() if k in ("name", "steps", "max_pages", "start_url")}
     if "steps" in patch:
         ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
         if not isinstance(patch["steps"], list) or not patch["steps"] or not all(isinstance(st, dict) and st.get("action") in ok for st in patch["steps"]):
             raise HTTPError(400, "A skill needs at least one step.")
+        if patch["steps"] != was.get("steps"):  # removing a step or "ask again" is a new version, like Show me once
+            patch["version"] = (was.get("version") or 1) + 1
     if "name" in patch:
         patch["name"] = str(patch["name"]).strip()[:60] or "Skill"
     if "start_url" in patch and not skills_mod.web_address(patch["start_url"], ""):
