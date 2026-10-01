@@ -300,7 +300,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle = bool(FINDING.search(goal or "")), set(), 0
+    watch, looked, idle, pushed = bool(FINDING.search(goal or "")), set(), 0, False
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
         if len(steps) >= max_steps:
@@ -387,6 +387,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             break
         if act == "done":
             break
+        if act == "extract" and not extract and not steps and home_page(page["url"]) and not pushed and \
+                not re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I):
+            pushed = True  # a shop's home page shows featured items: open the category or search first (asked once; if it insists, it reads)
+            history.append("this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
+            continue
         if act == "extract":
             if extract:
                 break

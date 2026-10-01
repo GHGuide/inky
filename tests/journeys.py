@@ -3,6 +3,7 @@ minutes, use the network and a local model. Run them before a release:
 
     python -m tests.journeys                 # all of them, with gemma3:12b from Ollama
     python -m tests.journeys chat share      # only these
+    INKY_FIVE="E-bike Hunter" INKY_JOURNEY_KEEP=1 python -m tests.journeys five   # one of the five bots, keeping its folder
     INKY_JOURNEY_MODEL=qwen3:8b python -m tests.journeys
 
 Each engine gets its own scratch home and port; nothing touches ~/.inky. "Do" journeys only ever send to the local test site."""
@@ -17,6 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = os.environ.get("INKY_JOURNEY_MODEL", "gemma3:12b")
@@ -73,7 +75,10 @@ class Engine:
             self.proc.wait(20)
         except subprocess.TimeoutExpired:
             self.proc.kill()
-        shutil.rmtree(self.home, ignore_errors=True)
+        if os.environ.get("INKY_JOURNEY_KEEP"):  # to look at what happened: its database and engine.log stay
+            print("    kept", self.home, flush=True)
+        else:
+            shutil.rmtree(self.home, ignore_errors=True)
 
 
 def learn(E, name, job, goal, url, **extra):
@@ -380,7 +385,8 @@ def j_five():
     rows, all_ok = [], True
     try:
         E.use()
-        for spec in FIVE:
+        only = [x.strip() for x in os.environ.get("INKY_FIVE", "").split(",") if x.strip()]  # e.g. INKY_FIVE="E-bike Hunter"
+        for spec in [f for f in FIVE if not only or f["name"] in only]:
             bad, t0 = [], time.time()
             bid, d, sites = make(E, spec["say"])
             if spec.get("do"):
@@ -414,7 +420,8 @@ def j_five():
                 if spec.get("sites") and len(v["skills"]) < spec["sites"]:
                     bad.append(f"{len(v['skills'])} sites learned, wanted {spec['sites']}")
                 if ai > 12:
-                    bad.append(f"{ai} AI calls to learn a site")
+                    worst = max(learns, key=lambda r: r.get("ai_calls") or 0)
+                    bad.append(f"{ai} AI calls to learn {urlparse(worst.get('url') or '').netloc}")
                 if len(found) < spec["min"] or len(named) < len(found):
                     bad.append(f"{len(found)} found, {len(named)} named")
                 if spec.get("under"):
@@ -440,7 +447,7 @@ def j_five():
                     bad.append(f"repeat used {sum(r.get('ai_calls') or 0 for r in again)} AI calls")
                 for r in again:
                     if r.get("status") != "ok":
-                        bad.append(f"repeat on {r.get('skill')}: {r.get('status')} {r.get('error') or ''}"[:140])
+                        bad.append(f"repeat on {r.get('skill')}: {r.get('status')} {r.get('note') or r.get('error') or ''}"[:160])
                 fresh = [r for r in E.api("GET", f"/api/bots/{bid}/results").get("results", []) if r.get("new") and r["id"] in before]
                 if fresh:
                     bad.append(f"{len(fresh)} old items still marked new")
