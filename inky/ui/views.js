@@ -883,14 +883,14 @@ VIEWS.bot = {
         <aside class="col skside"><div class="card"><b>How it runs</b><div class="grid2" style="gap:8px">${[["good runs", this.data.runs.filter((r) => r.skill === sel.name && r.status === "ok").length], ["AI calls per run", this.aiPerRun(sel)],
           ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
           <div class="card small"><b>If the page changes</b><span>1. It finds the button again by its name. No AI.</span><span>2. If that fails, it asks the model once and only acts when sure.</span><span>3. Otherwise it stops and asks you.</span></div>
-          <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
-          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`;
+          <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/bots/${b.id}/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
+          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/bots/${b.id}/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`;
     // a step is found again by what it does, in the skill as it is now: never by its place in what this page drew
     const stepEdit = (i, change) => this.edit(async (d) => {
       const was = sel.steps[i], now = (d.skills || []).find((s) => s.id === sel.id);
       const j = now ? now.steps.findIndex((s) => s.action === was.action && s.text === was.text) : -1;
       if (j < 0) { toast("That step changed meanwhile, so nothing was changed."); return this.refresh(true); }
-      await patch(`/api/skills/${sel.id}`, { steps: change(now.steps, j) });
+      await patch(`/api/bots/${b.id}/skills/${sel.id}`, { steps: change(now.steps, j) });
       return this.refresh(true);
     });
     $$("[data-sk]", tb).forEach((x) => (x.onclick = () => { this.skillSel = +x.dataset.sk; keepFocus(tb, () => this.live_skills(tb)); }));
@@ -900,8 +900,8 @@ VIEWS.bot = {
       if (await confirmBox(`Remove step ${i + 1}, “${sel.steps[i].text}”? It won’t do it on its next runs.`, "Remove step", true)) stepEdit(i, (st, j) => st.filter((_, k) => k !== j));
     }));
     if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => toast(e.message));
-    if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
-    if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
+    if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/bots/${b.id}/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
+    if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/bots/${b.id}/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
   },
 
   save(p) {  // change the bot, then show it as it is now

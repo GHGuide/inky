@@ -12,7 +12,7 @@ async function api(method, path, body) {
   const r = await fetch(path, { method, headers: { "X-Inky-Token": TOKEN, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(data.error || `HTTP ${r.status}`), { status: r.status, data });
   return data;
 }
 async function download(path, name) {  // header auth, so the token never sits in a link you could copy

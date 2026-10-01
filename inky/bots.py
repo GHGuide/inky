@@ -96,6 +96,10 @@ def is_question(t):
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
 
 
+def nres(n):
+    return f"{n} result{'' if n == 1 else 's'}"
+
+
 def plain_error(e):
     """What went wrong, in words: browser and network errors are long and technical."""
     t = str(e)
@@ -628,13 +632,18 @@ class Engine:
                 pass
             except Exception as e:
                 done.append(f"couldn’t {a.get('type')}: {e}")
-        if not sender and text.lower().startswith("new rule:") and not any(str(x).startswith("rule:") for x in done):
+        if not sender and text.lower().startswith("new rule:"):
             rule = text.split(":", 1)[1].strip()
             kind = "never" if re.match(r"^(never|don.?t|do not)\b", rule, re.I) else "ask" if re.search(r"\b(ask|before|first|check with)\b", rule, re.I) else "own"
-            if rule:
-                bb = self.store.get("bots", bid)
+            bb = self.store.get("bots", bid)
+            if rule and not any(str(x).startswith("rule:") for x in done):  # a small model returned no action: add it anyway
                 self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": kind, "text": rule}])
                 done.append(f"rule: {rule}")
+            elif rule and kind in ("never", "ask"):  # it said Never / Ask first: that's the kind, whatever the model picked
+                rules = bb.get("rules", [])
+                if rules and rules[-1].get("kind") != kind:
+                    self.store.update("bots", bid, rules=rules[:-1] + [{**rules[-1], "kind": kind}],
+                                      filters=[f for f in bb.get("filters", []) if f.get("text") != rules[-1].get("text")])
         reply = d.get("reply") or "OK."
         self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
         self.bus.publish("messages", bot=bid)
@@ -888,17 +897,17 @@ class Engine:
                     self.store.update("results", r["id"], new=False)
             self._finish(run, "ok", items=len(out["items"]), matched=len(kept), new=len(new), pages=out["pages"], steps=len(skill["steps"]))
             reads = any(st["action"] == "extract" for st in skill["steps"])
-            self.store.event(bid, "replay", f"{len(out['items'])} results, {len(kept)} pass your rules, {len(new)} new" if reads
+            self.store.event(bid, "replay", f"{nres(len(out['items']))}, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
             if new and reason != "silent":
                 top = "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in new[:3])
-                self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {len(out['items'])} results: {top}")
+                self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {nres(len(out['items']))}: {top}")
                 self.notify(bid, f"{len(new)} new: {top}")
             elif not reads:
                 self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
             elif reason != "schedule":
                 ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
-                self.store.message(bid, "bot", f"Checked {len(out['items'])} results with {ai}. {len(kept)} pass your rules, none new.")
+                self.store.message(bid, "bot", f"Checked {nres(len(out['items']))} with {ai}. {len(kept)} pass{'es' if len(kept) == 1 else ''} your rules, none new.")
             if not new and reason != "silent":
                 self.maybe_suggest(bid, missed)
             skipped = skills.unchecked(out["items"], b.get("filters"))

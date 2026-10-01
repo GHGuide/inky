@@ -272,6 +272,37 @@ def move(E, h, q, body, bid):
 
 
 # ------------------------------------------------------------------ skills
+# a bot's skills through the bot, so a moved bot's skills are changed on its own computer
+def _own_skill(E, bid, sid):
+    s = E.store.get("skills", int(sid))
+    if not s or s.get("bot_id") != int(bid):
+        raise HTTPError(404, "That skill is gone.")
+    return s
+
+
+@route("GET", r"/api/bots/(\d+)/skills/(\d+)")
+def bot_skill(E, h, q, body, bid, sid):
+    return {"skill": _own_skill(E, bid, sid)}
+
+
+@route("PATCH", r"/api/bots/(\d+)/skills/(\d+)")
+def bot_patch_skill(E, h, q, body, bid, sid):
+    _own_skill(E, bid, sid)
+    return patch_skill(E, h, q, body, sid)
+
+
+@route("DELETE", r"/api/bots/(\d+)/skills/(\d+)")
+def bot_delete_skill(E, h, q, body, bid, sid):
+    _own_skill(E, bid, sid)
+    return delete_skill(E, h, q, body, sid)
+
+
+@route("GET", r"/api/bots/(\d+)/skills/(\d+)/export")
+def bot_export_skill(E, h, q, body, bid, sid):
+    _own_skill(E, bid, sid)
+    return export_skill(E, h, q, body, sid)
+
+
 @route("GET", r"/api/skills/(\d+)")
 def skill(E, h, q, body, sid):
     return {"skill": E.store.get("skills", int(sid))}
@@ -772,6 +803,12 @@ def codex_add_inky(E, h, q, body):
     with open(cfg, "a", encoding="utf-8") as f:
         f.write(("\n" if have and not have.endswith("\n") else "") + "\n" + block)
     return {"ok": True, "wrote": block, "text": f"Added to {cfg}."}
+
+
+@route("POST", r"/api/bots/(\d+)/skills/(\d+)/send-n8n")
+def bot_send_n8n(E, h, q, body, bid, sid):
+    _own_skill(E, bid, sid)
+    return send_n8n(E, h, q, body, sid)
 
 
 @route("POST", r"/api/skills/(\d+)/send-n8n")
