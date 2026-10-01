@@ -305,18 +305,24 @@ def learn(ctx, goal, start_url, max_steps=24):
                     finished = True
                     break
         idle += 1
-        if idle > 10 and watch and not extract:  # going round in circles: if the page already lists real results, those are the job
-            spec, rows = read_results(ctx, goal, page)
-            if rows and len(rows) >= 6:
-                extract = spec
-                steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
-                ctx.emit("learn", f"Read {len(rows)} results", step=len(steps), fields=list(spec.get("fields", {})))
-                page = comp.call("elements")
-                nxt = next_link(page)
-                if nxt:
-                    steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
-                finished = True
-                break
+
+        def settle_for_page():  # about to give up: if the page already lists real results, those are the job
+            nonlocal extract, finished
+            if not watch or extract:
+                return False
+            spec, rows = read_results(ctx, goal, comp.call("elements"))
+            if not rows or len(rows) < 6:
+                return False
+            extract = spec
+            steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
+            ctx.emit("learn", f"Read {len(rows)} results", step=len(steps), fields=list(spec.get("fields", {})))
+            nxt = next_link(comp.call("elements"))
+            if nxt:
+                steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
+            finished = True
+            return True
+        if idle > 10 and settle_for_page():
+            break
         if idle > 10:  # ten replies without a new step: it's going round in circles
             raise NeedsHelp("learn_failed", "Learning got stuck on this site",
                             f"The model tried for a while on {u.netloc} without getting further. Show it once, or try a smarter model.",
@@ -332,6 +338,8 @@ def learn(ctx, goal, start_url, max_steps=24):
             d, _ = ctx.llm.ask_json("learn", LEARN_SYSTEM, user, bot_id=ctx.bot["id"])
         except ValueError:  # a reply that isn't JSON is one more strike, not the end
             history.append("your reply wasn’t one JSON object")
+            if len(history) >= 6 and settle_for_page():
+                break
             if len(history) >= 6:
                 raise NeedsHelp("learn_failed", "The model’s answers didn’t make sense",
                                 "It kept replying in a way Inky can’t use. Try again, show it once, or pick a smarter model in Models.",
@@ -413,6 +421,8 @@ def learn(ctx, goal, start_url, max_steps=24):
             raise
         except Exception as e:  # a step that fails is feedback for the model, not the end of learning
             history.append(f"“{label}” failed ({type(e).__name__})")
+            if len(history) >= 6 and settle_for_page():
+                break
             if len(history) >= 6:
                 raise NeedsHelp("learn_failed", "Learning got stuck on this site",
                                 f"The model kept picking steps that didn’t work here (last: “{label}”). Show it once, or try a smarter model.",
