@@ -473,8 +473,8 @@ const nWord = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 const onPhone = () => matchMedia("(max-width:760px)").matches;
 const RUN_WORDS = { ok: "done", failed: "didn’t finish", stopped: "stopped", needs_you: "waiting for you", running: "running now" };
 const RUN_KINDS = { replay: "Run", learn: "Learning", show: "Show me once" };
-const EVENT_WORDS = { control: "you", handback: "you", answered: "you answered", denied: "you said no", shown: "you showed it", replay: "run", learn: "learning",
-  learned: "learned", repair: "fixing", fixed: "fixed", problem: "problem", delegate: "handed off", moved: "moved", arrived: "arrived", created: "made", level: "level up", team: "team" };
+const EVENT_WORDS = { control: "you", handback: "handed back", answered: "you answered", denied: "not allowed", shown: "shown by you", replay: "ran", learn: "learning",  // the same words as Activity
+  learned: "learned", repair: "trying a fix", fixed: "fixed a step", problem: "problem", delegate: "handed off", moved: "moved", arrived: "arrived", created: "new bot", level: "milestone", team: "team" };
 const CONTROL_WORDS = { pause: "You paused it", resume: "You let it carry on", stop: "You stopped it", takeover: "You took over its computer", handback: "You handed back",
   speed: "You changed its speed", mode: "You changed where it works", "You handed its computer back": "You handed back" };
 const ruleText = (f) => f.text || `${f.field} ${f.op} ${f.value}`;
@@ -1379,7 +1379,7 @@ VIEWS.needs = {
       <div class="row needrow"><section class="col grow" style="gap:12px">${list.map(card).join("") || empty}</section>
       <aside class="col needside">${this.tab === "decisions" ? `<div class="card panel"><b>Rules for every bot</b><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, reply, delete, submit forms, sign up, hand work to connectors</span></div><div class="rule"><b>Never</b><span>Buy or pay</span></div><div class="rule"><b>Passwords</b><span>You type them</span></div><span class="small muted">Change a bot’s rules by telling it, or in its Settings.</span></div>`
         : `<div class="card panel small"><b>How bots handle problems</b><span>1. Cheap fixes first: wait, find the button by its name.</span><span>2. Ask the model once, and only act when it’s sure.</span><span>3. Otherwise stop, tell you here and on your phone.</span><span>4. Keep the parts that still work running.</span></div>
-        <div class="card"><div class="between"><b>Health</b><button class="btn s" id="hagain">Check again</button></div>${health.map((h) => `<div class="between small"><span>${esc(h.name)}</span><span style="color:${h.ok ? "var(--green-t)" : h.info ? "var(--muted)" : "var(--coral-t)"}">● ${esc(h.detail)}</span></div>`).join("")}</div>`}</aside></div></div>`));
+        <div class="card"><div class="between"><b>Health</b><button class="btn s" id="hagain">Check again</button></div>${health.map((h) => `<div class="between small" style="align-items:flex-start;gap:12px"><span style="flex-shrink:0">${esc(h.name)}</span><span style="display:flex;gap:5px;text-align:right;color:${h.ok ? "var(--green-t)" : h.info ? "var(--muted)" : "var(--coral-t)"}"><i aria-hidden="true" style="font-style:normal;flex-shrink:0">●</i><span>${esc(h.detail)}</span></span></div>`).join("")}</div>`}</aside></div></div>`));
     $$("[data-tab]", this.el).forEach((a) => (a.onclick = () => (this.tabFocus = true)));
     if ($("#hagain", this.el)) $("#hagain", this.el).onclick = async () => {
       busyBtn($("#hagain", this.el), true, "Checking…"); this.health = null;
@@ -1410,7 +1410,7 @@ VIEWS.needs = {
 // ================================================================ activity
 const EV_KIND = { learned: ["learned", "good"], fixed: ["fixed a step", "good"], problem: ["problem", "hot"], denied: ["not allowed", "hot"], replay: ["ran"], created: ["new bot"],
   control: ["you"], delegate: ["handed off"], answered: ["you answered"], team: ["team"], shown: ["shown by you"], handback: ["handed back"], level: ["milestone", "good"],
-  moved: ["moved"], arrived: ["arrived"] };
+  moved: ["moved"], arrived: ["arrived"], learn: ["learning"], repair: ["trying a fix"] };
 VIEWS.activity = {
   async show(el) { this.el = el; await this.refresh(); },
   async refresh() {
