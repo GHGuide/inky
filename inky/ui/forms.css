@@ -41,6 +41,7 @@
 .lookprev{width:400px;flex-shrink:0;gap:16px;padding:24px;position:sticky;top:24px}
 .lookctl{flex:1;min-width:0;gap:18px}
 .lookctl .row{flex-wrap:wrap}
+.lookctl [data-bot]{white-space:normal;max-width:100%;text-align:left}  /* a long bot name wraps inside its button */
 .lpname{display:block;font-size:28px;letter-spacing:-.03em;overflow-wrap:anywhere}
 .ldrive{position:relative;height:210px;border-radius:14px;background:#111110;padding:6px}
 @media (max-width:1100px){  /* a smaller preview beside the controls, in one column */
@@ -72,5 +73,8 @@ input.f.sf{height:36px;width:auto;flex:1 1 120px;min-width:0;max-width:200px}
 }
 .conn .crow>.grow{flex:1 1 200px;min-width:0}  /* on a phone the buttons wrap under the name, never over it */
 @media (max-width:760px){.conn .cbtns{flex-basis:100%;justify-content:flex-start;margin-left:0}.kform .row.small,.kform .between>.row{flex-wrap:nowrap}}
-.addr{white-space:nowrap}
-.sfw [data-saved]:empty{display:none}  /* no gap before a field when nothing was just saved */
+.sfw [data-saved]:empty{display:none}
+.sfw{flex-wrap:wrap}.sfw [data-saved].bad{order:1;flex-basis:100%;text-align:right}  /* why it wasn't saved, under the field */
+.sets .fld:has([data-saved].bad)>label{align-self:flex-start;margin-top:8px}
+.kform .pasterow{flex-wrap:nowrap}.kform .pasterow>.f{flex:1 1 auto;min-width:0}  /* Paste stays beside the key field on a phone */
+@media (hover:none) and (pointer:coarse){.sets .shortcuts{display:none}}  /* no keyboard, no shortcuts */  /* no gap before a field when nothing was just saved */

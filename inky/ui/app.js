@@ -8,15 +8,17 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const S = { bots: [], needs: 0, settings: {}, route: "", view: null, pair: "" };
 
+const OFFLINE = "Can’t reach Inky. Is it still running?";
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: { "X-Inky-Token": TOKEN, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body) });
+    body: body === undefined ? undefined : JSON.stringify(body) }).catch(() => { throw new Error(OFFLINE); });  // "Failed to fetch" says nothing
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(data.error || `HTTP ${r.status}`), { status: r.status, data });
   return data;
 }
 async function download(path, name) {  // header auth, so the token never sits in a link you could copy
-  const r = await fetch(path, { headers: { "X-Inky-Token": TOKEN } });
+  const r = await fetch(path, { headers: { "X-Inky-Token": TOKEN } }).catch(() => null);
+  if (!r) return toast(OFFLINE);
   if (!r.ok) return toast(`Couldn’t download (${r.status})`);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([await r.text()], { type: "application/json" }));
@@ -34,6 +36,7 @@ const ICON = {
   store: "M3 9l1.5-5h15L21 9 M3 9h18v11H3z M9 20v-6h6v6", check: "M5 12l5 5 9-10", x: "M6 6l12 12 M18 6L6 18", keys: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
   users: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1 M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7 M21 19v-1a4 4 0 0 0-3-3.8 M15.5 4.2a3.5 3.5 0 0 1 0 6.6",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M20 20l-4-4",
+  mouse: "M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6z M12 7v4",
   speaker: "M11 5L6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14", micoff: "M9 9v2a3 3 0 0 0 5.1 2.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.9 5 M12 18v3 M3 3l18 18",
 };
 // Real brand marks (inky/ui/logos, sources in SOURCES.md). One-colour marks are tinted with the brand colour
@@ -77,6 +80,7 @@ const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : 
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
 
 function toast(text, b) {
+  text = text || "Something went wrong.";  // an error without a message still says something
   const box = $("#toasts"), key = `${b ? b.id : 0}|${text}`;
   if ([...box.children].some((t) => t.dataset.key === key && !t.classList.contains("out"))) return;  // the same message once
   const el = document.createElement("div");
@@ -265,9 +269,10 @@ function mobileBar(title) {
   <span class="grow"></span><button class="iconbtn" onclick="openCmd()" aria-label="Ask a bot or describe a job">${icon("search")}</button><a class="btn s${S.needs ? " hot" : ""}" href="#/needs">${needsText()}</a></div>`;
 }
 let routedHash = null;
+const viewDirty = () => !!(S.view && typeof S.view.dirty === "function" && !S.view.leaving && S.view.dirty());
 async function route() {
   const h = location.hash || "#/bots";
-  if (S.view && typeof S.view.dirty === "function" && !S.view.leaving && routedHash && h !== routedHash && S.view.dirty()) {  // unsaved changes: ask before leaving
+  if (routedHash && h !== routedHash && viewDirty()) {  // unsaved changes (back, forward, a typed address): ask before leaving
     const back = routedHash;
     history.replaceState(null, "", back);  // stay put while you decide (no redraw, nothing lost)
     if (!(await confirmBox(S.view.leaveText ? S.view.leaveText() : "Leave without saving your changes?", "Leave", true))) return;
@@ -295,8 +300,9 @@ async function route() {
         await v.show(el, rest.filter(Boolean), qs);
         MOTION.enter(el);
       } catch (e) {
-        el.innerHTML = `${mobileBar("Inky")}<div class="page"><h1>Something went wrong</h1><p class="lede">${esc(e.message)}</p>${homeLink}</div>`;
+        el.innerHTML = `${mobileBar("Inky")}<div class="page"><h1>Something went wrong</h1><p class="lede">${esc((e && e.message) || "Something went wrong.")}</p>${homeLink}</div>`;
       }
+      if (document.activeElement === document.body && el.isConnected) el.focus({ preventScroll: true });  // keyboard users land in the page (#view has tabindex=-1)
     })();
     return Promise.race([shown, new Promise((r) => setTimeout(r, 300))]);  // a slow page never freezes the screen mid-transition
   };
@@ -307,6 +313,16 @@ async function route() {
   } else swap();
   await shown;
 }
+document.addEventListener("click", async (e) => {  // a link away from unsaved changes asks first, before the address changes
+  const a = e.target.closest && e.target.closest('a[href^="#/"]');
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.getAttribute("href") === location.hash || !viewDirty()) return;
+  e.preventDefault();
+  const v = S.view, href = a.getAttribute("href");
+  if (!(await confirmBox(v.leaveText ? v.leaveText() : "Leave without saving your changes?", "Leave", true)) || S.view !== v) return;
+  v.leaving = true;  // you chose to leave (its show() resets this)
+  location.hash = href;
+}, true);
+addEventListener("beforeunload", (e) => { if (viewDirty()) { e.preventDefault(); e.returnValue = ""; } });
 window.addEventListener("hashchange", () => {
   if (!BAR) return route();
   if (location.hash !== "#/bar") { native({ type: "open", hash: location.hash }); history.replaceState(null, "", "?bar=1#/bar"); }
