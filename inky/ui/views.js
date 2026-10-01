@@ -200,7 +200,8 @@ VIEWS.setup = {
   async renderLocal() {
     const box = $("#localm"); if (!box) return;
     let loc;
-    try { loc = await get("/api/models/local"); } catch (e) { box.innerHTML = `<span class="small bad">${esc(e.message)}</span><button class="btn s" data-lrefresh>Check again</button>`; $("[data-lrefresh]", box).onclick = () => this.renderLocal(); return; }
+    let ch = { choices: [] };
+    try { [loc, ch] = await Promise.all([get("/api/models/local"), get("/api/models/choices").catch(() => ({ choices: [] }))]); } catch (e) { box.innerHTML = `<span class="small bad">${esc(e.message)}</span><button class="btn s" data-lrefresh>Check again</button>`; $("[data-lrefresh]", box).onclick = () => this.renderLocal(); return; }
     if (!box.isConnected) return;
     const o = loc.ollama, pulls = loc.pulls || {}, chat = o.models.filter((m) => !NOT_CHAT.test(m.name));
     const head = (s, t, name) => `<div class="lrow"><span class="row">${logo(s, 34)}<span><b>${name || (s === "ollama" ? "Ollama" : "LM Studio")}</b><br><span class="small muted">${t}</span></span></span>`;
@@ -215,7 +216,16 @@ VIEWS.setup = {
         return `<div class="lrow"><span><b class="mono">${esc(c.name)}</b> <span class="small muted">${c.gb} GB${c.badge === "recommended" ? " · recommended" : ""}</span><br><span class="small muted">${esc(c.about)}</span></span>
         <span class="row">${p && p.status !== "success" && !String(p.status).startsWith("failed") ? `<span class="prog" data-prog="${esc(c.name)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Downloading ${esc(c.name)}"><i style="width:${Math.max(2, pct)}%"></i></span><span class="small mono" data-pct="${esc(c.name)}">${pct}%</span>` : `<button class="btn s" data-pull="${esc(c.name)}" data-gb="${c.gb}">Download</button>`}</span></div>`;
       }).join("") || `<span class="small muted">No model in our list fits this computer’s memory. Use an API key instead.</span>`}<span class="small" id="lmsg" role="status"></span>`;
-    } else h = `${head("ollama", "running")}</div>${chat.map((m) => `<div class="lrow"><b class="mono">${esc(m.name)}</b>${this.using && this.using.provider === "ollama" && this.using.model === m.name ? `<span class="small good">✓ In use</span>` : `<button class="btn s" data-use="${esc(m.name)}">Use this</button>`}</div>`).join("")}<span class="small" id="lmsg" role="status"></span>`;
+    } else {  // best results first: the biggest that fits on top, the recommended one marked, tiny ones say what they're good for
+      const rows = ch.choices.filter((c) => c.provider === "ollama");
+      const list = rows.length ? rows : chat.map((m) => ({ model: m.name, label: m.name }));
+      const better = !rows.some((c) => !c.small) && loc.catalog.find((c) => c.badge === "recommended" && !c.installed && ["fits well", "tight", "unknown"].includes(c.fit));
+      const pb = better && pulls[better.name], pct = pb && pb.total ? Math.round(100 * pb.completed / pb.total) : 0;
+      h = `${head("ollama", "running")}</div>
+        ${better ? `<div class="lrow"><span><b>Your models are small.</b> <span class="small muted">They chat, but learn sites poorly. ${esc(better.name)} (${better.gb} GB) learns much better.</span></span>
+          <span class="row">${pb && pb.status !== "success" && !String(pb.status).startsWith("failed") ? `<span class="prog" data-prog="${esc(better.name)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Downloading ${esc(better.name)}"><i style="width:${Math.max(2, pct)}%"></i></span><span class="small mono" data-pct="${esc(better.name)}">${pct}%</span>` : `<button class="btn s p" data-pull="${esc(better.name)}" data-gb="${better.gb}">Download it</button>`}</span></div>` : ""}
+        ${list.map((c) => `<div class="lrow"><span><b class="mono">${esc(c.model)}</b> <span class="small muted">${esc(c.label.replace(c.model, "").replace(/^ · /, ""))}${ch.recommended === c.model ? " · recommended" : ""}${c.small ? " · small: learns sites poorly" : ""}</span></span>${this.using && this.using.provider === "ollama" && this.using.model === c.model ? `<span class="small good">✓ In use</span>` : `<button class="btn s${ch.recommended === c.model ? " p" : ""}" data-use="${esc(c.model)}">Use this</button>`}</div>`).join("")}<span class="small" id="lmsg" role="status"></span>`;
+    }
     if (loc.custom.reachable) h += loc.lmstudio.installed ? `${head("lmstudio", "running at " + esc(loc.custom.base))}<button class="btn s" id="uselms">Use LM Studio</button></div>`
       : `${head("server", "running at " + esc(loc.custom.base), "Your own server")}<button class="btn s" id="uselms">Use it</button></div>`;
     else if (loc.lmstudio.installed) h += `${head("lmstudio", "installed · start its local server to use it")}<button class="btn s" data-lrefresh>Check again</button></div>`;

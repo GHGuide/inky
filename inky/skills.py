@@ -63,11 +63,14 @@ def locate(desc, elements):
     return None, None
 
 
-def table(page, limit=140):
+def table(page, limit=140, typed=None):
+    """The page's elements for a model. typed: {(role, name): value} already typed while learning, so it isn't typed twice."""
     rows = []
     for e in page["elements"][:limit]:
+        done = (typed or {}).get((e["role"], e["name"]))
         extra = ", ".join(x for x in (e["tag"], e["type"], e["placeholder"] and f"placeholder “{e['placeholder']}”",
-                                        e["value"] and f"options {e['value'][:80]}", not e["inview"] and "off-screen") if x)
+                                        e["value"] and f"options {e['value'][:80]}", not e["inview"] and "off-screen",
+                                        done is not None and f"ALREADY TYPED “{str(done)[:60]}”") if x)
         rows.append(f"[{e['i']}] {e['role']} “{e['name']}” ({extra})")
     return "\n".join(rows)
 
@@ -146,6 +149,8 @@ You see the page as a numbered list of interactive elements. Reply with ONE JSON
 {"action": "click"|"fill"|"select"|"press"|"goto"|"extract"|"next_page"|"done", "index": <element number or null>,
  "value": <text to type, option label, key, or URL>, "step": "<short label, e.g. Type Bari>", "confidence": <0-1>}
 Rules: close cookie banners first. Use "fill" for text boxes and "select" for dropdowns (value = option label).
+Never type into a box marked ALREADY TYPED. After filling a search form, click its search button. After typing a message or
+filling a form the job wants sent, click the button that sends or submits it (Inky asks the user before it really sends).
 When the page shows the list of results the job wants, use "extract". After extracting, if there is a next-page link use
 "next_page" with its index, otherwise "done". Never type passwords. Never click buy/pay. Prefer the user's corrections."""
 
@@ -171,6 +176,8 @@ def next_link(page):
     return None
 
 
+SUBMIT = re.compile(r"\b(search|find|go|submit|cerca|trova|buscar|rechercher|suchen|szukaj|caută|cauta|найти|поиск|zoeken|sök|ok)\b", re.I)
+DOING = re.compile(r"\b(send|submit|contact|book|apply|post|order|reserve|sign up|register|message|reply|enquire|inquire|request)\b", re.I)
 FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?)\b", re.I)
 PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal. Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
 
@@ -219,9 +226,11 @@ def learn(ctx, goal, start_url, max_steps=24):
     comp = ctx.computer
     page = comp.call("open", start_url)
     steps, history = [], []
-    extract, empty = None, 0
+    extract, empty, typed, finished = None, 0, {}, False
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
-    for _ in range(max_steps):
+    for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
+        if len(steps) >= max_steps:
+            break
         ctx.check()
         if page.get("robot"):
             raise NeedsHelp("robot", f"{urlparse(page['url']).netloc} shows a robot check",
@@ -231,7 +240,7 @@ def learn(ctx, goal, start_url, max_steps=24):
                 f"CORRECTIONS FROM THE USER: {'; '.join(fixes) or 'none'}\n"
                 f"STEPS SO FAR:\n" + ("\n".join(f"{i + 1}. {s['text']}" for i, s in enumerate(steps)) or "none") +
                 f"\nEXTRACTED: {'yes' if extract else 'no'}\n\nPAGE: {page['title']} — {page['url']}\n"
-                f"HEADINGS: {' | '.join(page['heads'])}\nTEXT: {page['text'][:500]}\n\nELEMENTS:\n{table(page)}" +
+                f"HEADINGS: {' | '.join(page['heads'])}\nTEXT: {page['text'][:500]}\n\nELEMENTS:\n{table(page, typed=typed)}" +
                 (f"\n\nYOUR LAST REPLIES DIDN’T WORK: {'; '.join(history[-3:])}. Pick an element by its number; goto needs a full URL." if history else ""))
         try:
             d, _ = ctx.llm.ask_json("learn", LEARN_SYSTEM, user, bot_id=ctx.bot["id"])
@@ -243,6 +252,8 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Try again", "Show me once", "Open Models"])
             continue
         act = d.get("action")
+        if act in ("done", "next_page") or (act == "extract" and extract):
+            finished = True
         if act == "done" and not extract and FINDING.search(goal or ""):  # a watch job that never read anything: read the results here, if there are any
             spec, rows = read_results(ctx, goal, page)
             if rows:
@@ -272,6 +283,7 @@ def learn(ctx, goal, start_url, max_steps=24):
             if nxt:  # a next page: it reads that too, every run (the model rarely thinks of it)
                 steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
                 ctx.emit("learn", "Next page", step=len(steps), target=nxt["name"])
+                finished = True
                 break
             continue
         idx = d.get("index")
@@ -292,6 +304,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         step = {"action": "click" if act == "next_page" else act, "target": descriptor(el) if el else None,
                 "value": d.get("value"), "text": label, "next_page": act == "next_page",
                 "optional": bool(act == "click" and el and CONSENT.search(el["name"] or ""))}
+        from inky.safety import classify
+        if el and classify(step["action"], el, page)[0] == "irreversible":
+            step["sends"] = True  # this is the step that sends or submits: a job that never has one never does anything
         ctx.gate(step, el, page)
         try:
             page_after = _do(comp, step, idx, el, len(steps) + 1)
@@ -305,6 +320,14 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Show me once", "Try a smarter model", "Try again"])
             page = comp.call("elements")
             continue
+        if step["action"] in ("fill", "select") and el:
+            prev = next((st for st in steps if st["action"] == step["action"] and (st.get("target") or {}).get("role") == el["role"]
+                         and (st.get("target") or {}).get("name") == el["name"]), None)
+            typed[(el["role"], el["name"])] = step.get("value")
+            if prev:  # the same box again: its step gets the new value, no second step
+                prev.update(value=step.get("value"), text=label)
+                page = page_after
+                continue
         same = lambda st: st["action"] == step["action"] and st.get("value") == step.get("value") and (step["action"] == "goto" or st.get("target") == step.get("target"))
         if sum(same(st) for st in steps) >= (1 if step["action"] in ("fill", "select", "goto") else 2):  # a small model loops: the same step again isn't progress
             history.append(f"“{label}” is already a step; do the next thing")
@@ -318,6 +341,14 @@ def learn(ctx, goal, start_url, max_steps=24):
         page = page_after
         if act == "next_page":
             break  # one next-page is enough to learn the loop
+    if not finished and not extract:  # it ran out of steps or kept failing: that isn't a learned job
+        raise NeedsHelp("learn_failed", "Learning didn’t finish",
+                        f"After {len(steps)} steps on {urlparse(page['url']).netloc} it still wasn’t done. Show it once, or try a smarter model.",
+                        ["Show me once", "Try a smarter model", "Try again"])
+    if DOING.search(goal or "") and not extract and not any(st.get("sends") for st in steps):
+        raise NeedsHelp("learn_failed", "It didn’t find the button that sends it",
+                        "It typed what it should, but never pressed send or submit, so nothing would ever be sent. Show it once which button to press.",
+                        ["Show me once", "Try a smarter model", "Try again"])
     if not extract and (not steps or all(st["action"] == "goto" for st in steps)):  # only ever opened pages: nothing learned
         raise NeedsHelp("learn_failed", "Couldn’t find the results to read",
                         "It learned the steps but never reached a list of results. Tell it where to look, or show it once.",
@@ -439,6 +470,17 @@ def replay(ctx, skill, repair_role="repair"):
         if idx is None:
             ctx.emit("repair", f"Couldn’t find “{step['target'].get('name')}” by its name", step=i + 1)
             el, conf, why = repair(ctx, step, page, role=repair_role)
+            if (el is None or conf < CONFIDENT) and step["action"] == "click" and i and steps[i - 1]["action"] == "fill" and \
+                    (SUBMIT.search(step["target"].get("name") or "") or step["target"].get("type") == "submit"):
+                prev, _ = locate(steps[i - 1]["target"], page["elements"])  # a search button that's hidden now: Enter in its box still searches
+                if prev is not None:
+                    before = page.get("url")
+                    comp.call("act", "press", prev, "Enter", step_text=f"{i + 1} · Enter instead of “{step['target'].get('name')}”")
+                    page = comp.call("elements")
+                    if page.get("url") != before:
+                        ctx.emit("replay", f"Pressed Enter instead of “{step['target'].get('name')}”", step=i + 1)
+                        i += 1
+                        continue
             if el is None or conf < CONFIDENT:
                 guess = f"“{el['name']}”, only {round(conf * 100)}% sure" if el else "nothing"
                 raise NeedsHelp("fix_failed", f"Couldn’t fix step {i + 1} ({step['text']})",

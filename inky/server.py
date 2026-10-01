@@ -603,6 +603,8 @@ def connect_model(E, h, q, body):
         res = E.llm.test(prov, model)
     except Exception as e:
         msg = llm_plain(e, label)
+        if PROVIDERS[prov].get("local") and isinstance(e, httpx.HTTPStatusError) and e.response.status_code >= 500:
+            msg = f"{model} didn’t answer ({label} error {e.response.status_code}). It may not be a chat model, or it needs a newer {label}. Pick another one."
         if msg.startswith("That key was refused") and E.keys.stored(prov):  # a refused key is not kept, nor its warning
             E.keys.delete(prov)
             errs = E.store.setting("provider_errors", {}) or {}
