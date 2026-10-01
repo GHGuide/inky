@@ -110,6 +110,7 @@ def is_question(t):
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
 
 
+OFFLINE = re.compile(r"ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ERR_NETWORK_IO_SUSPENDED|ERR_NAME_RESOLUTION_FAILED|isn’t connected to the internet|no internet|this computer is offline", re.I)
 SELF_HANDLED = {"error", "fix_failed", "learn_failed", "batch_failed", "blocked"}  # a bot sorts these out itself; Needs you is for what only you can do
 ACTIONS = {"add_rule", "remove_rule", "remember", "forget", "learn", "run", "schedule", "pause", "resume", "stop", "speed",
            "delegate", "ask_bot", "add_automation"}
@@ -400,6 +401,10 @@ class Engine:
         self.computers, self.runs, self.waits = {}, {}, {}
         for r in self.store.find("runs", status="running", limit=1000):  # a restart ended them: say so instead of "running" forever
             self.store.update("runs", r["id"], status="stopped", note="Inky restarted")
+            b = self.store.get("bots", r["bot_id"])
+            if b and r.get("kind") == "learn" and r.get("url") and not any(x.get("url") == r["url"] for x in b.get("retries") or []):
+                self.store.update("bots", b["id"], retries=list(b.get("retries") or []) + [  # it was learning: it learns that site again, soon
+                    {"key": f"site:{skills.site_of(urlparse(r['url']).hostname or '')}", "at": time.time() + 300, "sid": None, "url": r["url"], "goal": r.get("goal") or b.get("goal"), "do": "learn"}])
         for n in self.store.find("needs", status="open", limit=500):  # problems the bot handles itself now: closed, and tried again soon
             if n.get("kind") in SELF_HANDLED and not n.get("asked"):
                 self.store.update("needs", n["id"], status="resolved", decision="Handled by the bot")
@@ -697,9 +702,10 @@ class Engine:
         urls = [u for u in (meta.get("urls") or h.meta.get("urls") or [meta.get("url") or h.meta.get("url") or (sk or {}).get("start_url")]) if u]
         host = lambda u: (urlparse(u).netloc or u).removeprefix("www.")
         fails, retries, later = dict(b.get("fails") or {}), list(b.get("retries") or []), []
+        offline = bool(OFFLINE.search(f"{h.title} {h.body} {meta.get('error') or ''}"))
         for u in urls or [None]:
             key = f"skill:{sid}" if sid else f"site:{skills.site_of(urlparse(u or '').hostname or '')}"
-            n = fails.get(key, 0) + 1
+            n = fails.get(key, 0) + (0 if offline else 1)  # this computer was offline: not the site's fault, so it doesn't count
             fails[key] = n
             if n >= 3:  # it keeps failing: now it's worth your time, once
                 fails[key] = 0
@@ -709,7 +715,7 @@ class Engine:
                                                           f"{h.body} I tried again each time on my own.", opts),
                                     ask=True, **{k: v for k, v in {**h.meta, **meta, "url": u, "skill_id": sid}.items() if k != "urls"})
             if not any(r.get("key") == key for r in retries):
-                at = time.time() + (1800 if n == 1 else 7200)  # in half an hour, then in two hours
+                at = time.time() + (600 if offline else 1800 if n <= 1 else 7200)  # offline: in 10 minutes; else in half an hour, then two hours
                 retries.append({"key": key, "at": at, "sid": sid, "url": u, "goal": meta.get("goal") or b.get("goal"),
                                 "do": "learn" if (h.kind == "fix_failed" and sk) or not sid else "run"})
                 later.append(at)
