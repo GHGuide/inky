@@ -20,6 +20,7 @@
     "allow-notify",
     "allow-bar",
     "allow-open-needs",
+    "allow-buddy-snooze",
     "allow-autostart",
     "allow-app-info",
     "allow-open-url"

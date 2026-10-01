@@ -334,7 +334,14 @@ kbd{min-width:26px;height:26px;padding:0 7px;border-radius:7px;border:1px solid 
 
 /* ---- buddy window (desktop app): peeks in from the screen edge */
 html:has(body.buddymode),body.buddymode{background:transparent}body.buddymode #nav,body.buddymode #toasts{display:none}
-body.buddymode #view{display:flex;align-items:flex-end;justify-content:center;height:100vh;overflow:hidden}
+body.buddymode #view{display:flex;align-items:flex-end;justify-content:flex-end;height:100vh;overflow:hidden;padding:0}
+.buddywrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px;width:100%;padding:6px 8px 4px}
+.buddywrap .bubble,.buddywrap .bmenu{position:relative;display:flex;flex-direction:column;gap:3px;max-width:240px;padding:10px 12px;border-radius:14px;background:#fff;box-shadow:0 6px 22px rgba(17,17,16,.18);font-size:12.5px;line-height:1.35}
+.buddywrap .bubble b{font-size:13px;padding-right:16px}
+.buddywrap .bx{position:absolute;top:4px;right:6px;border:0;background:none;font-size:16px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 4px}
+.buddywrap .bopen{align-self:flex-start;margin-top:4px;border:0;border-radius:999px;background:var(--ink);color:#fff;padding:5px 12px;font-size:12px;cursor:pointer}
+.buddywrap .bmenu{padding:6px}.buddywrap .bmenu button{border:0;background:none;text-align:left;padding:7px 10px;border-radius:8px;font-size:12.5px;cursor:pointer}
+.buddywrap .bmenu button:hover,.buddywrap .bmenu button:focus-visible{background:var(--chip2)}
 .buddy{border:0;background:none;padding:0;max-width:100%;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;animation:b-peek .6s cubic-bezier(.2,1.4,.4,1)}
 .buddy span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:#fff;box-shadow:0 2px 8px rgba(17,17,16,.15)}
 @keyframes b-peek{from{transform:translateY(110%)}to{transform:none}}

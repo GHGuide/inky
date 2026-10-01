@@ -220,11 +220,27 @@ async function importFile(text) {
   } catch (e) { toast(e.message); }
 }
 
-// buddy mode (?buddy=1): a critter that peeks in from the screen edge when a bot needs you
-function drawBuddy() {
+// buddy mode (?buddy=1): a critter that peeks in from the screen edge when a bot needs you, and says what about.
+// Its bubble opens Needs you; × (or right-click → Hide) hides it until something new needs you; right-click → Turn off stops it.
+async function drawBuddy() {
   const b = S.bots.find((x) => x.status === "needs_you" || x.needs > 0);
-  $("#view").innerHTML = b ? `<button class="buddy" title="${esc(b.name)} needs you" aria-label="${esc(b.name)} needs you">${botCritter(b, 110)}<span>${esc(b.name)}</span></button>` : "";
-  const btn = $(".buddy"); if (btn) btn.onclick = () => invoke("open_needs");
+  if (!b) { $("#view").innerHTML = ""; return; }
+  const needs = (await get("/api/needs").catch(() => ({ needs: [] }))).needs || [];
+  const n = needs.find((x) => x.bot_id === b.id) || needs[0];
+  const more = Math.max(0, (S.needs || needs.length) - 1);
+  $("#view").innerHTML = `<div class="buddywrap">
+      <div class="bubble" id="bbub"><button class="bx" id="bhide" aria-label="Hide until something new needs you" title="Hide until something new needs you">×</button>
+        <b>${esc(b.name)} needs you</b><span>${esc(clip((n && n.title) || "Open Inky to see what it is.", 90))}</span>${more ? `<span class="muted">and ${more} more</span>` : ""}
+        <button class="bopen" id="bopen">${n && n.kind === "decision" ? "Decide" : "Open"}</button></div>
+      <div class="bmenu hidden" id="bmenu" role="menu"><button role="menuitem" data-b="open">Open Inky</button><button role="menuitem" data-b="hide">Hide until something new</button><button role="menuitem" data-b="off">Turn off the buddy</button></div>
+      <button class="buddy" id="bcrit" title="${esc(b.name)} needs you. Right-click for options." aria-label="${esc(b.name)} needs you">${botCritter(b, 92)}</button></div>`;
+  const open = () => invoke("open_needs"), hide = () => invoke("buddy_snooze");
+  const off = async () => { await post("/api/settings", { buddy: false }).catch(() => {}); hide(); };
+  $("#bopen").onclick = open; $("#bcrit").onclick = open; $("#bhide").onclick = hide;
+  const menu = $("#bmenu");
+  document.oncontextmenu = (e) => { e.preventDefault(); menu.classList.toggle("hidden"); $("#bbub").classList.toggle("hidden", !menu.classList.contains("hidden")); };
+  $$("[data-b]", menu).forEach((x) => (x.onclick = () => ({ open, hide, off })[x.dataset.b]()));
+  document.onkeydown = (e) => { if (e.key === "Escape") { menu.classList.add("hidden"); $("#bbub").classList.remove("hidden"); } };
 }
 
 // ---------------------------------------------------------------- sidebar

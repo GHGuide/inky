@@ -488,6 +488,8 @@ class Engine:
                "mode": "own", "computer": "local", "created": time.time(),
                "site_queue": [u for u in (skills.web_address(x, "") for x in d.get("more_sites") or []) if u][:60],  # learned one after another
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
+        if bot["site_queue"] and bot.get("start_url"):  # several sites: one progress message while it learns them
+            bot["site_batch"] = {"total": 1 + len(bot["site_queue"]), "done": [], "msg": None}
         bid = self.store.insert("bots", bot, status="idle")
         self.drop_profile(bid)  # a new bot never inherits sign-ins left by an old one with this id
         self.store.event(bid, "created", f"Created {bot['name']}")
@@ -700,6 +702,10 @@ class Engine:
             except (RuntimeError, ValueError) as e:
                 self.store.message(bid, "bot", f"I couldn’t try again: {e}.")
                 self.bus.publish("messages", bot=bid)
+        elif decision == "Try them again" and n.get("urls"):
+            urls = [u for u in n["urls"] if u]
+            self.store.update("bots", bid, site_queue=urls, site_batch={"total": len(urls), "done": [], "msg": None})
+            threading.Thread(target=self._learn_next, args=(bid, n.get("goal") or (self.store.get("bots", bid) or {}).get("goal")), daemon=True).start()
         elif decision in ("Show me once",):
             self.start_show(bid, n)
         elif decision in ("Open its computer",):
@@ -1120,44 +1126,110 @@ class Engine:
     def _learn(self, bid, goal, url, run):
         run.run_id = self.store.insert("runs", {"kind": "learn", "goal": goal, "url": url}, bot_id=bid, status="running")
         b = self.store.get("bots", bid)
-        self.store.message(bid, "bot", f"Learning {urlparse(url).netloc or url} now, once. Watch if you like, and tell me if I pick something wrong.")
-        self.bus.publish("messages", bot=bid)
+        batch = bool(b.get("site_batch"))  # one of several sites you picked: one progress message, one summary at the end
+        if batch:
+            self._batch_say(bid, now=url)
+        else:
+            self.store.message(bid, "bot", f"Learning {urlparse(url).netloc or url} now, once. Watch if you like, and tell me if I pick something wrong.")
+            self.bus.publish("messages", bot=bid)
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
             sid = self.store.insert("skills", skill, bot_id=bid, status="ok")
             self.store.event(bid, "learned", f"Learned {skill['name']}: {len(skill['steps'])} steps, {run.ai_calls} AI calls")
             self._finish(run, "ok", learned=sid)
             reads = any(st["action"] == "extract" for st in skill["steps"])
-            self.store.message(bid, "bot", f"Learned “{skill['name']}” in {len(skill['steps'])} steps with {run.ai_calls} AI calls. "
-                                           f"From now on it repeats with none." + (" Checking it once now." if reads else " Done for now."))
-            self.bus.publish("messages", bot=bid)
-            if not reads:  # an action (like sending) already happened while learning: don't do it twice
-                return
-            run2 = Run("replay", sid)
-            self.runs[bid] = run2
-            run2.thread = threading.current_thread()
-            self._replay(bid, sid, run2, "first run after learning")
+            if not batch:
+                self.store.message(bid, "bot", f"Learned “{skill['name']}” in {len(skill['steps'])} steps with {run.ai_calls} AI calls. "
+                                               f"From now on it repeats with none." + (" Checking it once now." if reads else " Done for now."))
+                self.bus.publish("messages", bot=bid)
+            if reads:  # an action (like sending) already happened while learning: never twice
+                run2 = Run("replay", sid)
+                self.runs[bid] = run2
+                run2.thread = threading.current_thread()
+                self._replay(bid, sid, run2, "silent" if batch else "first run after learning")
+            if batch:
+                last = next((r for r in self.store.find("runs", bot_id=bid, limit=3) if r.get("kind") == "replay"), {}) if reads else {}
+                self._batch_record(bid, url, True, f"{last.get('matched', 0)} of {nres(last.get('items', 0))} pass your rules" if reads else "learned")
         except skills.NeedsHelp as h:
-            self.problem(bid, h, url=url, goal=goal)
-            self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
+            if batch and h.kind != "denied":  # noted in the batch; one card at the end covers every site that failed
+                self._finish(run, "failed", note=h.title)
+                self._batch_record(bid, url, False, h.title)
+            else:
+                self.problem(bid, h, url=url, goal=goal)
+                self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
         except (skills.Stopped, ModelStopped):
             self._finish(run, "stopped")
             self.store.update("bots", bid, site_queue=[])  # you stopped it: the other sites wait for you
-            self.store.message(bid, "bot", "Stopped. Nothing was learned this time.")
+            if batch:
+                self._batch_record(bid, url, False, "stopped")
+            self.store.message(bid, "bot", "Stopped. Nothing was learned this time." if not batch else "Stopped. The sites still to go were dropped.")
             self.bus.publish("messages", bot=bid)
         except NoModel as e:
             self.problem(bid, skills.NeedsHelp("no_model", "No model to learn with", str(e), ["Open Models"]))
             self._finish(run, "failed", note=str(e))
-            self.store.update("bots", bid, site_queue=[])
+            self.store.update("bots", bid, site_queue=[], site_batch=None)
+            batch = False
         except Exception as e:
-            self.problem(bid, skills.NeedsHelp("error", "Learning stopped", plain_error(e), ["Try again", "Show me once"]), url=url, goal=goal)
-            self._finish(run, "failed", note=str(e)[:300])
+            if batch:
+                self._finish(run, "failed", note=str(e)[:300])
+                self._batch_record(bid, url, False, plain_error(e))
+            else:
+                self.problem(bid, skills.NeedsHelp("error", "Learning stopped", plain_error(e), ["Try again", "Show me once"]), url=url, goal=goal)
+                self._finish(run, "failed", note=str(e)[:300])
         finally:
             self.store.update("bots", bid, last_run=time.time())
             self.apply_overlay(bid, target=None, step="")
             self.bus.publish("bots")
             if (self.store.get("bots", bid) or {}).get("site_queue"):
                 threading.Thread(target=self._learn_next, args=(bid, goal), daemon=True).start()
+            elif batch:
+                self._batch_end(bid)
+
+    # one progress message for several sites, then one summary
+    def _batch_say(self, bid, now=None):
+        b = self.store.get("bots", bid)
+        bt = b.get("site_batch")
+        if not bt:
+            return
+        host = lambda u: (urlparse(u).netloc or u).removeprefix("www.")
+        parts = [("✓ " if d["ok"] else "✗ ") + host(d["url"]) for d in bt["done"]] + ([f"now {host(now)}"] if now else [])
+        left = bt["total"] - len(bt["done"]) - (1 if now else 0)
+        text = f"Learning {bt['total']} sites, one at a time: " + " · ".join(parts) + (f" · {left} to go" if left > 0 else "") + "."
+        if bt.get("msg") and self.store.get("messages", bt["msg"]):
+            self.store.update("messages", bt["msg"], text=text)
+        else:
+            bt["msg"] = self.store.message(bid, "bot", text, batch=True)
+            self.store.update("bots", bid, site_batch=bt)
+        self.bus.publish("messages", bot=bid)
+
+    def _batch_record(self, bid, url, ok, note):
+        b = self.store.get("bots", bid)
+        bt = b.get("site_batch")
+        if bt:
+            bt["done"] = bt["done"] + [{"url": url, "ok": ok, "note": note}]
+            self.store.update("bots", bid, site_batch=bt)
+            self._batch_say(bid)
+
+    def _batch_end(self, bid):
+        b = self.store.get("bots", bid)
+        bt = b.get("site_batch")
+        if not bt:
+            return
+        self.store.update("bots", bid, site_batch=None)
+        host = lambda u: (urlparse(u).netloc or u).removeprefix("www.")
+        ok, bad = [d for d in bt["done"] if d["ok"]], [d for d in bt["done"] if not d["ok"] and d["note"] != "stopped"]
+        fresh = sum(1 for r in self.store.find("results", bot_id=bid, limit=5000) if r.get("passed") is not False)
+        text = (f"Learned {len(ok)} of {bt['total']} sites" + (f": {', '.join(host(d['url']) for d in ok)}" if ok else "") + "."
+                + (f" From now on every run checks {'them all' if len(ok) > 1 else 'it'} with no AI." if ok else "")
+                + (f" {nres(fresh)} pass your rules so far: see Results." if fresh else ""))
+        self.store.message(bid, "bot", text)
+        self.bus.publish("messages", bot=bid)
+        if ok:
+            self.notify(bid, text)
+        if bad:  # one card for every site that didn't work
+            why = "; ".join(f"{host(d['url'])}: {d['note']}" for d in bad[:6]) + ("; …" if len(bad) > 6 else "")
+            self.problem(bid, skills.NeedsHelp("batch_failed", f"Couldn’t learn {len(bad)} of {bt['total']} sites", why, ["Try them again", "Skip them"]),
+                         urls=[d["url"] for d in bad], goal=b.get("goal"))
 
     def _learn_next(self, bid, goal):
         """The next site you picked when you made it, once this run is over."""
@@ -1170,11 +1242,17 @@ class Engine:
             return
         url, rest = b["site_queue"][0], b["site_queue"][1:]
         self.store.update("bots", bid, site_queue=rest)
-        self.store.message(bid, "bot", f"Next site: {urlparse(url).netloc}." + (f" {len(rest)} more after this." if rest else ""))
+        if not b.get("site_batch"):
+            self.store.message(bid, "bot", f"Next site: {urlparse(url).netloc}." + (f" {len(rest)} more after this." if rest else ""))
         try:
             self.learn(bid, goal, url)
         except Exception as e:
-            self.store.message(bid, "bot", f"I couldn’t start on {urlparse(url).netloc}: {e}")
+            if b.get("site_batch"):
+                self._batch_record(bid, url, False, str(e))
+                if not rest:
+                    self._batch_end(bid)
+            else:
+                self.store.message(bid, "bot", f"I couldn’t start on {urlparse(url).netloc}: {e}")
         self.bus.publish("messages", bot=bid)
 
     def run(self, bid, skill_id=None, repair_role="repair", reason="manual", wait=False, check=False, timeout=900):
@@ -1248,7 +1326,7 @@ class Engine:
                 self.notify(bid, f"{len(new)} new: {top}")
             elif not reads:
                 self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
-            elif reason != "schedule":
+            elif reason not in ("schedule", "silent"):
                 ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
                 self.store.message(bid, "bot", f"Checked {nres(len(out['items']))} with {ai}. {len(kept)} pass{'es' if len(kept) == 1 else ''} your rules, none new.")
             if not new and reason != "silent":

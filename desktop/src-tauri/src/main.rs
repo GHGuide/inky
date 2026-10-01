@@ -36,6 +36,7 @@ struct Shared {
     bots: Mutex<Vec<BotLite>>,
     needs: Mutex<u32>,
     buddy_on: AtomicBool,
+    buddy_snooze: Mutex<u32>, // hidden with × at this many needs: it comes back only when something new needs you
     working: Arc<AtomicBool>,
     open_on_focus: Mutex<Option<String>>,
     pending_files: Mutex<Vec<PathBuf>>,
@@ -83,8 +84,15 @@ fn tray(app: AppHandle, needs: u32, bots: Vec<BotLite>, buddy: bool) {
     st.buddy_on.store(buddy, Ordering::Relaxed);
     refresh_tray(&app);
     set_badge(&app, needs);
+    let snoozed = {
+        let mut z = st.buddy_snooze.lock().unwrap();
+        if needs < *z {
+            *z = needs; // some were answered: a new one shows it again
+        }
+        *z
+    };
     if let Some(b) = app.get_webview_window("buddy") {
-        if needs > 0 && buddy {
+        if needs > 0 && buddy && needs > snoozed {
             place_buddy(&app, &b);
             let _ = b.show();
             let _ = b.eval("window.inkyBuddy && inkyBuddy()");
@@ -119,6 +127,15 @@ fn bar(app: AppHandle, msg: serde_json::Value) {
 #[tauri::command]
 fn open_needs(app: AppHandle) {
     show_main(&app, Some("#/needs"));
+}
+
+#[tauri::command]
+fn buddy_snooze(app: AppHandle) {
+    let st = app.state::<Shared>();
+    *st.buddy_snooze.lock().unwrap() = *st.needs.lock().unwrap();
+    if let Some(b) = app.get_webview_window("buddy") {
+        let _ = b.hide();
+    }
 }
 
 #[tauri::command]
@@ -250,8 +267,8 @@ fn toggle_bar(app: &AppHandle) {
 fn place_buddy(_app: &AppHandle, w: &WebviewWindow) {
     if let Ok(Some(m)) = w.primary_monitor() {
         let (sz, pos, scale) = (m.size(), m.position(), m.scale_factor());
-        let x = pos.x as f64 / scale + sz.width as f64 / scale - 150.0;
-        let y = pos.y as f64 / scale + sz.height as f64 / scale - 190.0;
+        let x = pos.x as f64 / scale + sz.width as f64 / scale - 290.0;
+        let y = pos.y as f64 / scale + sz.height as f64 / scale - 270.0;
         let _ = w.set_position(tauri::LogicalPosition::new(x, y));
     }
 }
@@ -336,7 +353,7 @@ fn build_windows(app: &AppHandle, url: &str) -> tauri::Result<()> {
         .build()?;
     WebviewWindowBuilder::new(app, "buddy", WebviewUrl::External(format!("{url}/?buddy=1#/buddy").parse().unwrap()))
         .title("Inky buddy")
-        .inner_size(130.0, 170.0)
+        .inner_size(270.0, 250.0)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -403,7 +420,7 @@ fn main() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![tray, notify, bar, open_needs, autostart, app_info, open_url])
+        .invoke_handler(tauri::generate_handler![tray, notify, bar, open_needs, buddy_snooze, autostart, app_info, open_url])
         .setup(move |app| {
             let handle = app.handle().clone();
             // the main window shows a small "waking up" page until the engine answers
