@@ -190,6 +190,8 @@ class Ctx:
             verdict, why = "irreversible", f"Your rule says: {ask['text']}"
         if verdict == "ok":
             return
+        if verdict in ("irreversible", "pay", "password") and getattr(self.run, "check", False):  # a check never asks or acts: it stops here
+            raise skills.CheckedUpTo(step.get("text") or "a step")
         if verdict == "robot":
             raise skills.NeedsHelp("robot", "The site shows a robot check", "Bots don’t solve these. Solve it once on its computer, then press Hand back.",
                                    ["Open its computer", "Skip"])
@@ -763,7 +765,7 @@ class Engine:
             self.apply_overlay(bid, target=None, step="")
             self.bus.publish("bots")
 
-    def run(self, bid, skill_id=None, repair_role="repair", reason="manual", wait=False):
+    def run(self, bid, skill_id=None, repair_role="repair", reason="manual", wait=False, check=False, timeout=900):
         sk = [s for s in self.store.find("skills", bot_id=bid, desc=False) if skill_id in (None, s["id"], s["name"])]
         if not sk:
             b = self.store.get("bots", bid)
@@ -771,6 +773,7 @@ class Engine:
                 return self.learn(bid, b.get("goal"), b.get("start_url"))
             raise ValueError("it hasn’t learned a skill yet")
         run = Run("replay", sk[0]["id"])
+        run.check = check
 
         def go():
             for s in sk:
@@ -781,7 +784,9 @@ class Engine:
             self.bus.publish("bots")
         self._start(bid, run, go)
         if wait:
-            run.thread.join(900)
+            run.thread.join(timeout)
+            if run.thread.is_alive():  # too long: stop it rather than leave it running behind a timed-out caller
+                run.stop = True
             return self.store.find("runs", bot_id=bid, limit=1)[0]
         return run
 
@@ -841,6 +846,8 @@ class Engine:
         except skills.NeedsHelp as h:
             self.problem(bid, h, skill_id=sid)
             self._finish(run, "stopped" if h.kind == "denied" else "needs_you", note=h.title)
+        except skills.CheckedUpTo as c:
+            self._finish(run, "ok", note=f"Checked up to “{c}”, which asks you first")
         except skills.Stopped:
             self._finish(run, "stopped")
             self.store.message(bid, "bot", "Stopped.")
@@ -912,7 +919,10 @@ class Engine:
             self.update_bot(bid, {"look": {"speed": kw.get("value", "normal")}})
         elif cmd == "mode":
             self.update_bot(bid, {"mode": kw.get("value", "own")})
-        self.store.event(bid, "control", cmd)
+        said = {"pause": "Paused", "resume": "Resumed", "stop": "Stopped", "takeover": "You took over its computer",
+                "handback": "You handed its computer back", "speed": f"Speed: {kw.get('value', 'normal')}",
+                "mode": "Now works in a window on your screen" if kw.get("value") == "screen" else "Now works on its own computer"}.get(cmd, cmd)
+        self.store.event(bid, "control", f"{said} · {reason}" if reason and cmd in ("stop", "pause") and len(reason) < 80 else said)
         paused = bool(run and run.paused.is_set())
         self.apply_overlay(bid, paused=paused, pausedText="Paused · you have the screen" if run and run.takeover else "Paused")
         self.bus.publish("bots")
@@ -1091,6 +1101,8 @@ class Engine:
         feed = []
         for bid, b in bots.items():
             for m in self.store.find("messages", bot_id=bid, limit=200):
+                if m["role"] == "bot" and m.get("team"):  # its answer to a bot shows once, as the copy that reached the asker
+                    continue
                 if m["role"] == "peer":
                     kind = "peer"
                 elif m.get("paper"):

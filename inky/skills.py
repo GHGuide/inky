@@ -14,6 +14,10 @@ class NeedsHelp(Exception):
         self.kind, self.title, self.body, self.options, self.meta = kind, title, body, options or [], meta
 
 
+class CheckedUpTo(Exception):
+    """A check run (when a bot moves) reached a step that would ask you: that's far enough, nothing is done."""
+
+
 class Stopped(Exception):
     pass
 

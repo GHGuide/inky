@@ -56,7 +56,8 @@ def main():
     if a.host in ("0.0.0.0", "::", ""):  # reachable from your network: say so, so the app there finds it
         from inky import __version__
         from inky.connect import start_beacon
-        start_beacon(lambda: engine.store.setting("engine_name", platform.node()), srv.server_port, __version__)
+        from inky.transfer import engine_id as transfer_id
+        start_beacon(lambda: engine.store.setting("engine_name", platform.node()), srv.server_port, __version__, transfer_id(engine))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # finally: below closes the engine and removes engine.json
     if a.stop_with_stdin:
         def watch():

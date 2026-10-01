@@ -44,13 +44,17 @@ def parse_pair_link(link):
 
 def pair_and_save(E, url, code):
     token, name = transfer.pair(url, code)
+    try:
+        eid = httpx.get(url.rstrip("/") + "/api/ping", timeout=8).json().get("id")
+    except (httpx.HTTPError, ValueError):
+        eid = None
     if token == getattr(E, "token", None):
         raise ValueError("That’s this computer. Pair another one.")
     for c in E.store.find("computers"):
         if c.get("token") == token:  # the same server again (maybe by another address): refresh it
-            E.store.update("computers", c["id"], url=url.rstrip("/"), name=name)
+            E.store.update("computers", c["id"], url=url.rstrip("/"), name=name, engine_id=eid)
             return c["id"]
-    return E.store.insert("computers", {"name": name, "url": url.rstrip("/"), "token": token})
+    return E.store.insert("computers", {"name": name, "url": url.rstrip("/"), "token": token, "engine_id": eid})
 
 
 # ---------------------------------------------------------------- SSH setup
@@ -153,8 +157,11 @@ def ssh_setup(E, target, progress, run=None, install_url=INSTALL_URL):
 
 
 # ---------------------------------------------------------------- LAN discovery
-def beacon_packet(name, port, version):
-    return json.dumps({"inky": 1, "name": str(name)[:60], "port": int(port), "version": version}, ensure_ascii=False).encode()
+def beacon_packet(name, port, version, eid=None):
+    d = {"inky": 1, "name": str(name)[:60], "port": int(port), "version": version}
+    if eid:
+        d["id"] = eid  # who it is (a hash, no secret), so a server you paired by another address isn't offered again
+    return json.dumps(d, ensure_ascii=False).encode()
 
 
 def parse_beacon(data):
@@ -164,7 +171,8 @@ def parse_beacon(data):
         return None
     if not isinstance(d, dict) or d.get("inky") != 1 or not isinstance(d.get("port"), int) or not 0 < d["port"] < 65536:
         return None
-    return {"name": str(d.get("name") or "Inky")[:60], "port": d["port"], "version": str(d.get("version") or "")[:20]}
+    eid = d.get("id") if isinstance(d.get("id"), str) and re.match(r"^[0-9a-f]{16}$", d.get("id")) else None
+    return {"name": str(d.get("name") or "Inky")[:60], "port": d["port"], "version": str(d.get("version") or "")[:20], "id": eid}
 
 
 def local_ips():
@@ -218,7 +226,7 @@ class Listener:
         threading.Thread(target=loop, daemon=True, name="lan-listener").start()
 
 
-def start_beacon(name_fn, port, version):
+def start_beacon(name_fn, port, version, eid=None):
     """An engine that listens on your network says so every 5 s. No code, no token: pairing still needs the code.
     Returns an Event: set it to stop. ponytail: a Docker install's beacon stays inside Docker's network;
     the SSH setup and pair link cover those."""
@@ -229,7 +237,7 @@ def start_beacon(name_fn, port, version):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         while not stop.is_set():
             try:
-                s.sendto(beacon_packet(name_fn(), port, version), ("255.255.255.255", BEACON_PORT))
+                s.sendto(beacon_packet(name_fn(), port, version, eid), ("255.255.255.255", BEACON_PORT))
             except OSError:
                 pass
             stop.wait(5)
@@ -300,10 +308,11 @@ def found(E):
             finally:
                 _state["ts_at"], _state["ts_busy"] = time.time(), False
         threading.Thread(target=refresh, daemon=True).start()
-    paired = {c["url"].rstrip("/") for c in E.store.find("computers")}
+    comps = E.store.find("computers")
+    paired, ids = {c["url"].rstrip("/") for c in comps}, {c.get("engine_id") for c in comps if c.get("engine_id")}
     seen, out = set(), []
     for f in _state["listener"].found() + _state["ts"]:
-        if f["url"] not in paired and f["url"] not in seen:
+        if f["url"] not in paired and f["url"] not in seen and not (f.get("id") and f["id"] in ids):
             seen.add(f["url"])
             out.append(f)
     return out

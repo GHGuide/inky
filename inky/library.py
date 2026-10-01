@@ -102,15 +102,23 @@ def check(b):
 
 
 def private_host(host):
+    """Only works on its maker's own computer or network: loopback, LAN, link-local, CGNAT/tailnet, .local and friends."""
     import ipaddress
-    h = (host or "").split(":")[0].strip("[]").lower()
-    if h in ("localhost",) or h.endswith((".local", ".localhost", ".internal", ".lan", ".home")) or "." not in h:
+    import socket
+    h = (host or "").strip("[]").lower()
+    h = h if h.count(":") > 1 else h.split(":")[0]  # an IPv6 address keeps its colons
+    if h in ("localhost",) or h.endswith((".local", ".localhost", ".internal", ".lan", ".home", ".ts.net", ".home.arpa")) or "." not in h and ":" not in h:
         return True
     try:
         ip = ipaddress.ip_address(h)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
     except ValueError:
-        return False
+        try:
+            ip = ipaddress.ip_address(socket.inet_ntoa(socket.inet_aton(h)))  # shorthand like 127.1
+        except OSError:
+            if re.search(r"(^|[.-])(127|10|192-168|192\.168|172\.(1[6-9]|2\d|3[01]))[.-]\d", h) and h.endswith((".nip.io", ".sslip.io", ".xip.io")):
+                return True  # a public name that points at a private address
+            return False
+    return not ip.is_global
 
 
 def listing(b, meta=None):

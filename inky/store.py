@@ -19,8 +19,15 @@ class Store:
         self.on_event = None  # the engine publishes each event live
         with self.lock:
             for t in TABLES:
-                self.db.execute(f"create table if not exists {t} (id integer primary key, bot_id integer, "
+                old = self.db.execute("select sql from sqlite_master where type='table' and name=?", (t,)).fetchone()
+                if old and "autoincrement" not in old[0].lower():  # ids must never come back: a moved bot points at one
+                    self.db.execute(f"alter table {t} rename to {t}_old")
+                    self.db.execute(f"drop index if exists {t}_bot")
+                self.db.execute(f"create table if not exists {t} (id integer primary key autoincrement, bot_id integer, "
                                 f"status text, key text, ts real, data text)")
+                if old and "autoincrement" not in old[0].lower():
+                    self.db.execute(f"insert into {t} (id, bot_id, status, key, ts, data) select id, bot_id, status, key, ts, data from {t}_old")
+                    self.db.execute(f"drop table {t}_old")
                 self.db.execute(f"create index if not exists {t}_bot on {t}(bot_id)")
             self.db.execute("create table if not exists settings (key text primary key, value text)")
             self.db.commit()

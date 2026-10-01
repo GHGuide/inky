@@ -114,11 +114,14 @@ def patch_bot(E, h, q, body, bid):
 def delete_bot(E, h, q, body, bid):
     b = bot_or_404(E, bid)
     c = E.store.get("computers", int(b["computer"])) if b.get("remote_id") and str(b.get("computer") or "local") != "local" else None
-    if c:  # it lives on another computer: delete it there too (directly, never through another forward)
+    if c and q.get("here") != "1":  # it lives on another computer: delete it there too (directly, never through another forward)
         try:
-            httpx.delete(f"{c['url']}/api/bots/{b['remote_id']}", headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=30)
+            r = httpx.delete(f"{c['url']}/api/bots/{b['remote_id']}", headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=30)
+            ok = r.status_code < 300 or r.status_code == 404  # 404: it's already gone there
         except httpx.HTTPError:
-            pass
+            ok = False
+        if not ok:
+            raise HTTPError(409, f"{c['name']} isn’t answering, so {b['name']} is still there. Try again when it’s on, or remove it only here.")
     E.delete_bot(int(bid))
     return {"ok": True}
 
@@ -130,6 +133,11 @@ def bring_back(E, h, q, body, bid):
     def go():
         try:
             transfer.bring_back(E, int(bid), progress=lambda step, **kw: E.bus.publish("move", bot=int(bid), step=step, **kw))
+        except httpx.HTTPStatusError as e:
+            b = E.store.get("bots", int(bid)) or {}
+            E.bus.publish("move", bot=int(bid), step="failed", text=f"{b.get('name', 'It')} is no longer there. Remove it here from its page." if e.response.status_code == 404 else f"The other computer answered {e.response.status_code}.")
+        except httpx.RequestError:
+            E.bus.publish("move", bot=int(bid), step="failed", text="The other computer isn’t answering. It can only pack up while it’s on.")
         except Exception as e:
             E.bus.publish("move", bot=int(bid), step="failed", text=str(e)[:200])
     threading.Thread(target=go, daemon=True).start()
@@ -152,7 +160,8 @@ def learn(E, h, q, body, bid):
 @route("POST", r"/api/bots/(\d+)/run")
 def run(E, h, q, body, bid):
     bot_or_404(E, bid)
-    r = E.run(int(bid), body.get("skill"), wait=bool(body.get("wait")), reason=body.get("reason", "manual"))
+    r = E.run(int(bid), body.get("skill"), wait=bool(body.get("wait")), reason=body.get("reason", "manual"),
+              check=bool(body.get("check")), timeout=min(int(body.get("timeout") or 900), 900))
     return {"run": r} if isinstance(r, dict) else {"ok": True}
 
 
@@ -248,7 +257,9 @@ def move(E, h, q, body, bid):
             transfer.move_bot(E, int(bid), int(body["computer"]),
                               progress=lambda step, **kw: E.bus.publish("move", bot=int(bid), step=step, **kw))
         except Exception as e:
-            E.bus.publish("move", bot=int(bid), step="failed", text=str(e))
+            why = "Nothing changed: it’s still here, and nothing was left there." if str(e) == "check_failed" else \
+                (f"{c['name']} isn’t answering. Try again when it’s on." if isinstance(e, httpx.RequestError) else str(e)[:200])
+            E.bus.publish("move", bot=int(bid), step="failed", text=why)
     threading.Thread(target=go, daemon=True).start()
     return {"ok": True}
 
@@ -314,23 +325,45 @@ REMOTE_NEEDS = {"at": 0, "rows": []}
 
 
 def remote_needs(E):
-    """Open questions from your bots that moved to another computer, every 15 s at most."""
+    """Open questions from your bots that moved to another computer: one request per server, in parallel, every 15 s at most."""
     if time.time() - REMOTE_NEEDS["at"] < 15:
         return REMOTE_NEEDS["rows"]
-    rows = []
+    moved = {}
     for b in E.store.find("bots"):
-        if b.get("status") != "moved" or not b.get("remote_id"):
-            continue
-        c = E.store.get("computers", int(b["computer"])) if str(b.get("computer")).isdigit() else None
+        if b.get("status") == "moved" and b.get("remote_id") and str(b.get("computer")).isdigit():
+            moved.setdefault(int(b["computer"]), []).append(b)
+
+    def ask(cid):
+        c = E.store.get("computers", cid)
         if not c:
-            continue
+            return []
         try:
             got = transfer.Remote(c["url"], c["token"]).req("GET", "/api/needs", timeout=4)["needs"]
         except Exception:
-            continue
-        rows += [dict(n, bot_id=b["id"], bot=b["name"], remote=c["name"]) for n in got if n.get("bot_id") == b["remote_id"]]
+            return []
+        mine = {b["remote_id"]: b for b in moved[cid]}
+        return [dict(n, bot_id=mine[n["bot_id"]]["id"], bot=mine[n["bot_id"]]["name"], remote=c["name"]) for n in got if n.get("bot_id") in mine]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max(1, min(8, len(moved)))) as ex:
+        rows = [n for got in ex.map(ask, moved) for n in got] if moved else []
+    before = len(REMOTE_NEEDS["rows"])
     REMOTE_NEEDS.update(at=time.time(), rows=rows)
+    if len(rows) != before:  # the badge and Needs you follow along without opening the page
+        E.bus.publish("needs")
     return rows
+
+
+def watch_remote_needs(E):
+    def loop():
+        while True:
+            time.sleep(15)
+            try:
+                if any(b.get("status") == "moved" for b in E.store.find("bots")):
+                    REMOTE_NEEDS["at"] = 0
+                    remote_needs(E)
+            except Exception:
+                pass
+    threading.Thread(target=loop, daemon=True, name="remote-needs").start()
 
 
 @route("GET", "/api/needs")
@@ -340,16 +373,6 @@ def needs(E, h, q, body):
     if q.get("status", "open") == "open":
         rows += remote_needs(E)
     return {"needs": rows}
-
-
-@route("POST", r"/api/needs/(\d+)")
-def answer(E, h, q, body, nid):
-    try:
-        return {"need": E.resolve(int(nid), body.get("decision"))}
-    except KeyError:
-        raise HTTPError(404, "That question is gone.")
-    except ValueError as e:
-        raise HTTPError(409, str(e))
 
 
 @route("POST", r"/api/bots/(\d+)/needs/(\d+)")
@@ -762,7 +785,7 @@ def computers(E, h, q, body):
     def remote(c):
         r = transfer.Remote(c["url"], c["token"])
         try:
-            ok, rbots = True, r.req("GET", "/api/bots", timeout=4)["bots"]
+            ok, rbots = True, [x for x in r.req("GET", "/api/bots", timeout=4)["bots"] if x.get("status") != "moved"]
             if not c.get("os"):  # remember what it runs, for its logo
                 c["os"] = r.req("GET", "/api/ping", timeout=4).get("os") or "Linux"
                 E.store.update("computers", c["id"], os=c["os"])
@@ -784,8 +807,13 @@ def add_computer(E, h, q, body):
             url, code = connect.parse_pair_link(url)
         if not url or re.search(r"\s", url):
             raise ValueError("That isn’t an address. It looks like 192.168.1.20:8800 or a pair link.")
+        if re.match(r"^[a-z][a-z0-9+.-]*://", url, re.I) and not url.lower().startswith(("http://", "https://")):
+            raise ValueError("Use an http:// address, like 192.168.1.20:8800.")
         if not url.startswith(("http://", "https://")):
-            url = "http://" + url + ("" if re.search(r":\d+$", url) else ":8800")
+            url = "http://" + url
+        u = urlparse(url)
+        host = f"[{u.hostname}]" if u.hostname and ":" in u.hostname else u.hostname
+        url = f"{u.scheme}://{host}:{u.port or 8800}" if host else url  # just the server, not a page on it
         cid = connect.pair_and_save(E, url, code)
     except ValueError as e:
         raise HTTPError(400, str(e))
@@ -828,7 +856,11 @@ def computers_ssh(E, h, q, body):
 
 @route("DELETE", r"/api/computers/(\d+)")
 def del_computer(E, h, q, body, cid):
+    for b in E.store.find("bots"):  # their placeholders here point at that server: they'd act on whatever has that id there later
+        if b.get("status") == "moved" and str(b.get("computer")) == str(cid):
+            E.delete_bot(b["id"])
     E.store.delete("computers", int(cid))
+    REMOTE_NEEDS["at"] = 0
     return {"ok": True}
 
 
@@ -983,8 +1015,12 @@ class Handler(BaseHTTPRequestHandler):
             r = httpx.request(method, c["url"] + rpath, json=body if method != "GET" else None,
                               headers={"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1"}, timeout=120 if method != "GET" else 20)
             data = r.json()
+            if r.status_code == 404 and not m.group(2):  # the bot itself is gone there
+                return self._send(410, {"error": f"{b['name']} is no longer on {c['name']}.", "gone": True}) or True
             if isinstance(data, dict) and isinstance(data.get("bot"), dict):
                 data["bot"].update(id=b["id"], computer=b["computer"], remote=c["name"])
+            if method == "POST" and re.search(r"/needs/\d+$", path) and r.status_code < 300:
+                REMOTE_NEEDS["at"] = 0
             self._send(r.status_code, data)
         except Exception as e:
             self._send(502, {"error": f"can’t reach {c['name']}: {e}"})
@@ -1078,6 +1114,9 @@ def serve(engine, host="127.0.0.1", port=8800):
     srv.daemon_threads = True
     engine.port = srv.server_port  # connectors that call back into Inky (n8n) need it
     engine.host = host
+    if not getattr(engine, "watching_needs", False):
+        engine.watching_needs = True
+        watch_remote_needs(engine)
     return srv
 
 
@@ -1097,7 +1136,7 @@ def lan_access(E, on):
         srv.daemon_threads = True
         threading.Thread(target=srv.serve_forever, daemon=True, name="lan").start()
         E.lan_srv = srv
-        E.lan_beacon = connect.start_beacon(lambda: E.store.setting("engine_name", platform.node()), srv.server_port, __version__)
+        E.lan_beacon = connect.start_beacon(lambda: E.store.setting("engine_name", platform.node()), srv.server_port, __version__, transfer.engine_id(E))
     elif not on and srv:
         E.lan_beacon.set()
         srv.shutdown()
