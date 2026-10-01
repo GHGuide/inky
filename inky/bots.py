@@ -222,6 +222,8 @@ class Engine:
         self.mcp = MCPManager(self.store, str(self.home))
         self.mcp.builtin = connectors.Builtins(self)
         self.computers, self.runs, self.waits = {}, {}, {}
+        for r in self.store.find("runs", status="running", limit=1000):  # a restart ended them: say so instead of "running" forever
+            self.store.update("runs", r["id"], status="stopped", note="Inky restarted")
         self.hops = {}  # (from bot, to bot) -> times, so two bots can't talk in circles
         self.lock = threading.RLock()
         self._sched = None
@@ -466,7 +468,7 @@ class Engine:
         if n.get("options") and decision not in n["options"]:
             raise ValueError(f"“{decision}” isn’t one of the answers.")
         self.store.update("needs", nid, status="resolved", decision=decision)
-        self.store.event(n["bot_id"], "answered", f"You chose “{decision}”: {n['title']}")
+        self.store.event(n["bot_id"], "answered", f"You chose “{decision}”: {n['title']}", need=nid, decision=decision)
         ev = self.waits.pop(nid, None)
         if ev:
             ev.set()

@@ -177,10 +177,14 @@ def show_done(E, h, q, body, bid):
 @route("GET", r"/api/bots/(\d+)/results")
 def results(E, h, q, body, bid):
     bot_or_404(E, bid)
+    b = bot_or_404(E, bid)
     rows = E.store.find("results", bot_id=int(bid), limit=int(q.get("limit", 300)))
-    if not q.get("all"):  # near-misses are kept for suggestions, not shown as results
-        rows = [r for r in rows if r.get("passed") is not False]
-    return {"results": [{k: v for k, v in r.items() if k not in ("bot_id", "status", "key", "passed")} for r in rows]}
+    hidden = ("id", "bot_id", "status", "key", "ts", "passed", "new", "run", "skill")
+    passes = lambda r: skills_mod.apply_filters([{k: v for k, v in r.items() if k not in hidden}], b.get("filters"))
+    if not q.get("all"):  # your rules as they are now (they may have changed since the run); near-misses stay for suggestions
+        rows = [r for r in rows if passes(r)]
+    return {"results": [{k: v for k, v in r.items() if k not in ("bot_id", "status", "key", "passed")} for r in rows],
+            "unchecked": skills_mod.unchecked(rows, b.get("filters"))}
 
 
 @route("POST", r"/api/bots/(\d+)/apply")
