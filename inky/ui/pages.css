@@ -21,6 +21,7 @@
 .wcard .list .between{flex-wrap:nowrap}.wcard .list .between>:last-child{text-align:right}
 .composer .between{flex-wrap:nowrap}.composer .between>.mono,.composer .between>.small{min-width:0}
 .composer .between>.btn{flex-shrink:0}
+.botcards .botcard>.row{flex-wrap:nowrap;align-items:flex-start}.botcards .botcard>.row>svg{flex-shrink:0}  /* home cards: the critter stays beside the name on phones */
 @media (max-width:560px){
   .wiz header{padding:0 16px;gap:12px}
   .wiz .wmark,.wsteps{display:none}
@@ -39,23 +40,32 @@
 
 /* library */
 #ltags .chip{border:0;cursor:pointer;min-height:32px}
+#lgrid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}  /* 2 columns at 900 px, so "You have it · Open" fits */
 
 /* computers */
 .cname{overflow-wrap:break-word;min-width:0}
 .clist>.card>.row>.pill{flex-shrink:0}
+.clist>.card>.row{flex-wrap:wrap}.clist>.card>.row>.grow{flex:1 1 200px}  /* the pill goes under the name before the name goes one word a line */
+@media (max-width:1100px){.clist{grid-template-columns:minmax(0,1fr)}}
 .cbot{padding:10px;gap:8px;min-width:0}
 .cbot>.btn{align-self:flex-start}
-.cbot.nolink{cursor:default}
-.cbot.nolink:hover,.cbot.nolink:active{transform:none;box-shadow:none}
-.frow2{flex-wrap:wrap}.frow2>.grow{flex:1 1 160px;min-width:0}
+.cblink{display:flex;flex-direction:column;gap:8px;min-width:0;color:inherit;text-decoration:none;border-radius:10px}
+.cbot:hover,.cbot:active{transform:none;box-shadow:none}  /* only its link lifts it: the button beside it isn't part of the link */
+.cbot:has(.cblink:hover){transform:translateY(-2px);box-shadow:0 10px 24px rgba(17,17,16,.08)}
+.cbot.away{opacity:.55}.cbot.away svg{filter:grayscale(1)}
+#moveprog:empty,#umsg:empty{display:none}  /* no gaps in a dialog before anything happened */
+.frow2{flex-wrap:wrap}.frow2>.grow{flex:1 1 180px;min-width:0}.frow2 .mono{overflow-wrap:anywhere}
 
 /* needs you: the side panel gives way to the cards */
 .needrow{align-items:flex-start;gap:28px}
 .needside{flex:0 1 330px;min-width:240px}
+.need .between,.need .between>.row{flex-wrap:nowrap;align-items:flex-start}.need .between>.mono{flex-shrink:0;white-space:nowrap}.need .between svg{flex-shrink:0}.nwho{min-width:0;overflow-wrap:anywhere;padding-top:2px}
+.need .btn.chosen,.need .btn.chosen:disabled{background:var(--ink);color:#fff;border-color:var(--ink);opacity:1}
 @media (max-width:1100px){.needrow{flex-wrap:wrap}.needside{flex:1 1 100%}}
 
 /* activity */
 a.ev{text-decoration:none;color:inherit}
+.ev{grid-template-columns:86px 26px minmax(0,1fr) auto}.ev>.mono{white-space:nowrap}  /* "12 min ago" on one line */
 a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
 @media (max-width:760px){
   .stats5{grid-template-columns:repeat(2,minmax(0,1fr))}
