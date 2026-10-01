@@ -73,14 +73,14 @@ def pair_route(E, h, q, body):
 def state(E, h, q, body):
     usage = E.store.setting("usage", {})
     today = usage.get(datetime.now().strftime("%Y-%m-%d"), {"calls": 0, "tokens": 0, "cost": 0})
-    return {"bots": E.bots(), "needs": len(E.store.find("needs", status="open")) + len(REMOTE_NEEDS["rows"]), "setup_done": E.store.setting("setup_done", False),
+    return {"bots": bots_here(E), "needs": len(E.store.find("needs", status="open")) + len(REMOTE_NEEDS["rows"]), "setup_done": E.store.setting("setup_done", False),
             "settings": settings_view(E), "today": today, "pair_code": transfer.pair_code(E.token),
             "engine": E.store.setting("engine_name", platform.node())}
 
 
 @route("GET", "/api/bots")
 def bots(E, h, q, body):
-    return {"bots": E.bots()}
+    return {"bots": bots_here(E)}
 
 
 @route("POST", "/api/bots/draft")
@@ -365,6 +365,18 @@ def import_skill(E, h, q, body, bid):
 
 # ------------------------------------------------------------------ needs, activity
 REMOTE_NEEDS = {"at": 0, "rows": []}
+
+
+def bots_here(E):
+    """Your bots; one that moved says where it runs and how many of its questions wait for you there."""
+    names = {c["id"]: c["name"] for c in E.store.find("computers")}
+    rows = E.bots()
+    for b in rows:
+        if b["status"] == "moved":
+            b["remote"] = names.get(int(b["computer"])) if str(b.get("computer")).isdigit() else None
+            b["needs"] = sum(1 for n in REMOTE_NEEDS["rows"] if n.get("bot_id") == b["id"])
+            b["need_kind"] = next((("decision" if n.get("kind") == "decision" else "problem") for n in REMOTE_NEEDS["rows"] if n.get("bot_id") == b["id"]), None)
+    return rows
 
 
 def forget_remote_needs(bid):
