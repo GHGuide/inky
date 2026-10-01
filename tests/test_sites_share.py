@@ -84,3 +84,5 @@ class LearningChecksTest(unittest.TestCase):
         paging = {"url": "https://shop.example/bikes?page=1", "elements": [{"role": "link", "name": "Volgende", "href": "/bikes?page=2"}]}
         self.assertIsNone(skills.next_link(carousel))
         self.assertEqual(skills.next_link(paging)["name"], "Volgende")
+        self.assertFalse(skills.named([{"link": "/a"}, {"link": "/b"}, {"link": "/c"}, {"title": None, "link": "/d"}]))
+        self.assertTrue(skills.named([{"title": "Gazelle", "price": "€220"}, {"title": "Batavus"}, {"price": "€99"}]))

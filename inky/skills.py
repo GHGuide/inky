@@ -237,7 +237,7 @@ def read_results(ctx, goal, page):
             c = lists[pick - 1]
             spec = {"item": c["item"], "fields": c["fields"]}
             rows = [r for r in comp.call("extract", spec) if any(r.values())]
-            if rows:
+            if named(rows):
                 return spec, rows
     if home_page(page.get("url")):
         return None, []  # on a home page, only a real list counts; the outline would find its tiles again
@@ -252,9 +252,16 @@ def read_results(ctx, goal, page):
                 rows = [r for r in comp.call("extract", spec) if any(r.values())]
             except Exception:
                 rows = []
-            if rows:
+            if named(rows):
                 return spec, rows
     return None, []
+
+
+def named(rows):
+    """Real results have names: most rows need a title (or at least a price). Rows of only links are a wrong list."""
+    if len(rows) < 3:
+        return bool(rows) and all(r.get("title") for r in rows)
+    return sum(1 for r in rows if r.get("title") or r.get("price")) >= 0.6 * len(rows)
 
 
 def learn(ctx, goal, start_url, max_steps=24):
@@ -584,4 +591,13 @@ def replay(ctx, skill, repair_role="repair"):
         i += 1
     if extract_at is None:
         pass
+    if items and not named(items):  # it read something, but nothing with a name or price: the page changed under the reading step
+        raise NeedsHelp("fix_failed", "Reading the results stopped working",
+                        f"It found {len(items)} items, but none had a name or price. The site’s page has probably changed.",
+                        ["Show me once", "Try again", "Skip this run"], url=start_url_of(skill))
+    items = [r for r in items if r.get("title") or r.get("price") or r.get("name")]  # nameless rows are never results
     return {"items": items, "repairs": repairs, "pages": pages}
+
+
+def start_url_of(skill):
+    return skill.get("start_url") or next((st.get("value") for st in skill.get("steps") or [] if st.get("action") == "goto"), None)

@@ -237,6 +237,8 @@ class LLM:
         if over:
             raise NoModel(f"{p['label']} reached your monthly limit (${spent:.2f} of ${float(lim):.2f}). Raise it in API keys.")
         t0 = time.time()
+        if p.get("local"):
+            timeout = max(timeout, 300)  # a busy computer makes local models slow: a late answer beats a failed learn
         import secrets
         cid, client = secrets.token_hex(4), httpx.Client(timeout=timeout)
         self.live[cid] = {"provider": provider, "model": model, "role": role, "bot_id": bot_id, "since": t0, "client": client}
