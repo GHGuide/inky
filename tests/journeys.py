@@ -291,6 +291,64 @@ def j_share():
         B.close()
 
 
+def j_new_user():
+    """A first-time user on the real screens: 3 setup steps, one job in their words, the bot learns, they see what it found,
+    change a rule in chat, and nothing on the way is broken or off-screen."""
+    from playwright.sync_api import sync_playwright
+    E = Engine()
+    E.api("POST", "/api/settings", {"setup_done": False})
+    errs, notes = [], []
+    try:
+        with sync_playwright() as pw:
+            br = pw.chromium.launch()
+            pg = br.new_page(viewport={"width": 1280, "height": 860})
+            pg.on("pageerror", lambda e: errs.append(str(e)))
+            pg.goto(E.url + "/")
+            pg.wait_for_selector("#wnext", timeout=20000)
+            steps = [pg.locator(".wcount").inner_text()]
+            pg.click("#wnext")
+            pg.wait_for_selector("#localm [data-use], #localm .good", timeout=30000)
+            if pg.locator("#localm [data-use]").count() and "In use" not in pg.locator("#localm").inner_text():
+                pg.locator("#localm [data-use]").first.click()
+                pg.wait_for_timeout(6000)
+            steps.append(pg.locator(".wcount").inner_text())
+            pg.click("#wnext")
+            pg.wait_for_selector("#job", timeout=20000)
+            steps.append(pg.locator(".wcount").inner_text())
+            pg.fill("#job", "Every morning, find books under £20 on books.toscrape.com")
+            pg.click("#start")
+            pg.wait_for_selector("#create", timeout=240000)
+            pg.click("#create")
+            pg.wait_for_function("location.hash.startsWith('#/bot/')", timeout=30000)
+            bid = int(pg.evaluate("location.hash").split("/")[2])
+            E.idle(bid, 900)
+            pg.goto(E.url + "/#/bots")
+            pg.wait_for_selector(f"#nav a[data-bot='{bid}']")
+            card = pg.locator(".botcard").first.inner_text()
+            pg.click(f"#nav a[data-bot='{bid}']")
+            pg.wait_for_selector(".rlist .ritem", timeout=20000)
+            opened, tabs, found = pg.evaluate("location.hash"), pg.locator(".tabs > a").all_inner_texts(), pg.locator(".ritem").count()
+            pg.fill("#say", "only keep books under £15")
+            pg.keyboard.press("Enter")
+            pg.wait_for_timeout(4000)
+            E.api("GET", f"/api/bots/{bid}")
+            pg.goto(E.url + f"/#/bot/{bid}/results")
+            pg.wait_for_selector(".rlist .ritem, #tb p", timeout=20000)
+            pg.wait_for_timeout(1000)
+            after = pg.locator(".ritem").count()
+            sidebar = pg.locator("#nav .navbottom > a.navlink, #nav .navbottom > details > summary").all_inner_texts()
+            pg.set_viewport_size({"width": 390, "height": 844})
+            pg.wait_for_timeout(600)
+            overflow = pg.evaluate("document.documentElement.scrollWidth > innerWidth")
+            br.close()
+        ok = (steps == ["Step 1 of 3 · Welcome", "Step 2 of 3 · Model", "Step 3 of 3 · Ready"] and opened.endswith("/results") and found >= 10
+              and "found" in card and 0 < after < found and not overflow and not errs and sidebar[-1] == "More")
+        notes.append(f"setup {len(steps)} steps · opened on {opened.split('/')[-1]} · tabs {tabs} · {found} found, {after} after “under £15” · card “{card.splitlines()[2] if len(card.splitlines()) > 2 else card}” · phone overflow {overflow} · page errors {len(errs)}")
+        return ok, " ".join(notes)
+    finally:
+        E.close()
+
+
 def _up(url):
     try:
         urllib.request.urlopen(url, timeout=2)
@@ -299,7 +357,7 @@ def _up(url):
         return False
 
 
-JOURNEYS = {"books": j_watch_books, "find": j_find_sites, "real": j_real_sites, "do": j_do_and_change, "chat": j_chat,
+JOURNEYS = {"newuser": j_new_user, "books": j_watch_books, "find": j_find_sites, "real": j_real_sites, "do": j_do_and_change, "chat": j_chat,
             "batch": j_batch, "handled": j_handled, "stop": j_stop, "share": j_share}
 
 if __name__ == "__main__":
