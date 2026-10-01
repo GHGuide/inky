@@ -65,6 +65,27 @@ class ActionsTest(unittest.TestCase):
         self.assertIn({"kind": "never", "text": "Never buy anything"}, self.E.store.get("bots", self.b["id"])["rules"])
 
 
+    def test_questions_change_nothing_and_new_rules_only_add(self):
+        bid = self.b["id"]
+        with self.assertRaises(ValueError):
+            self.E.apply_action(bid, {"type": "schedule", "every_minutes": 5}, said="Should you run every 5 minutes?")
+        self.E.apply_action(bid, {"type": "schedule", "every_minutes": 60}, said="Could you check every hour?")
+        self.assertEqual(self.E.store.get("bots", bid)["schedule"]["every_minutes"], 60)
+        before = [r["text"] for r in self.E.store.get("bots", bid)["rules"]]
+        reply = '{"reply": "Done", "actions": [{"type": "remove_rule", "text": "Buy or pay"}, {"type": "remember", "text": "Rule: x"}, {"type": "add_rule", "text": "Never buy anything"}]}'
+        self.E.llm.chat = lambda *a, **k: (reply, {})
+        self.E.chat(bid, "New rule: Never buy anything")
+        b = self.E.store.get("bots", bid)
+        self.assertEqual([r["text"] for r in b["rules"]], before + ["Never buy anything"])
+        self.assertEqual(b["rules"][-1]["kind"], "never")
+        self.assertEqual(len(b["memory"]), 2)
+        self.E.llm.chat = lambda *a, **k: ('{"reply": "OK", "actions": []}', {})
+        self.E.chat(bid, "New rule: price under 15")
+        b = self.E.store.get("bots", bid)
+        self.assertIn({"field": "price", "op": "<", "value": 15.0, "text": "price under 15"}, b["filters"])
+        self.assertEqual(b["rules"][-1], {"kind": "filter", "text": "price under 15"})
+
+
 class ResultsAndScheduleTest(unittest.TestCase):
     def test_new_only_once_and_next_run(self):
         E = make_engine()

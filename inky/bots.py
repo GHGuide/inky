@@ -15,7 +15,7 @@ from inky import connectors, skills
 from inky.bus import Bus
 from inky.computer import Computer
 from inky.keys import Keys
-from inky.llm import LLM, NoModel
+from inky.llm import LLM, NoModel, plain as llm_plain
 from inky.mcp import MCPManager
 from inky.safety import classify
 from inky.store import Store
@@ -25,7 +25,8 @@ from inky.insights import quiet
 
 LOOKS = [("octopus", "#E9A23B", "glasses"), ("cat", "#7C6CF2", "none"), ("blob", "#2BA59B", "headphones"),
          ("octopus", "#3B5BDB", "beanie"), ("cat", "#F07BA8", "bow"), ("blob", "#E86F51", "none")]
-DEFAULT_LOOK = {"tone": "cheerful", "voice": "soft", "frame": "coral", "cursor": "name", "labels": True, "speed": "normal"}
+DEFAULT_LOOK = {"tone": "cheerful", "voice": "soft", "frame": "coral", "cursor": "name", "labels": True, "speed": "normal",
+                "kind": "octopus", "color": "#E86F51", "acc": "none"}
 DEFAULT_RULES = [{"kind": "own", "text": "Read, search, take notes"},
                  {"kind": "ask", "text": "Send, post, reply, delete, submit forms, sign up"},
                  {"kind": "never", "text": "Buy or pay"}]
@@ -94,6 +95,25 @@ def rule_hit(rules, kind, text):
 def is_question(t):
     t = (t or "").strip().lower()
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
+
+
+ACTIONS = {"add_rule", "remove_rule", "remember", "forget", "learn", "run", "schedule", "pause", "resume", "stop", "speed",
+           "delegate", "ask_bot", "add_automation"}
+CHANGES = ACTIONS - {"remember", "learn", "ask_bot"}  # those two have their own checks; asking another bot changes nothing
+POLITE = re.compile(r"\s*(can|could|would|will) you\b(?!.*\b(better|faster|worth|good idea)\b)|.*\bplease\b", re.I)
+REMOVING = re.compile(r"\b(remove|delete|drop|no longer|get rid of|forget|scrap|cancel|undo|take (out|off|away))\b", re.I)
+LIMIT = re.compile(r"^\s*(?:only (?:keep |show )?(?:\w+ )?)?(\w+)\s+(under|below|less than|at most|over|above|more than|at least|<=|<|>=|>)"
+                   r"\s*[£€$]?\s*(\d+(?:[.,]\d+)?)\s*[£€$]?\s*$", re.I)
+
+
+def limit_filter(text):
+    """“price under 15” → a filter on results, or None."""
+    m = LIMIT.match(text or "")
+    if not m:
+        return None
+    op = {"under": "<", "below": "<", "less than": "<", "<": "<", "at most": "<=", "<=": "<=",
+          "over": ">", "above": ">", "more than": ">", ">": ">", "at least": ">=", ">=": ">="}[m.group(2).lower()]
+    return {"field": m.group(1).lower(), "op": op, "value": float(m.group(3).replace(",", "."))}
 
 
 def nres(n):
@@ -254,7 +274,7 @@ class Ctx:
         decision = self.e.ask(self.bot_id, "decision", f"{name} wants to {what}", body,
                               ["Approve", "Always for this step", "Deny"], run=self.run, step=step.get("text"))
         if decision not in ("Approve", "Always for this step"):  # only a clear yes goes ahead
-            raise skills.NeedsHelp("denied", f"Stopped before “{step['text']}”", "You said no, so nothing was sent.", [])
+            raise skills.NeedsHelp("denied", f"Stopped before it could {what}", "You said no, so nothing was sent.", [])
         if decision == "Always for this step":
             step["approved_always"] = True
 
@@ -311,8 +331,9 @@ class Engine:
                 h, m = map(int, end.split(":"))  # quiet hours: the first run after they end
                 t = datetime.fromtimestamp(nxt).replace(hour=h, minute=m, second=0)
                 nxt = t.timestamp() if t.timestamp() > nxt else t.timestamp() + 86400
-        return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory",
+        return {**{k: b.get(k) for k in ("id", "name", "job", "summary", "goal", "start_url", "rules", "filters", "memory",
                                          "schedule", "automations", "mode", "computer", "last_run", "created", "allowed_domains", "library")},
+                "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0,
                 "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt,
@@ -330,11 +351,11 @@ class Engine:
         try:
             d, _ = self.llm.ask_json("chat", DRAFT_SYSTEM, job)
         except (NoModel, httpx.HTTPError, ValueError):
-            url = re.search(r"https?://\S+", job)
+            url = re.search(r"https?://\S+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:/\S*)?", job, re.I)
             words = [w for w in re.findall(r"[A-Za-z]+", job) if len(w) > 3][:2]
             d = {"name": " ".join(w.title() for w in words) or "New Bot", "summary": job[:140], "goal": job,
-                 "start_url": url and url.group(0).rstrip(".,)"), "every_minutes": 0, "filters": [],
-                 "questions": ["I couldn’t reach my model, so this is a rough draft from your words. Check Models."]}
+                 "start_url": url and url.group(0).rstrip(".,)"), "every_minutes": 0, "filters": [], "questions": [],
+                 "notice": "I couldn’t reach my model, so this is a rough draft from your words. Check Models."}
         n = len(self.store.find("bots"))
         kind, color, acc = LOOKS[n % len(LOOKS)]
         d.setdefault("look", {"kind": kind, "color": color, "acc": acc})
@@ -361,7 +382,7 @@ class Engine:
         self.store.event(bid, "created", f"Created {bot['name']}")
         p = bot["persona"]  # it hatches and says hello in its own words
         dot = lambda x: x if not x or x[-1] in ".!?…" else x + "."  # each part is its own sentence
-        self.store.message(bid, "bot", " ".join(dot(x.strip()) for x in (f"Hi! I'm {bot['name']}.", p.get("bio") or bot["summary"], p.get("catchphrase")) if x and x.strip()), intro=True)
+        self.store.message(bid, "bot", " ".join(dot(x.strip()) for x in (f"Hi! I'm {bot['name']}.", p.get("bio") or bot["summary"]) if x and x.strip()), intro=True)
         self.bus.publish("bots")
         return self.bot_view(self.store.get("bots", bid))
 
@@ -620,23 +641,38 @@ class Engine:
         except NoModel as e:
             d = {"reply": str(e), "actions": []}
         except Exception as e:
-            d = {"reply": f"I couldn’t reach my model ({type(e).__name__}). Check Models.", "actions": []}
-        done = []
+            why = llm_plain(e, "my model")
+            d = {"reply": f"{why[:1].upper()}{why[1:]} Check Models.", "actions": []}
+        done, held = [], False
+        new_rule = not sender and text.lower().startswith("new rule:")
         for a in d.get("actions") or []:
             for k in ("text", "goal", "label"):  # the model sometimes copies the /no_think switch into what it saves
                 if isinstance(a.get(k), str):
                     a[k] = re.sub(r"\s*/no_think\b", "", a[k]).strip()
+            if new_rule and a.get("type") != "add_rule":  # Settings' rule box only ever adds a rule
+                continue
             try:
                 done.append(self.apply_action(bid, a, said=text))
             except Guard:
-                pass
+                held = True
             except Exception as e:
-                done.append(f"couldn’t {a.get('type')}: {e}")
-        if not sender and text.lower().startswith("new rule:"):
+                done.append(f"Couldn’t do that: {e}")
+        if new_rule:
             rule = text.split(":", 1)[1].strip()
             kind = "never" if re.match(r"^(never|don.?t|do not)\b", rule, re.I) else "ask" if re.search(r"\b(ask|before|first|check with)\b", rule, re.I) else "own"
             bb = self.store.get("bots", bid)
-            if rule and not any(str(x).startswith("rule:") for x in done):  # a small model returned no action: add it anyway
+            f = limit_filter(rule)
+            seen = self.store.find("results", bot_id=bid, limit=1)
+            if f and seen and f["field"] not in seen[0]:  # “books under 10”: the number is a price when results have one
+                f = {**f, "field": "price"} if "price" in seen[0] else None
+            if f and not any(x.get("field") == f["field"] and x.get("value") == f["value"] for x in bb.get("filters", [])):
+                kind = "filter"  # “price under 15” is a limit on results, whatever the model made of it
+                if any(str(x).startswith("rule:") for x in done):  # replace the plain rule the model added
+                    bb = {**bb, "rules": bb["rules"][:-1]}
+                self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": "filter", "text": rule}],
+                                  filters=bb.get("filters", []) + [{**f, "text": rule}])
+                done = [x for x in done if not str(x).startswith("rule:")] + [f"rule: {rule}"]
+            elif rule and not any(str(x).startswith("rule:") for x in done):  # a small model returned no action: add it anyway
                 self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": kind, "text": rule}])
                 done.append(f"rule: {rule}")
             elif rule and kind in ("never", "ask"):  # it said Never / Ask first: that's the kind, whatever the model picked
@@ -644,7 +680,9 @@ class Engine:
                 if rules and rules[-1].get("kind") != kind:
                     self.store.update("bots", bid, rules=rules[:-1] + [{**rules[-1], "kind": kind}],
                                       filters=[f for f in bb.get("filters", []) if f.get("text") != rules[-1].get("text")])
-        reply = d.get("reply") or "OK."
+        reply = re.sub(r"\s*/no_think\b", "", d.get("reply") or "").strip() or "OK."
+        if held and not done:  # it talked about doing something you didn't ask for: say nothing changed
+            reply += " (I haven’t changed anything. Ask me straight out if you want that.)"
         self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
@@ -653,6 +691,10 @@ class Engine:
         """An action the model proposed. said: the message it answers, so it only does what was asked."""
         b = self.store.get("bots", bid)
         t = a.get("type")
+        if t not in ACTIONS:
+            raise Guard(f"unknown action {t}")
+        if said is not None and t in CHANGES and is_question(said) and not POLITE.match(said):
+            raise Guard("a question isn't a request")  # “Should you run every 5 minutes?” changes nothing
         if t == "add_rule":
             kind = "filter" if a.get("filter") else (a.get("kind") if a.get("kind") in ("own", "ask", "never") else "own")
             if not (a.get("text") or "").strip():
@@ -662,6 +704,8 @@ class Engine:
             self.store.update("bots", bid, rules=rules, filters=filters)
             return f"rule: {a['text']}"
         if t == "remove_rule":
+            if said is not None and (said.lower().startswith("new rule:") or not REMOVING.search(said)):
+                raise Guard("you didn’t ask me to remove a rule")
             rules = b.get("rules", [])
             i = best_match(a.get("text"), rules, key=lambda r: r["text"])
             if i is None:
@@ -719,7 +763,7 @@ class Engine:
             auto["when"] = auto["when"] if auto["when"] in ("new_results", "every_run") else "new_results"
             self.store.update("bots", bid, automations=b.get("automations", []) + [auto])
             return f"automation: {a.get('label')}"
-        raise ValueError(f"unknown action {t}")
+        raise Guard(f"unknown action {t}")
 
     # ---------------------------------------------------------- MCP delegation
     def delegate(self, bid, a, context=None, run=None):
@@ -801,7 +845,7 @@ class Engine:
     def learn(self, bid, goal, url):
         url = skills.web_address(url, "")
         if not url:
-            raise ValueError("it needs a web address to start on, like https://example.com")
+            raise ValueError("It needs a web address to start on, like https://example.com")
         run = Run("learn")
         return self._start(bid, run, lambda: self._learn(bid, goal, url, run))
 
@@ -1057,8 +1101,9 @@ class Engine:
         if not shown:
             run.takeover = False
             self.store.message(bid, "bot", "You didn’t click anything, so the step is unchanged. Press Show me once again when you’re ready.")
-            if need:
-                self.store.update("needs", need["id"], status="open", decision=None)
+            if need:  # a fresh card: the old one stays answered
+                self.problem(bid, skills.NeedsHelp(need["kind"], need["title"], need["body"], need.get("options")),
+                             **{k: need[k] for k in ("skill_id", "step", "guess", "confidence", "url") if k in need})
             self.bus.publish("messages", bot=bid)
             self.bus.publish("needs", bot=bid)
         if shown and need:

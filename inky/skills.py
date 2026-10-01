@@ -6,6 +6,11 @@ import time
 from urllib.parse import urljoin, urlparse
 
 
+def short(s, n):
+    """At most n characters, cut at a word with … rather than mid-word."""
+    return s if len(s) <= n else s[:n - 1].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+
+
 class NeedsHelp(Exception):
     """Stop and put a Problem in Needs you."""
 
@@ -246,7 +251,7 @@ def learn(ctx, goal, start_url, max_steps=24):
                         "It learned the steps but never reached a list of results. Tell it where to look, or show it once.",
                         ["Show me once", "Try a smarter model"])
     host = urlparse(start_url).netloc
-    name = f"Check {host}" if extract else (goal.strip().rstrip(".")[:48] or f"Job on {host}")
+    name = f"Check {host}" if extract else (short(goal.strip().rstrip("."), 48) or f"Job on {host}")
     return {"name": name, "site": host, "goal": goal, "start_url": start_url, "steps": steps,
             "version": 1, "learned_at": time.time(), "max_pages": 3}
 
@@ -364,7 +369,7 @@ def replay(ctx, skill, repair_role="repair"):
             el, conf, why = repair(ctx, step, page, role=repair_role)
             if el is None or conf < CONFIDENT:
                 guess = f"“{el['name']}”, only {round(conf * 100)}% sure" if el else "nothing"
-                raise NeedsHelp("fix_failed", f"Couldn’t fix step {i + 1}: “{step['text']}”",
+                raise NeedsHelp("fix_failed", f"Couldn’t fix step {i + 1} ({step['text']})",
                                 f"Looked for “{step['target'].get('name')}” by its name: not on the page. "
                                 f"Asked the model once: it picked {guess}. Stopped instead of guessing.",
                                 ["Show me once", "Try a smarter model", "Skip this run"], step=i, guess=el and el["name"],

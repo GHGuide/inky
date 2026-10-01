@@ -535,8 +535,11 @@ def connect_model(E, h, q, body):
         res = E.llm.test(prov, model)
     except Exception as e:
         msg = llm_plain(e, label)
-        if msg.startswith("That key was refused") and E.keys.stored(prov):  # a refused key is not kept
+        if msg.startswith("That key was refused") and E.keys.stored(prov):  # a refused key is not kept, nor its warning
             E.keys.delete(prov)
+            errs = E.store.setting("provider_errors", {}) or {}
+            if errs.pop(prov, None) is not None:
+                E.store.set_setting("provider_errors", errs)
             msg += " It wasn’t saved."
         return {"ok": False, "reply": msg}
     if not res["ok"]:
@@ -614,6 +617,8 @@ def set_key(E, h, q, body):
 @route("DELETE", r"/api/keys/(\w+)")
 def del_key(E, h, q, body, prov):
     E.keys.delete(prov)
+    if prov in connectors.PROVIDERS:  # its service is off too (Telegram alerts can't stay on without a token)
+        E.store.set_setting(prov, {**(E.store.setting(prov, {}) or {}), "enabled": False} if prov == "telegram" else {})
     for name in ("provider_errors", "key_limits"):  # nothing stale left behind
         d = E.store.setting(name, {}) or {}
         if d.pop(prov, None) is not None:
@@ -635,6 +640,8 @@ def mcp_save(E, h, q, body):
         raise HTTPError(400, "Give it a name, like github.")
     if name in PRESETS or name in connectors.PROVIDERS or name == "inky":
         raise HTTPError(400, f"“{name}” is already a built-in connector. Pick another name.")
+    if E.mcp.known(name) and not body.get("replace"):
+        raise HTTPError(409, f"There’s already a server called “{name}”. Remove it first, or pick another name.")
     cmd = body.get("command")
     if isinstance(cmd, str):
         try:
@@ -935,6 +942,8 @@ def save_settings(E, h, q, body):
     if "user_name" in body:
         body["user_name"] = str(body["user_name"]).strip()[:40]
     tg = body.pop("telegram", None)
+    if tg and "chat_id" in tg and tg["chat_id"] not in (None, "") and not re.match(r"^-?\d{3,20}$", str(tg["chat_id"]).strip()):
+        raise HTTPError(400, "A Telegram chat id is a number, like 123456789 (Connectors finds it for you when you send /start).")
     if tg and tg.get("enabled") and not E.keys.get("telegram"):
         raise HTTPError(400, "Set up Telegram in Connectors first: paste your bot’s token and send it /start.")
     app.update(body)
