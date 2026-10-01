@@ -1087,7 +1087,8 @@ class Engine:
                 else:
                     continue
                 feed.append({"ts": m["ts"], "bot": bid, "name": b["name"], "look": b.get("look"), "kind": kind,
-                             "text": m["text"], "sender": m.get("sender"), "sender_id": m.get("sender_id")})
+                             "text": m["text"], "sender": m.get("sender"), "sender_id": m.get("sender_id"),
+                             "reply_to": m.get("reply_to"), "role": m["role"]})
         feed.sort(key=lambda f: -f["ts"])
         return feed[:limit]
 

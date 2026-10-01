@@ -73,7 +73,7 @@ function botMeta(b) {
   else if (b.status === "idle" && !b.skills.length) meta = "hasn’t learned yet";
   return { meta, color: c, hot: b.status === "needs_you" };
 }
-const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)} min` : s < 86400 ? new Date(ts * 1000).toTimeString().slice(0, 5) : new Date(ts * 1000).toLocaleDateString(undefined, { weekday: "short" }); };
+const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? new Date(ts * 1000).toTimeString().slice(0, 5) : new Date(ts * 1000).toLocaleDateString(undefined, { weekday: "short" }); };
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
 
 function toast(text, b) {
