@@ -92,7 +92,7 @@ class EngineTest(unittest.TestCase):
         E.llm.chat_reply = {"reply": "Done. Only 3 rooms or fewer.", "actions": [
             {"type": "add_rule", "text": "remember I like Libertà", "filter": None},
             {"type": "remember", "text": "Likes Libertà"}]}
-        r = E.chat(b["id"], "remember I like Libertà")
+        r = E.chat(b["id"], "note that I like Libertà")  # through the model (“remember …” is a plain command)
         self.assertIn("Done", r["reply"])
         self.assertEqual(E.store.get("bots", b["id"])["memory"][0]["text"], "Likes Libertà")
         E.learn(b["id"], "Flats in Bari under 150k", self.base + "/")

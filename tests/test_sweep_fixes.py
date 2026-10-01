@@ -119,6 +119,30 @@ class ActionsTest(unittest.TestCase):
             self.E.take_offer(bid, m["id"], 0)
 
 
+    def test_plain_commands_need_no_model_and_limits_replace(self):
+        from inky.bots import quick_command
+        bid = self.b["id"]
+        def no_model(*a, **k):
+            raise AssertionError("plain commands never ask the model")
+        self.E.llm.chat = no_model
+        self.assertEqual(self.E.chat(bid, "only run when I ask")["reply"], "Done: I’ll only run when you ask.")
+        self.assertEqual(self.E.store.get("bots", bid)["schedule"]["every_minutes"], 0)
+        self.E.chat(bid, "every morning")
+        self.assertEqual(self.E.store.get("bots", bid)["schedule"]["every_minutes"], 1440)
+        self.E.chat(bid, "remember I like hardbacks")
+        self.assertIn("You like hardbacks", [m["text"] for m in self.E.store.get("bots", bid)["memory"]])
+        self.E.chat(bid, "forget that I like hardbacks")
+        self.assertNotIn("You like hardbacks", [m["text"] for m in self.E.store.get("bots", bid)["memory"]])
+        self.assertEqual(self.E.chat(bid, "stop")["reply"], "Nothing is running right now.")
+        self.assertIsNone(quick_command("Should you check every 5 minutes?"))
+        self.assertIsNone(quick_command("find me cheap books"))
+        for t in ("under 20", "under 15"):
+            self.E.apply_action(bid, {"type": "add_rule", "text": f"price {t}", "filter": {"field": "price", "op": "<", "value": int(t[-2:])}})
+        b = self.E.store.get("bots", bid)
+        self.assertEqual([f["value"] for f in b["filters"] if f["field"] == "price"], [15])
+        self.assertNotIn("price under 20", [r["text"] for r in b["rules"]])
+
+
 class ResultsAndScheduleTest(unittest.TestCase):
     def test_new_only_once_and_next_run(self):
         E = make_engine()

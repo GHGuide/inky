@@ -129,6 +129,57 @@ def limit_filter(text):
     return {"field": m.group(1).lower(), "op": op, "value": float(m.group(3).replace(",", "."))}
 
 
+def quick_command(text):
+    """A plain command, understood without a model: run, pause, resume, stop, a schedule, remember, forget, speed. Or None."""
+    t = re.sub(r"[.!]+$", "", FILLER.sub("", (text or "").strip())).strip()
+    low = t.lower().removeprefix("please ").strip()
+    if not low or "?" in low or len(low) > 120:
+        return None
+    if re.fullmatch(r"(run|run (it )?now|check( it)? now|search now|go|start|check|run it|do it now|look now)( please)?", low):
+        return {"type": "run"}
+    if re.fullmatch(r"(pause|pause( it| now| for now)?|hold on|take a break|stop for now)", low):
+        return {"type": "pause"}
+    if re.fullmatch(r"(resume|resume it|continue|carry on|unpause|start again|keep going)", low):
+        return {"type": "resume"}
+    if re.fullmatch(r"(stop|stop it|stop now|stop that)", low):
+        return {"type": "stop"}
+    if re.search(r"\b(only (run|check|look)s? when i ask|don'?t (run|check) on (its|your) own|stop (running|checking) on (its|your) own|no schedule|manually)\b", low):
+        return {"type": "schedule", "every_minutes": 0}
+    m = re.fullmatch(r"(?:(?:check|run|look|search)(?: it)? )?(every .{1,30}|hourly|daily|weekly|twice a day|each (?:morning|day|hour|week))", low)
+    if m and minutes(m.group(1)):
+        return {"type": "schedule", "every_minutes": minutes(m.group(1))}
+    m = re.fullmatch(r"(?:please )?remember(?: that)? (.{3,200})", t, re.I)
+    if m:
+        return {"type": "remember", "text": you_form(m.group(1).strip())}
+    m = re.fullmatch(r"(?:please )?forget(?: that| about)? (.{2,200})", t, re.I)
+    if m and not re.fullmatch(r"(it|that|this)", m.group(1).strip(), re.I):
+        return {"type": "forget", "text": m.group(1).strip()}
+    if re.fullmatch(r"(slower|slow down|go slower|slow)", low):
+        return {"type": "speed", "value": "slow"}
+    if re.fullmatch(r"(faster|speed up|go faster|turbo|fast)", low):
+        return {"type": "speed", "value": "turbo"}
+    if re.fullmatch(r"(normal speed|normal)", low):
+        return {"type": "speed", "value": "normal"}
+    return None
+
+
+def you_form(t):
+    """“I like mystery novels” → “You like mystery novels”: how the bot keeps what you told it."""
+    swaps = {"i": "you", "i'm": "you're", "i’m": "you’re", "me": "you", "my": "your", "mine": "yours", "am": "are", "myself": "yourself"}
+    out = re.sub(r"\b(i’m|i'm|i|me|my|mine|am|myself)\b", lambda m: swaps[m.group(1).lower()], t, flags=re.I)
+    return out[:1].upper() + out[1:]
+
+
+def command_reply(a, out):
+    t = a["type"]
+    if t == "schedule":
+        m = minutes(a.get("every_minutes"))
+        return f"Done: I’ll check every {every_words(m)}." if m else "Done: I’ll only run when you ask."
+    return {"run": "Running now.", "pause": "Paused." if out == "paused" else "Paused my schedule: I won’t run until you say resume.",
+            "resume": "Carrying on.", "stop": "Stopped.", "remember": f"I’ll remember: {a.get('text')}.",
+            "forget": f"Forgotten: {str(out).removeprefix('forgot: ')}.", "speed": f"Speed: {a.get('value')}."}.get(t, "Done.")
+
+
 def stated(f, job):
     """Did your job text say this limit? Its value (each word of it, or the number) must be in what you wrote."""
     if not isinstance(f, dict) or not f.get("field") or f.get("value") in (None, "", []):
@@ -673,6 +724,16 @@ class Engine:
                 return self._say(bid, self.take_offer(bid, last["id"], 0, said_yes=True))
             if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
                 return self._say(bid, self.recap(bid))
+            cmd = quick_command(text)
+            if cmd:  # plain commands never depend on how good the model is
+                try:
+                    out = self.apply_action(bid, cmd)
+                except Guard:
+                    return self._say(bid, "Nothing is running right now." if cmd["type"] == "stop" else "Nothing to change.")
+                except Exception as e:
+                    return self._say(bid, f"I couldn’t: {e}")
+                r = self._say(bid, command_reply(cmd, out))
+                return {**r, "actions": [cmd], "done": [out]}
         results = [r for r in self.store.find("results", bot_id=bid, limit=10) if r.get("passed") is not False][:3]
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
         sk = self.store.find("skills", bot_id=bid)
@@ -796,8 +857,16 @@ class Engine:
             kind = "filter" if a.get("filter") else (a.get("kind") if a.get("kind") in ("own", "ask", "never") else "own")
             if not (a.get("text") or "").strip():
                 raise ValueError("the rule has no words")
-            rules = b.get("rules", []) + [{"kind": kind, "text": a["text"].strip()}]
-            filters = b.get("filters", []) + ([{**a["filter"], "text": a["text"]}] if a.get("filter") else [])
+            rules, filters = b.get("rules", []), b.get("filters", [])
+            f = a.get("filter")
+            if f and f.get("op") in ("<", "<=", ">", ">="):  # “only under £15” replaces “under £20”: one limit per field and direction
+                way = f["op"][0]
+                old = [x for x in filters if x.get("field") == f.get("field") and str(x.get("op", ""))[:1] == way]
+                gone = {x.get("text") for x in old}
+                filters = [x for x in filters if x not in old]
+                rules = [r for r in rules if not (r["kind"] == "filter" and r["text"] in gone)]
+            rules = rules + [{"kind": kind, "text": a["text"].strip()}]
+            filters = filters + ([{**f, "text": a["text"]}] if f else [])
             self.store.update("bots", bid, rules=rules, filters=filters)
             return f"rule: {a['text']}"
         if t == "remove_rule":
@@ -837,7 +906,9 @@ class Engine:
             self.run(bid)
             return "started a run"
         if t == "schedule":
-            s = {**b.get("schedule", {}), **{k: a[k] or None for k in ("every_minutes", "summary_at", "quiet_from", "quiet_to") if a.get(k) is not None}}
+            s = {**b.get("schedule", {}), **{k: a[k] or None for k in ("summary_at", "quiet_from", "quiet_to") if a.get(k) is not None}}
+            if a.get("every_minutes") is not None:
+                s["every_minutes"] = minutes(a["every_minutes"])  # 0 = only when you ask
             self.store.update("bots", bid, schedule=s)
             m = minutes(s.get("every_minutes"))
             return f"schedule: every {every_words(m)}" if m else "schedule: only when you say"

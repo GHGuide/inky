@@ -82,12 +82,74 @@ EXTRACT_JS = r"""(spec) => {
   });
 }"""
 
+LISTS_JS = r"""() => {
+  // The lists of results on this page, found from their shape (many siblings alike, each with a link),
+  // each with a ready selector spec, so a model only has to pick one.
+  const skip = (el) => el.closest('inky-overlay,nav,header,footer,[role=navigation],[role=banner],[role=contentinfo]');
+  const cls = (el) => [...el.classList].filter((c) => !/^(active|selected|current|odd|even|first|last|hover|focus|open|show|is-|js-)|\d{3,}/.test(c)).slice(0, 2);
+  const sig = (el) => el.tagName.toLowerCase() + cls(el).map((c) => '.' + CSS.escape(c)).join('');
+  const PRICE = /([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)\s*\d|\d[\d.,\s]*\s*([$€£¥₽₴]|\b(lei|mdl|eur|usd|ron|zł|pln|kr|chf|rub|uah)\b)/i;
+  const path = (el) => {  // a selector for this element that's short and still points at it
+    const parts = [];
+    for (let n = el; n && n !== document.body && parts.length < 6; n = n.parentElement) {
+      if (n.id && !/\d{3,}/.test(n.id)) { parts.unshift('#' + CSS.escape(n.id)); break; }
+      parts.unshift(sig(n));
+    }
+    return parts.join(' > ');
+  };
+  const rel = (item, el) => {  // a selector inside one result
+    const parts = [];
+    for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(sig(n));
+    const css = parts.join(' > ');
+    return css && item.querySelector(css) === el ? css : (el.tagName.toLowerCase());
+  };
+  const groups = [];
+  for (const parent of document.querySelectorAll('body *')) {
+    if (parent.children.length < 3 || skip(parent)) continue;
+    const by = {};
+    for (const k of parent.children) (by[sig(k)] = by[sig(k)] || []).push(k);
+    for (const [s, els] of Object.entries(by)) {
+      if (els.length < 3) continue;
+      const shown = els.filter((e) => { const r = e.getBoundingClientRect(); return r.width > 20 && r.height > 8; });
+      const linked = shown.filter((e) => e.matches('a[href]') || e.querySelector('a[href]'));
+      const text = shown.reduce((n, e) => n + Math.min((e.innerText || '').trim().length, 300), 0) / Math.max(1, shown.length);
+      if (shown.length < 3 || linked.length < shown.length * 0.6 || text < 12) continue;
+      const priced = shown.filter((e) => PRICE.test(e.innerText || '')).length / shown.length;
+      const imaged = shown.filter((e) => e.querySelector('img')).length / shown.length;
+      groups.push({ parent, s, els: shown, score: shown.length * Math.log(5 + text) * (1 + priced * 2) * (1 + imaged * 0.5), priced, text });
+    }
+  }
+  groups.sort((a, b) => b.score - a.score);
+  const out = [];
+  for (const g of groups.slice(0, 12)) {
+    const item = path(g.parent) + ' > ' + g.s;
+    if (document.querySelectorAll(item).length < 3 || out.some((o) => o.item === item)) continue;
+    const first = g.els[0], fields = {};
+    const links = [...first.querySelectorAll('a[href]')].concat(first.matches('a[href]') ? [first] : []);
+    const head = first.querySelector('h1,h2,h3,h4,h5,h6,[class*=title],[class*=name]');
+    const a = links.find((l) => l.getAttribute('title')) || (head && (head.matches('a[href]') ? head : head.querySelector('a[href]'))) ||
+              links.sort((x, y) => (y.innerText || '').trim().length - (x.innerText || '').trim().length)[0];
+    if (a && a.getAttribute('title')) fields.title = (a === first ? '' : rel(first, a)) + '@title';
+    else if (head) fields.title = rel(first, head);
+    else if (a) fields.title = a === first ? '' : rel(first, a);
+    if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
+    const leaves = [...first.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
+    const price = leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
+    if (price) fields.price = rel(first, price);
+    const img = first.querySelector('img');
+    if (img) fields.image = rel(first, img) + '@src';
+    out.push({ item, fields, count: document.querySelectorAll(item).length, priced: g.priced > 0.5 });
+    if (out.length >= 5) break;
+  }
+  return out;
+}"""
+
 SAMPLE_JS = r"""() => {
   // A compact outline of the main content, for the model to pick an item selector from.
   const root = document.querySelector('main') || document.body;
   const lines = [];
   const walk = (el, depth) => {
-    if (lines.length > 140 || depth > 7 || el.closest('inky-overlay')) return;
+    if (lines.length > 220 || depth > 9 || el.closest('inky-overlay,nav,header,footer,aside,[role=navigation]')) return;
     const cls = el.classList.length ? '.' + [...el.classList].slice(0, 3).join('.') : '';
     const own = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').slice(0, 60);
     lines.push('  '.repeat(depth) + el.tagName.toLowerCase() + cls + (own ? ' "' + own + '"' : '') + (el.getAttribute('href') ? ' href' : ''));
@@ -236,6 +298,16 @@ class Computer:
 
     def _sample(self):
         return self.page.evaluate(SAMPLE_JS)
+
+    def _lists(self):
+        """The lists of results on the page, each with a selector spec and its first rows."""
+        out = []
+        for c in self.page.evaluate(LISTS_JS) or []:
+            rows = self.page.evaluate(EXTRACT_JS, {"item": c["item"], "fields": c["fields"], "limit": 200})
+            rows = [r for r in rows if any(v for v in r.values())]
+            if len(rows) >= 3:
+                out.append({**c, "count": len(rows), "rows": rows[:3]})
+        return out
 
     def _settle(self):
         try:

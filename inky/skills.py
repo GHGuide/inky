@@ -28,7 +28,8 @@ class Stopped(Exception):
 
 
 CONFIDENT = 0.7
-CONSENT = re.compile(r"\b(accept|accetta|aceptar|akzeptieren|accepter|agree|allow all|ok|got it|zgadzam|akkoord|close|chiudi|cerrar)\b", re.I)
+CONSENT = re.compile(r"\b(accept|accept all|accepta|acceptă|accetta|aceptar|aceitar|akzeptieren|accepter|agree|de acord|allow all|ok|got it|zgadzam|akceptuję|"
+                     r"akkoord|close|chiudi|cerrar|принять|принимаю|согласен)\b", re.I)
 
 # ---------------------------------------------------------------- finding elements again
 
@@ -158,12 +159,67 @@ Reply with ONE JSON object: {"index": <element number or null>, "confidence": <0
 Use null and low confidence when no element clearly does the same thing. A different action with a similar word is NOT a match."""
 
 
+NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)\b", re.I)
+
+
+def next_link(page):
+    """The page's “next page” link or button, if it has one."""
+    for e in page.get("elements") or []:
+        name = (e.get("name") or "").strip()
+        if e.get("role") in ("link", "button") and name and len(name) < 40 and NEXT.match(name):
+            return e
+    return None
+
+
+FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?)\b", re.I)
+PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal. Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
+
+
+def read_results(ctx, goal, page):
+    """The results on this page: Inky finds the lists itself (repeated items with links), the model only picks one.
+    Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
+    comp = ctx.computer
+    lists = comp.call("lists")
+    if lists:
+        pick = 1
+        if len(lists) > 1:
+            menu = "\n".join(f"{i + 1}) {c['count']} items, e.g. " + " | ".join(
+                "; ".join(f"{k}: {str(v)[:60]}" for k, v in r.items() if v and k != "image") for r in c["rows"][:2]) for i, c in enumerate(lists))
+            try:
+                d, _ = ctx.llm.ask_json("learn", PICK_LIST_SYSTEM, f"GOAL: {goal}\nPAGE: {page['title']}\nLISTS:\n{menu}", bot_id=ctx.bot["id"])
+                pick = int(d.get("pick") or 0)
+            except (ValueError, TypeError):
+                pick = 1  # a reply that isn't a number: the likeliest list (they're ranked)
+            if not 1 <= pick <= len(lists):
+                pick = 1 if any(c.get("priced") for c in lists[:1]) else 0
+        if pick:
+            c = lists[pick - 1]
+            spec = {"item": c["item"], "fields": c["fields"]}
+            rows = [r for r in comp.call("extract", spec) if any(r.values())]
+            if rows:
+                return spec, rows
+    outline = comp.call("sample")
+    for note in ("", "Your selectors found nothing. Use class names that are in the outline. "):
+        try:
+            spec, _ = ctx.llm.ask_json("learn", EXTRACT_SYSTEM, f"{note}GOAL: {goal}\nURL: {page['url']}\nOUTLINE:\n{outline[:7000]}", bot_id=ctx.bot["id"])
+        except ValueError:
+            continue
+        if isinstance(spec, dict) and isinstance(spec.get("item"), str):
+            try:
+                rows = [r for r in comp.call("extract", spec) if any(r.values())]
+            except Exception:
+                rows = []
+            if rows:
+                return spec, rows
+    return None, []
+
+
 def learn(ctx, goal, start_url, max_steps=24):
     """Drive the page with the model, recording each step. ctx: computer, llm, bot, emit, gate, check, corrections."""
     comp = ctx.computer
     page = comp.call("open", start_url)
     steps, history = [], []
-    extract = None
+    extract, empty = None, 0
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps):
         ctx.check()
@@ -187,23 +243,36 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Try again", "Show me once", "Open Models"])
             continue
         act = d.get("action")
+        if act == "done" and not extract and FINDING.search(goal or ""):  # a watch job that never read anything: read the results here, if there are any
+            spec, rows = read_results(ctx, goal, page)
+            if rows:
+                extract = spec
+                steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
+                ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
+            break
         if act == "done":
             break
         if act == "extract":
             if extract:
                 break
-            outline = comp.call("sample")
-            spec, _ = ctx.llm.ask_json("learn", EXTRACT_SYSTEM, f"GOAL: {goal}\nURL: {page['url']}\nOUTLINE:\n{outline[:6000]}",
-                                       bot_id=ctx.bot["id"])
-            rows = comp.call("extract", spec)
-            if not rows or all(not r.get("title") for r in rows):
-                spec, _ = ctx.llm.ask_json("learn", EXTRACT_SYSTEM, f"Your selectors found nothing ({spec}). Try again.\n"
-                                           f"GOAL: {goal}\nOUTLINE:\n{outline[:6000]}", bot_id=ctx.bot["id"])
-                rows = comp.call("extract", spec)
+            spec, rows = read_results(ctx, goal, page)
+            if not rows:  # reading nothing is never a learned step: say so to the model and go on looking
+                empty += 1
+                history.append("there are no results to read on this page yet; search or open the list first")
+                if empty >= 3:
+                    raise NeedsHelp("learn_failed", "Couldn’t find the results to read",
+                                    f"On {urlparse(page['url']).netloc} it found no list of results. Tell it where the list is, or show it once.",
+                                    ["Show me once", "Try a smarter model", "Try again"])
+                continue
             extract = spec
             steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
             ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
             page = comp.call("elements")
+            nxt = next_link(page)
+            if nxt:  # a next page: it reads that too, every run (the model rarely thinks of it)
+                steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
+                ctx.emit("learn", "Next page", step=len(steps), target=nxt["name"])
+                break
             continue
         idx = d.get("index")
         el = next((e for e in page["elements"] if e["i"] == idx), None) if idx is not None else None
@@ -240,6 +309,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         if sum(same(st) for st in steps) >= (1 if step["action"] in ("fill", "select", "goto") else 2):  # a small model loops: the same step again isn't progress
             history.append(f"“{label}” is already a step; do the next thing")
             page = page_after
+            continue
+        if step.get("optional") and any(st.get("optional") and not st.get("next_page") for st in steps):
+            page = page_after  # a cookie banner is answered once; a second click on one isn't a new step
             continue
         steps.append(step)
         ctx.emit("learn", label, step=len(steps), target=el and el["name"])
