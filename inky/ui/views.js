@@ -1026,7 +1026,7 @@ VIEWS.bot = {
       const head = rows.length ? `${nWord(rows.length, "thing")} found${rows.some((r) => r.new) ? ` · ${rows.filter((r) => r.new).length} new` : ""}`
         : last && last.items ? `None of the last ${nWord(last.items, "result")} ${last.items === 1 ? "passes" : "pass"}${rules}` : last ? "The last run found nothing to read" : "No results yet";
       tb.innerHTML = `<div class="between wrap"><b>${head}</b><span class="row wrap">${checked.map((x) => `<span class="chip">${esc(ruleText(x))}</span>`).join("")}</span></div>
-        ${skip.length ? `<div class="card panel small" style="gap:4px"><b>Couldn’t check</b>${skip.map((x) => `<span>${esc(ruleText(x))} (this site doesn’t show ${esc(x.field)})</span>`).join("")}<span class="muted">Its search may already narrow it, or tell it another way to check in the chat.</span></div>` : ""}
+        ${skip.length ? `<details class="small muted skipnote"><summary>${skip.length === 1 ? "1 rule can’t" : `${skip.length} rules can’t`} be checked on these sites</summary>${skip.map((x) => `<div>${esc(ruleText(x))}: the site doesn’t show ${esc(x.field)}</div>`).join("")}<div>Tell the bot another way to check, or remove the rule in Settings.</div></details>` : ""}
         ${rows.length ? `<div class="rlist">${rows.map((r) => resultCard(r, keys)).join("")}</div>`
           : `<p class="muted">${last && last.items ? "Loosen a rule in Settings, or wait for the next run." : "Press Run now to check."}</p>`}`;
     }).catch((e) => { if (seq === this.resultsSeq && this.tab === "results") tb.innerHTML = `<p class="muted">Couldn’t load its results: ${esc(e.message)}</p>`; });
