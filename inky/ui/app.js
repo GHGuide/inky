@@ -74,7 +74,8 @@ function botMeta(b) {
     meta = `next run ${today ? "" : d.toLocaleDateString(undefined, { weekday: "short" }) + " "}${d.toTimeString().slice(0, 5)}`;
   }
   else if (b.status === "idle" && !b.skills.length) meta = "hasn’t learned yet";
-  return { meta, color: c, hot: b.status === "needs_you" };
+  else if (b.status === "moved") meta = b.needs ? `needs you · on ${b.remote || "another computer"}` : `on ${b.remote || "another computer"}`;
+  return { meta, color: b.status === "moved" && b.needs ? STATUS.needs_you[1] : c, hot: b.status === "needs_you" || (b.status === "moved" && b.needs > 0) };
 }
 const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? new Date(ts * 1000).toTimeString().slice(0, 5) : new Date(ts * 1000).toLocaleDateString(undefined, { weekday: "short" }); };
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
@@ -182,7 +183,7 @@ async function loadState() {
   const st = await get("/api/state");
   if (knockFor && S.settings && st.needs > S.needs) { SOUND.play("knock", knockFor); appNotify(knockFor, `${knockFor.name} needs you`, "Open Inky to decide.", "#/needs"); }
   knockFor = null;
-  Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done });
+  Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done, engineId: st.engine_id || S.engineId });
   renderNav();
   if (APP && !BAR && !BUDDY) invoke("tray", { needs: S.needs, bots: S.bots.map((b) => ({ id: b.id, name: b.name, status: b.status })), buddy: S.settings.buddy !== false });
   if (BUDDY) drawBuddy();
@@ -502,6 +503,11 @@ function closeModal() {
   const cb = m._onclose; m._onclose = null;
   if (cb) cb();
   if (modalReturn && modalReturn.focus && document.contains(modalReturn)) modalReturn.focus();
+  if (modalReturn && document.activeElement !== modalReturn) {  // it was in a menu that closed: its menu button, else the page
+    const menu = modalReturn.closest && modalReturn.closest("details");
+    const to = menu && $("summary", menu);
+    if (to && document.contains(to)) to.focus(); else if (!document.activeElement || document.activeElement === document.body) $("#view") && $("#view").focus();
+  }
   modalReturn = null;
 }
 

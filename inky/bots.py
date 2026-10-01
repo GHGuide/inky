@@ -385,6 +385,7 @@ class Engine:
                "mode": "own", "computer": "local", "created": time.time(),
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
         bid = self.store.insert("bots", bot, status="idle")
+        self.drop_profile(bid)  # a new bot never inherits sign-ins left by an old one with this id
         self.store.event(bid, "created", f"Created {bot['name']}")
         p = bot["persona"]  # it hatches and says hello in its own words
         dot = lambda x: x if not x or x[-1] in ".!?…" else x + "."  # each part is its own sentence
@@ -698,7 +699,7 @@ class Engine:
                     self.store.update("bots", bid, rules=rules[:-1] + [{**rules[-1], "kind": kind}],
                                       filters=[f for f in bb.get("filters", []) if f.get("text") != rules[-1].get("text")])
         reply = re.sub(r"\s*/no_think\b", "", d.get("reply") or "").strip() or "OK."
-        if held and not done:  # it talked about doing something you didn't ask for: say nothing changed
+        if held and not done and not sender:  # it talked about doing something you didn't ask for: say nothing changed
             reply += " (I haven’t changed anything. Ask me straight out if you want that.)"
         self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender))
         self.bus.publish("messages", bot=bid)
@@ -934,12 +935,13 @@ class Engine:
         run.run_id = self.store.insert("runs", {"kind": "replay", "skill": skill["name"], "reason": reason}, bot_id=bid, status="running")
         self.bus.publish("bots")
         try:
+            was = [st.get("text") for st in skill["steps"]]  # a repair relabels its step; a failure names the step as it was
             out = skills.replay(Ctx(self, bid, run), skill, repair_role=repair_role)
             reads = any(st["action"] == "extract" for st in skill["steps"])
             found_before = any(r.get("skill") == skill["name"] and r.get("items") for r in self.store.find("runs", bot_id=bid, status="ok", limit=30))
             if out["repairs"] and reads and not out["items"] and found_before:  # the fix led nowhere: keep the old step, ask instead
                 r = out["repairs"][0]
-                raise skills.NeedsHelp("fix_failed", f"Couldn’t fix step {r['step']} ({r['from']})",
+                raise skills.NeedsHelp("fix_failed", f"Couldn’t fix step {r['step']} ({was[r['step'] - 1]})",
                                        f"I tried “{r['to']}” instead, but then found nothing, so I kept the old step.",
                                        ["Show me once", "Try a smarter model", "Skip this run"], step=r["step"] - 1)
             if out["repairs"]:

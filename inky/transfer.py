@@ -75,6 +75,7 @@ def import_bot(engine, bundle):
         engine.store.update("bots", bid, status="idle")
     else:
         bid = engine.store.insert("bots", bot, status="idle")
+        engine.drop_profile(bid)  # only the cookies it brought, never a stale profile with its id
     for s in bundle.get("skills", []):
         s = dict(s)
         if not moving:  # someone else's approvals don't count here: it asks you again

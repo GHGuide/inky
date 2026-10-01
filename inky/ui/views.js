@@ -333,12 +333,12 @@ VIEWS.bots = {
     $("#cards").innerHTML = S.bots.map((b) => {
       const m = botMeta(b);
       const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
-      const said = (STATUS[b.status] || [b.status.replace("_", " ")])[0];  // the line under it says this already
-      const mid = b.status === "needs_you" ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:#F3C9BC"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
+      const said = b.status === "moved" ? m.meta : (STATUS[b.status] || [b.status.replace("_", " ")])[0];  // the line under it says this already
+      const mid = b.status === "needs_you" || (b.status === "moved" && b.needs) ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:#F3C9BC"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
         : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
-          : `<div class="thumb idle">${esc(b.remote_id ? "on your server" : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
+          : `<div class="thumb idle">${esc(b.remote_id ? `runs on ${b.remote || "your server"}` : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc(clip(b.summary || b.job || "", 70))}</span></span></span>
-        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc(said)}</span><span>${plural(b.skills.length, "skill")}</span></span></a>`;
+        ${mid}<span class="between mono small muted"><span style="color:${m.color}">● ${esc(said)}</span><span>${b.status === "moved" ? "" : plural(b.skills.length, "skill")}</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
   },
   office() {  // the same bots, at their desks; the room follows the time of day
@@ -483,6 +483,8 @@ const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads
   const rest = k && t.toLowerCase().startsWith(k.toLowerCase() + " ") ? t.slice(k.length + 1).trim() : t;
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 };
+const homeOf = (b) => (b.home && b.home.engine ? `${b.home.engine}:${b.home.bot}` : `${S.engineId}:${b.id}`);  // who a bot really is, across computers
+const sameBot = (mine, rb) => !!(rb.home && rb.home.engine) && homeOf(mine) === `${rb.home.engine}:${rb.home.bot}`;  // never by id alone: a reset server reuses ids
 const offName = (m) => (String(m || "").match(/^(.+?) isn’t answering\. It may be/) || String(m || "").match(/can’t reach (.+?):/) || [])[1];  // a moved bot's server is off
 const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
 const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
@@ -629,6 +631,7 @@ VIEWS.bot = {
       busyBtn(btn, true, "Removing…");
       try { await del(`/api/bots/${this.id}?here=1`); } catch (err) { busyBtn(btn, false); return toast(err.message); }
       await loadState().catch(() => {});
+      toast(`Removed ${name} from this computer.`);
       location.hash = "#/bots";
     };
   },
@@ -1427,7 +1430,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
   let p;
   try { p = await post("/api/library/preview", { url }); } catch (e) { return toast(e.message); }
   const L = p.listing, c = p.check, look = L.look || {}, have = p.have || [];
-  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span>${L.unverified ? `<span class="small" style="color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
+  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "skill")}</span>${L.unverified ? `<span class="small" style="display:block;color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
     <p class="small">${esc(L.summary || "")}</p>
     ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes ${have.length > 1 ? "another" : "a second"} copy with its own computer.</span></span></div>` : ""}
     ${c.ok ? `<div class="col" style="gap:8px">
@@ -1576,8 +1579,8 @@ function bindServerAdder(install, onPaired) {
     if (!url.startsWith("inky://") && !code) return sayIn("#pairmsg", "Put in the code it printed too.", false);
     busyBtn(btn, true, "Pairing…"); sayIn("#pairmsg", "Pairing… if the server doesn’t answer, this takes up to 15 seconds.");
     try {
-      await post("/api/computers", { url, code });
-      sayIn("#pairmsg", "✓ Paired. Its bots show up in Computers.", true); SOUND.play("chime");
+      const r = await post("/api/computers", { url, code });
+      sayIn("#pairmsg", `✓ Paired with ${r.name || "it"}. Its bots show up in Computers.`, true); SOUND.play("chime");
       $("#pairurl").value = ""; $("#paircode").value = "";
       if (onPaired) onPaired();
     } catch (e) { sayIn("#pairmsg", e.message, false); }
@@ -1684,8 +1687,11 @@ VIEWS.computers = {
     $$("#mgo,#mcancel").forEach((x) => x.classList.add("hidden"));
     if ($("#mt") && step !== "done") $("#mt").disabled = false;
     const c = $("#moveclose"); if (!c) return;
-    c.textContent = step === "done" ? "Done" : "Try again"; c.classList.remove("hidden"); c.focus();
-    c.onclick = step === "done" ? closeModal : again;  // closing redraws the cards
+    const id = this.moving, gone = step !== "done" && id && /no longer there/.test(($("#moveprog") || {}).textContent || "");
+    c.textContent = step === "done" ? "Done" : gone ? "Remove it here" : "Try again"; c.classList.remove("hidden"); c.focus();
+    c.onclick = step === "done" ? closeModal : gone ? async () => {  // it's gone over there: trying again can't help
+      try { await del(`/api/bots/${id}?here=1`); toast("Removed it from this computer."); closeModal(); await loadState(); } catch (e) { toast(e.message); }
+    } : again;  // closing redraws the cards
   },
   starting(go) {  // (again) a move or bring back is on its way; closing the window doesn't stop it
     $("#moveprog").innerHTML = ""; $("#moveclose").classList.add("hidden");
@@ -1701,8 +1707,7 @@ VIEWS.computers = {
     if (!box.isConnected) return;
     this.computers = computers;
     const reach = computers.filter((c) => c.kind === "remote" && c.ok);
-    const mineOf = (c, rb) => S.bots.find((b) => b.status === "moved" && String(b.computer) === String(c.id)  // it moved there from here
-      && (rb.home && S.engineId ? rb.home.engine === S.engineId && rb.home.bot === b.id : b.remote_id === rb.id));
+    const mineOf = (c, rb) => S.bots.find((b) => b.status === "moved" && String(b.computer) === String(c.id) && sameBot(b, rb));  // it moved there from here
     const movedTo = (c) => S.bots.filter((b) => b.status === "moved" && String(b.computer) === String(c.id));
     const running = (b) => ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
     const botCard = (c, b, away) => {  // away: your bot on a server that isn't answering, greyed, as this computer last knew it
@@ -1712,7 +1717,7 @@ VIEWS.computers = {
       const live = running(b) && c.kind === "local";
       const body = `<div class="thumb ${live ? "" : "idle"}" style="height:90px">${live ? `<img src="${screenUrl(b.id)}" alt="">` : esc(away ? "can’t see it now" : (STATUS[b.status] || [String(b.status).replace(/_/g, " ")])[0])}</div>
         <span class="row small">${botCritter(mine || b, 22)}<b class="grow cname" title="${esc(name)}">${esc(name)}</b></span>`;
-      return `<div class="botcard cbot${mine ? "" : " nolink"}${away ? " away" : ""}">${mine ? `<a class="cblink" data-open="${mine.id}" href="#/bot/${mine.id}/computer">${body}</a>` : body}${act}</div>`;
+      return `<div class="botcard cbot${mine ? "" : " nolink"}${away ? " away" : ""}">${mine ? `<a class="cblink" data-open="${mine.id}" href="#/bot/${mine.id}/computer" aria-label="${esc(name)}, open its computer">${body}</a>` : body}${act}</div>`;
     };
     redraw(box, () => (box.innerHTML = computers.map((c) => {
       const away = c.kind === "remote" && !c.ok ? movedTo(c) : [];
@@ -1751,10 +1756,10 @@ VIEWS.computers = {
   },
   unpair(c) {  // asks first, and offers to bring your bots home before the link to them goes
     const mine = S.bots.filter((b) => b.status === "moved" && String(b.computer) === String(c.id)), them = (one, many) => (mine.length === 1 ? one : many);
-    const names = c.bots.map((rb) => (mine.find((b) => b.remote_id === rb.id) || rb).name);
+    const others = c.bots.filter((rb) => !mine.some((b) => sameBot(b, rb))), one = others.length === 1;
     const there = !c.ok ? `${esc(c.name)} isn’t answering, so Inky can’t see its bots.`
-      : c.bots.length ? `${plural(c.bots.length, "bot")} live there: <b>${names.map(esc).join(", ")}</b>. They keep running there, but this computer can’t see or reach them any more.`
-      : "No bots live there. You can pair it again any time with its code.";
+      : others.length ? `${plural(others.length, "bot")} ${one ? "lives" : "live"} there: <b>${others.map((rb) => esc(rb.name)).join(", ")}</b>. ${one ? "It keeps" : "They keep"} running there, but this computer can’t see or reach ${one ? "it" : "them"} any more.`
+      : mine.length ? "" : "No bots live there. You can pair it again any time with its code.";
     modal(`<h2 class="cname">Unpair ${esc(c.name)}?</h2>
       <span class="small">${there}</span>
       ${mine.length ? `<span class="small"><b>${mine.map((b) => esc(b.name)).join(", ")}</b> moved there from here. Unpairing forgets ${them("it", "them")} here; ${them("it keeps", "they keep")} running there. Bring ${them("it", "them")} back first to keep ${them("it", "them")} on this computer.${c.ok ? "" : ` <b id="ubackwhy">That works once ${esc(c.name)} answers.</b>`}</span>` : ""}

@@ -75,7 +75,7 @@ def state(E, h, q, body):
     today = usage.get(datetime.now().strftime("%Y-%m-%d"), {"calls": 0, "tokens": 0, "cost": 0})
     return {"bots": bots_here(E), "needs": len(E.store.find("needs", status="open")) + len(REMOTE_NEEDS["rows"]), "setup_done": E.store.setting("setup_done", False),
             "settings": settings_view(E), "today": today, "pair_code": transfer.pair_code(E.token),
-            "engine": E.store.setting("engine_name", platform.node())}
+            "engine": E.store.setting("engine_name", platform.node()), "engine_id": transfer.engine_id(E)}
 
 
 @route("GET", "/api/bots")
@@ -391,10 +391,12 @@ def fwd_headers(E, c, b):
     return {"X-Inky-Token": c["token"], "X-Inky-Forwarded": "1", "X-Inky-Home": transfer.home_of(E, b)}
 
 
-def remote_needs(E):
-    """Open questions from your bots that moved to another computer: one request per server, in parallel, every 15 s at most."""
+def remote_needs(E, retry_down=False):
+    """Open questions from your bots that moved to another computer: one request per server, in parallel, every 15 s at most.
+    A server that didn't answer is skipped for a minute (its questions can't be answered anyway); the watcher keeps trying it."""
     if time.time() - REMOTE_NEEDS["at"] < 15:
         return REMOTE_NEEDS["rows"]
+    down = REMOTE_NEEDS.setdefault("down", {})
     moved = {}
     for b in E.store.find("bots"):
         if b.get("status") == "moved" and b.get("remote_id") and str(b.get("computer")).isdigit():
@@ -402,10 +404,14 @@ def remote_needs(E):
 
     def ask(cid):
         c = E.store.get("computers", cid)
-        if not c:
+        if not c or (not retry_down and time.time() - down.get(cid, 0) < 60):
             return []
         try:
             got = transfer.Remote(c["url"], c["token"]).req("GET", f"/api/needs?home={transfer.engine_id(E)}", timeout=4)["needs"]
+            down.pop(cid, None)
+        except httpx.HTTPError:
+            down[cid] = time.time()
+            return []
         except Exception:
             return []
         mine = {(b["remote_id"], transfer.home_of(E, b)): b for b in moved[cid]}
@@ -427,7 +433,7 @@ def watch_remote_needs(E):
             time.sleep(15)
             try:
                 REMOTE_NEEDS["at"] = 0  # with no moved bots this asks no one and clears the list (the badge stays right)
-                remote_needs(E)
+                remote_needs(E, retry_down=True)
             except Exception:
                 pass
     threading.Thread(target=loop, daemon=True, name="remote-needs").start()
@@ -441,7 +447,7 @@ def needs(E, h, q, body):
         return {"needs": [dict(n, home=transfer.home_of(E, bots[n["bot_id"]])) for n in rows
                           if n["bot_id"] in bots and (bots[n["bot_id"]].get("home") or {}).get("engine") == q["home"]]}
     if q.get("status", "open") == "open":
-        rows += remote_needs(E)
+        rows = sorted(rows + remote_needs(E), key=lambda n: n.get("ts") or 0, reverse=True)  # newest first, wherever the bot runs
     return {"needs": rows}
 
 

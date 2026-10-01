@@ -237,8 +237,8 @@ def learn(ctx, goal, start_url, max_steps=24):
             page = comp.call("elements")
             continue
         same = lambda st: st["action"] == step["action"] and st.get("value") == step.get("value") and (step["action"] == "goto" or st.get("target") == step.get("target"))
-        if len(steps) >= 2 and all(same(st) for st in steps[-2:]):
-            history.append(f"“{label}” done 3 times already; do the next thing")
+        if sum(same(st) for st in steps) >= (1 if step["action"] in ("fill", "select", "goto") else 2):  # a small model loops: the same step again isn't progress
+            history.append(f"“{label}” is already a step; do the next thing")
             page = page_after
             continue
         steps.append(step)
@@ -381,7 +381,7 @@ def replay(ctx, skill, repair_role="repair"):
             if old_name and old_name in step.get("text", ""):  # the label follows: "Click Cerca" becomes "Click Trova"
                 step["text"] = step["text"].replace(old_name, el["name"] or old_name)
             idx = el["i"]
-            ctx.emit("repair", f"Fixed step {i + 1}: now “{el['name']}” ({round(conf * 100)}% sure)", step=i + 1)
+            ctx.emit("repair", f"Trying “{el['name']}” for step {i + 1} ({round(conf * 100)}% sure)", step=i + 1)
         ctx.gate(step, el, page)
         page = _do(comp, step, idx, el, i + 1)
         fence(ctx, page.get("url"))  # a click can lead off the site too
