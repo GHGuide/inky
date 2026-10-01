@@ -287,7 +287,7 @@ def n8n_workflow(skill, inky_url, cred=None):
 
 class N8n(Provider):
     name, label, logo = "n8n", "n8n", "n8n"
-    about = "Send a skill to n8n, and let bots start your n8n workflows."
+    about = "Run a bot’s check from n8n, and let bots start your n8n workflows."
     fields = [{"key": "url", "label": "Your n8n address", "secret": False, "placeholder": "http://localhost:5678"},
               {"key": "key", "label": "n8n API key (Settings → n8n API)", "secret": True, "placeholder": "n8n_api_…"}]
 

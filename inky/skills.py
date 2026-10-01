@@ -313,7 +313,9 @@ def learn(ctx, goal, start_url, max_steps=24):
             raise NeedsHelp("blocked", f"{urlparse(page['url']).netloc.removeprefix('www.')} doesn’t let bots in",
                             f"It showed “{short(page.get('title') or (page.get('heads') or ['Access denied'])[0], 60)}”, so I skipped it. Nothing for you to do.")
         u = urlparse(page["url"])
-        if watch and not extract and page["url"] not in looked and (steps or u.path.strip("/") or u.query):
+        # typed into the search box but not searched yet, on the home page: what's listed is its feed, not results
+        unsent = bool(steps) and steps[-1]["action"] in ("fill", "select") and home_page(page["url"])
+        if watch and not extract and page["url"] not in looked and not unsent and (steps or u.path.strip("/") or u.query):
             looked.add(page["url"])  # a page that already lists priced results: read them now, no need to go on clicking
             lists = comp.call("lists")
             if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
@@ -333,7 +335,7 @@ def learn(ctx, goal, start_url, max_steps=24):
 
         def settle_for_page():  # about to give up: if the page already lists real results, those are the job
             nonlocal extract, finished
-            if not watch or extract:
+            if not watch or extract or unsent:
                 return False
             spec, rows = read_results(ctx, goal, comp.call("elements"))
             if not rows or len(rows) < 6:
@@ -373,6 +375,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         act = d.get("action")
         if act in ("done", "next_page") or (act == "extract" and extract):
             finished = True
+        if act in ("extract", "done") and unsent and not extract:  # it typed the search but never sent it
+            history.append("you typed into the search box but didn’t search yet: press Enter (action press, value Enter) or click the search button first")
+            continue
         if act == "done" and not extract and FINDING.search(goal or ""):  # a watch job that never read anything: read the results here, if there are any
             spec, rows = read_results(ctx, goal, page)
             if rows:

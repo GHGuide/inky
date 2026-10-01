@@ -17,6 +17,10 @@ SEARCH = "https://html.duckduckgo.com/html/"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 SKIP = {"youtube.com", "facebook.com", "instagram.com", "pinterest.com", "wikipedia.org", "reddit.com", "linkedin.com", "tiktok.com",
         "twitter.com", "x.com", "duckduckgo.com", "google.com", "bing.com", "quora.com", "medium.com", "wiktionary.org"}
+# a domain that's for sale or parked, not a shop: "ebikeshop.nl is te koop", sedo, dan.com…
+PARKED = re.compile(r"\b(domain|domein(naam)?)\b.{0,40}\b(for sale|te koop|kopen|zu verkaufen|à vendre|in vendita|en venta)\b|"
+                    r"\b(buy|koop|kaufen) (this|deze|diese) (domain|domein(naam)?|domain)\b|\bparked (free|domain)\b|"
+                    r"(^|\.)(sedo|dan|afternic|hugedomains|undeveloped|mooiedomeinnaam|domeinnaamkopen|parkingcrew)\.", re.I)
 LINK = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 SNIP = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 NEXT_FORM = re.compile(r'<form[^>]*action="/html/"[^>]*>(.*?)</form>', re.S)
@@ -96,7 +100,8 @@ def suggest(queries, guess=None, limit=60, pages=1):
     seen, rows = set(), []
     for i in range(max((len(g) for g in got), default=0)):  # interleave: each query's best results first
         for g in got:
-            if i < len(g) and g[i]["site"] not in seen and g[i]["site"] not in SKIP:
+            if i < len(g) and g[i]["site"] not in seen and g[i]["site"] not in SKIP and \
+                    not PARKED.search(f"{g[i]['host']} {g[i]['title']} {g[i]['snippet']}"):
                 seen.add(g[i]["site"])
                 rows.append(g[i])
     if guess:
@@ -129,6 +134,8 @@ def from_model(llm, job, have=(), label="the model"):
                 continue
             if r.status_code < 500:
                 title = text((re.search(r"<title[^>]*>(.*?)</title>", r.text[:20000], re.S | re.I) or [None, ""])[1])[:120]
+                if PARKED.search(f"{urlparse(str(r.url)).hostname} {title} {text(r.text[:20000])[:2000]}"):
+                    return None  # it answers, but it's a domain for sale
                 if re.search(r"just a moment|attention required|access denied|forbidden|captcha|are you a robot", title, re.I):
                     title = ""  # its bot-check page, not its name
                 return {"url": str(r.url), "host": n, "site": site_of(n), "title": title, "snippet": "", "source": f"suggested by {label}"}

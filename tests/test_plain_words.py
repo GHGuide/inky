@@ -19,6 +19,12 @@ class PlainWordsTest(unittest.TestCase):
         bad = [(f.name, t) for f in UI.glob("*.js") for t in shown_text(f.read_text(encoding="utf-8")) if JARGON.search(t)]
         self.assertEqual(bad, [])
 
+    def test_connector_cards_are_plain(self):
+        from inky import connectors
+        from inky.mcp import PRESETS
+        texts = [p.about for p in connectors.PROVIDERS.values()] + [p["about"] for p in PRESETS.values()]
+        self.assertEqual([t for t in texts if JARGON.search(t)], [])
+
 
 if __name__ == "__main__":
     unittest.main()

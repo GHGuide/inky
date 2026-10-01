@@ -458,7 +458,7 @@ def j_five():
         # autonomous: one bot on a 1-minute schedule must run by itself, with no AI
         bid = E.api("GET", "/api/bots")["bots"][0]["id"]
         n = len(E.bot(bid)["runs"])
-        E.api("PATCH", f"/api/bots/{bid}", {"schedule": {**E.bot(bid)["bot"]["schedule"], "every_minutes": 1}})
+        E.api("PATCH", f"/api/bots/{bid}", {"schedule": {**E.bot(bid)["bot"]["schedule"], "every_minutes": 1, "quiet_from": "", "quiet_to": ""}})  # quiet hours would rightly hold it at night
         for _ in range(60):
             if len(E.bot(bid)["runs"]) > n and E.bot(bid)["runs"][0].get("status") not in (None, "running"):
                 break

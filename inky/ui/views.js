@@ -1811,7 +1811,7 @@ VIEWS.computers = {
   async show(el) {
     this.el = el;
     const { install } = await get("/api/setup");
-    el.innerHTML = `${mobileBar("Computers")}<div class="page"><div class="between"><div><h1>Computers</h1><p class="lede">Where your bots’ browsers run. Each bot gets its own sandbox, never your screen.</p></div><button class="btn" id="addsrv">Add a server</button></div>
+    el.innerHTML = `${mobileBar("Computers")}<div class="page"><div class="between"><div><h1>Computers</h1><p class="lede">Where your bots’ browsers run. Each bot gets its own browser, and uses your screen only if you allow it below.</p></div><button class="btn" id="addsrv">Add a server</button></div>
       <div class="grid2 clist" id="clist"><span class="small muted">Looking at your computers…</span></div>
       <div class="card panel"><div class="between"><span><b>Your own screen</b><br><span class="small muted">Let a bot use a visible browser window on your screen, with the coral frame and ask-first rules. You still turn it on per bot, and Esc stops it any time.</span></span><button class="toggle ${S.settings.screen_allowed ? "on" : ""}" id="scrok" role="switch" aria-checked="${!!S.settings.screen_allowed}" aria-label="Allow bots on my screen"></button></div></div>
       <section class="card" id="adder"><h2>Add a server</h2><span class="small muted">Any Linux server or spare Mac. 2 GB of memory runs about 3 bots, and they keep working while this computer sleeps.</span>${serverAdder(install)}</section></div>`;

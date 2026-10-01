@@ -87,6 +87,13 @@ class LearningChecksTest(unittest.TestCase):
         self.assertFalse(skills.named([{"link": "/a"}, {"link": "/b"}, {"link": "/c"}, {"title": None, "link": "/d"}]))
         self.assertTrue(skills.named([{"title": "Gazelle", "price": "€220"}, {"title": "Batavus"}, {"price": "€99"}]))
 
+    def test_domains_for_sale_are_not_sites(self):
+        from inky.sites import PARKED
+        self.assertTrue(PARKED.search("mooiedomeinnaam.nl ebikeshop.nl is te koop"))
+        self.assertTrue(PARKED.search("example.com This domain is for sale"))
+        self.assertFalse(PARKED.search("shop.nl This e-bike is for sale, 2 years old"))
+        self.assertFalse(PARKED.search("2dehands.be Fietsen te koop"))
+
     def test_word_rules(self):
         from inky import skills
         from inky.bots import stated
