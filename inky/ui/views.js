@@ -464,8 +464,17 @@ const RUN_KINDS = { replay: "Run", learn: "Learning", show: "Show me once" };
 const EVENT_WORDS = { control: "you", handback: "you", answered: "you answered", denied: "you said no", shown: "you showed it", replay: "run", learn: "learning",
   learned: "learned", repair: "fixing", fixed: "fixed", problem: "problem", delegate: "handed off", moved: "moved", arrived: "arrived", created: "made", level: "level up", team: "team" };
 const CONTROL_WORDS = { pause: "You paused it", resume: "You let it carry on", stop: "You stopped it", takeover: "You took over its computer", handback: "You handed back",
-  speed: "You changed its speed", mode: "You changed where it works" };
+  speed: "You changed its speed", mode: "You changed where it works", "You handed its computer back": "You handed back" };
 const ruleText = (f) => f.text || `${f.field} ${f.op} ${f.value}`;
+const RULE_KINDS = { own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" };
+const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads "contact agencies"
+  const k = RULE_KINDS[r.kind] || "", t = String(r.text || "");
+  const rest = k && t.toLowerCase().startsWith(k.toLowerCase() + " ") ? t.slice(k.length + 1).trim() : t;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+};
+const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
+const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
+const DRAFTS = {};  // what you were typing to each bot, kept when you go to another page and back
 // ponytail: a copy of skills.parse_num()/keep(), so Results follow your rules the moment you change them; drop it if the results route re-checks rules itself
 function numOf(v) {
   if (typeof v === "number") return v;
@@ -501,6 +510,15 @@ function rowPasses(it, f) {
 // a tab you're typing in (or picked something in) isn't redrawn under you
 const tabBusy = (el) => [...el.querySelectorAll("input,textarea,select")].some((x) => x === document.activeElement || x.dataset.touched
   || ((x.tagName === "TEXTAREA" || x.type === "text") && x.value !== x.defaultValue));
+const follow = (x, v) => { if (x && x !== document.activeElement && x.value === x.defaultValue) x.value = x.defaultValue = v; };  // a field you aren't editing shows the bot as it is now
+function keepFocus(box, draw) {  // redraw part of a tab; the focus goes back to the same control (by id or data-*), or the one now in its place
+  const a = document.activeElement, inside = a && a !== document.body && box.contains(a);
+  const sel = inside && (a.id ? `#${CSS.escape(a.id)}` : [...a.attributes].filter((x) => x.name.startsWith("data-")).map((x) => `[${x.name}="${CSS.escape(x.value)}"]`).join(""));
+  draw();
+  if (!inside || box.contains(a)) return;
+  const f = sel && $(a.tagName.toLowerCase() + sel, box);
+  if (f && !f.disabled) f.focus();
+}
 document.addEventListener("click", (e) => $$("details.more[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; }));
 
 VIEWS.bot = {
@@ -509,7 +527,8 @@ VIEWS.bot = {
     const asked = tab;
     if (tab === "chat" && !onPhone()) tab = "computer";
     if (!TABS.some(([k]) => k === tab)) tab = "computer";
-    this.id = +id; this.tab = tab; this.el = el; this.data = null; this.msgKey = this.headKey = this.tabSeen = null;
+    this.id = +id; this.tab = tab; this.el = el; this.data = null; this.msgKey = this.headKey = this.tabSeen = this.chatTop = null; this.bringing = false;
+    if (!/^\d+$/.test(id)) return this.missing(el, new Error("no such bot"));  // #/bot/abc
     let data;
     try { data = await get(`/api/bots/${this.id}`); } catch (e) { return this.missing(el, e); }
     if (this.id !== +id || !el.isConnected) return;  // you went elsewhere meanwhile
@@ -518,7 +537,7 @@ VIEWS.bot = {
     if (asked !== tab) history.replaceState(null, "", `#/bot/${b.id}/${tab}`);
     const hint = matchMedia("(pointer:coarse)").matches ? "" : `<span class="kbdhint"><span class="mono">${MAC ? "⌘K" : "Ctrl K"}</span> command bar · </span>`;
     el.innerHTML = `${mobileBar(b.name)}<div class="botpage t-${tab}"><div class="bothead" id="bh"></div><div class="botbody">
-      <section class="chatcol" aria-label="Conversation"><div class="msgs" id="msgs"></div>
+      <section class="chatcol" aria-label="Conversation"><div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages with ${esc(b.name)}"></div>
         <div class="chatin"><div class="chatbox"><label class="vh" for="say">Message ${esc(b.name)}</label><input id="say" placeholder="Message ${esc(b.name)}…" autocomplete="off">
         <div class="between"><span class="small muted">${hint}say “slower”, “stop”, or give it a rule</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:#fff;border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section>
       <section class="rightcol"><nav class="tabs" aria-label="Bot views">${TABS.map(([k, t]) => `<a href="#/bot/${b.id}/${k}" data-t="${k}" class="${k === tab ? "on" : ""}${k === "chat" ? " only-s" : ""}"${k === tab ? ' aria-current="page"' : ""}>${t}</a>`).join("")}</nav><div class="tabbody" id="tb"></div></section></div></div>`;
@@ -536,44 +555,93 @@ VIEWS.bot = {
     };
     $("#send").onclick = send;
     $("#say").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) send(); };
+    $("#say").value = DRAFTS[b.id] || "";
     $("#tb").addEventListener("change", (e) => { if (e.target.tagName === "SELECT") e.target.dataset.touched = "1"; });
+    el.addEventListener("click", (e) => {  // this bot's tabs switch in place: the chat, what you typed in it and where you scrolled stay
+      const a = e.target.closest && e.target.closest("a[href]");
+      const m = a && !e.defaultPrevented && !e.button && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && a.getAttribute("href").match(/^#\/bot\/(\d+)\/(\w+)$/);
+      if (!m || +m[1] !== this.id) return;
+      e.preventDefault();
+      const d = a.closest("details"); if (d) d.open = false;
+      this.go(m[2]);
+    });
     this.drawHead(); this.drawMsgs(true); this.drawTab(true);
     if (qs && qs.get("hatch")) { history.replaceState(null, "", `#/bot/${b.id}/${tab}`); hatch(b, (this.data.messages.find((m) => m.intro) || {}).text); }
   },
-  missing(el, e) {  // no such bot, or it lives on a computer that isn't answering
+  go(tab) {  // another tab of this bot, without leaving the page
+    if (tab === "chat" && !onPhone()) tab = "computer";
+    if (!TABS.some(([k]) => k === tab)) tab = "computer";
+    const page = $(".botpage", this.el), box = $("#msgs");
+    if (!page || tab === this.tab) return;
+    if (this.tab === "call" && this.callEnd) { this.callEnd(); this.callEnd = null; }
+    if (this.tab === "chat" && box) this.chatTop = box.scrollHeight - box.scrollTop - box.clientHeight < 40 ? null : box.scrollTop;  // a hidden box forgets its scroll
+    this.tab = tab; this.tabSeen = null;
+    history.replaceState(null, "", `#/bot/${this.id}/${tab}`);
+    page.className = page.className.replace(/\bt-\w+/, "t-" + tab);
+    $$(".tabs a[data-t]", this.el).forEach((a) => { const on = a.dataset.t === tab; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+    const on = $(".tabs a.on", this.el); if (on) on.scrollIntoView({ block: "nearest", inline: "center" });
+    if (tab === "chat" && box) box.scrollTop = this.chatTop ?? 1e9;
+    $("#tb").innerHTML = ""; $("#tb").scrollTop = 0;  // never the last tab's content under this tab's name, even for a moment
+    this.drawTab(true);
+  },
+  missing(el, e) {  // no such bot, it lives on a computer that isn't answering, or it's gone from there
     const known = S.bots.find((x) => x.id === this.id), msg = String(e.message || "");
-    const away = !!known && (known.status === "moved" || msg.includes("can’t reach"));
-    if (!away && !msg.includes("no such bot")) throw e;  // anything else: the router's error page
+    const gone = msg.match(/ is no longer on (.+?)\.?$/);
+    const away = !gone && !!known && (known.status === "moved" || msg.includes("can’t reach"));
+    if (!gone && !away && !msg.includes("no such bot")) throw e;  // anything else: the router's error page
     const where = (msg.match(/can’t reach (.+?):/) || [])[1] || "another computer";
+    this.data = null;  // nothing here to refresh
     el.innerHTML = `${mobileBar(known ? known.name : "Inky")}<div class="page narrow">${known ? botCritter({ ...known, status: "idle", needs: 0 }, 90) : critter("octopus", "#E86F51", "none", 90, "worried")}
-      ${away ? `<h1 style="overflow-wrap:anywhere">${esc(known.name)} is on ${esc(where)}</h1><p class="lede">That computer isn’t answering right now. It may be asleep, switched off or offline.</p>
+      ${gone ? `<h1 style="overflow-wrap:anywhere">It’s no longer on ${esc(gone[1])}</h1><p class="lede">${esc(known ? known.name : "This bot")} was deleted there, or that computer was reset. Only this computer still lists it.</p>
+        <div class="row wrap"><button class="btn p" id="rmhere">Remove it here</button><a class="btn" href="#/bots">Your bots</a></div>`
+      : away ? `<h1 style="overflow-wrap:anywhere">${esc(known.name)} is on ${esc(where)}</h1><p class="lede">That computer isn’t answering right now. It may be asleep, switched off or offline.</p>
         <div class="row wrap"><button class="btn p" id="retry">Try again</button><button class="btn bringback">Bring back to this computer</button></div><span class="small muted" id="mvline" role="status"></span>`
       : `<h1>This bot doesn’t exist anymore</h1><p class="lede">It may have been deleted, here or on another computer.</p><div><a class="btn p" href="#/bots">Your bots</a></div>`}</div>`;
     if (away) { $("#retry", el).onclick = () => route(); $(".bringback", el).onclick = () => this.bringBack(); }
+    if (gone) $("#rmhere", el).onclick = async (ev) => {
+      const btn = ev.currentTarget;
+      busyBtn(btn, true, "Removing…");
+      try { await del(`/api/bots/${this.id}?here=1`); } catch (err) { busyBtn(btn, false); return toast(err.message); }
+      await loadState().catch(() => {});
+      location.hash = "#/bots";
+    };
   },
   bringBack() {
     $$(".bringback").forEach((x) => (x.disabled = true));
+    this.bringing = true;
     const l = $("#mvline"); if (l) l.textContent = "Asking it to pack up…";
     post(`/api/bots/${this.id}/bring-back`).catch((e) => { toast(e.message); $$(".bringback").forEach((x) => (x.disabled = false)); });
   },
   async refresh(force) {
     if (!this.id || !this.data) return;
     const id = this.id;
-    let d; try { d = await get(`/api/bots/${id}`); } catch (e) { return; }
+    let d; try { d = await get(`/api/bots/${id}`); } catch (e) { if (id === this.id && this.data && / is no longer on /.test(e.message)) this.missing(this.el, e); return; }
     if (id !== this.id || !this.data) return;  // you went to another bot meanwhile
     this.data = d;
     this.drawHead(); this.drawMsgs(); this.drawTab(false, force);
   },
+  edit(fn) {  // one change at a time, each made to the bot as it is now, so nothing added meanwhile is lost
+    const id = this.id;
+    const go = async () => { const d = await get(`/api/bots/${id}`); if (id === this.id) return fn(d); };
+    this.queue = (this.queue || Promise.resolve()).then(go, go);
+    return this.queue.catch((e) => { toast(e.message); });
+  },
   onEvent(m) {
     if (m.kind !== "move" || m.bot !== this.id) return;
-    const l = $("#mvline");
+    const l = $("#mvline"), back = this.bringing || !!(this.data ? this.data.bot.remote : (S.bots.find((b) => b.id === m.bot) || {}).status === "moved");
     const down = /Errno|refused|timed? ?out|unreachable|connect/i.test(m.text || "");  // it packs up over there, so that computer has to be on
-    const text = m.step === "failed" ? (down || !m.text ? "Couldn’t bring it back: its computer isn’t answering. It can only pack up while that computer is on." : `Couldn’t bring it back: ${m.text}`) : m.text || m.step;
+    const text = m.step !== "failed" ? m.text || m.step
+      : back ? (down || !m.text ? "Couldn’t bring it back: its computer isn’t answering. It can only pack up while that computer is on." : `Couldn’t bring it back: ${m.text}`)
+      : `Couldn’t move it: ${m.text || "the other computer isn’t answering."}`;
     if (l) l.textContent = text; else toast(text, this.data ? this.data.bot : S.bots.find((b) => b.id === m.bot));
-    if (m.step === "failed") $$(".bringback").forEach((x) => (x.disabled = false));
+    if (m.step === "failed") { this.bringing = false; $$(".bringback").forEach((x) => (x.disabled = false)); }
     if (m.step === "done") loadState().then(route);
   },
-  leave() { if (this.callEnd) this.callEnd(); this.callEnd = null; this.id = null; },
+  leave() {
+    if (this.callEnd) this.callEnd();
+    const s = $("#say"); if (s && this.id) DRAFTS[this.id] = s.value;
+    this.callEnd = null; this.id = null;
+  },
   drawHead() {
     const b = this.data.bot, m = botMeta(b), tk = b.takeover, show = b.run_kind === "show";
     const meta = tk ? (show ? "showing it once" : "you have control") : m.meta;
@@ -583,9 +651,10 @@ VIEWS.bot = {
     this.headKey = key;
     const open = !!$("#bh details.more[open]");
     const lib = b.library ? `<span class="badge hide-s" title="From the library${b.library.author ? " · by " + esc(b.library.author) : ""}. It only visits ${esc((b.allowed_domains || []).join(", "))}.">library · ${esc((b.allowed_domains || []).join(", "))}</span>` : "";
-    $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning"].includes(b.status) ? "live" : ""}" title="${esc(meta)}"><i style="background:${tk ? "var(--ink)" : m.color}"></i><span>${esc(meta)}</span></span>${lib}
+    // while you have its computer, Hand back (Computer tab) is the way on: Resume or Run now would take it from you
+    $("#bh").innerHTML = `<div class="row" style="min-width:0">${botCritter(b, 30)}<h1>${esc(b.name)}</h1><span class="pill ${m.hot ? "hot" : ""} ${["working", "learning", "takeover", "showing"].includes(b.status) ? "live" : ""}" title="${esc(meta)}"><i style="background:${tk ? "var(--ink)" : m.color}"></i><span>${esc(meta)}</span></span>${lib}
       <span class="mono small muted hide-s row where" style="gap:5px">${icon(b.remote ? "server" : "monitor", 13)}<span>${esc(b.remote || (b.mode === "screen" ? "your screen" : "its own computer"))}</span></span></div>
-      <div class="row" style="flex-shrink:0">${show ? "" : b.run_kind ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `<button class="btn s" id="runnow">Run now</button>`}
+      <div class="row" style="flex-shrink:0">${show || tk ? "" : b.run_kind ? `<button class="btn s" id="pz">${b.status === "paused" ? "Resume" : "Pause"}</button>` : `<button class="btn s" id="runnow">Run now</button>`}
       ${b.remote ? `<button class="btn s hide-s bringback" title="Move ${esc(b.name)}, its memory and skills back to this computer">Bring back</button>` : ""}
       <a class="iconbtn hide-s" href="#/bot/${b.id}/call" aria-label="Call ${esc(b.name)}">${icon("phone", 16, 1.9)}</a><button class="btn s hide-s sharebot" title="Download it, make a link, or post it to the library">Share</button>
       <details class="more"${open ? " open" : ""}><summary class="iconbtn" aria-label="More">⋯</summary><div class="card menu">
@@ -594,6 +663,8 @@ VIEWS.bot = {
     const rn = $("#runnow"); if (rn) rn.onclick = () => post(`/api/bots/${b.id}/run`, {}).then(refreshSoon).catch((e) => toast(e.message));
     $$("#bh .sharebot").forEach((x) => (x.onclick = () => { const d = $("#bh details.more"); if (d) d.open = false; shareBot(b); }));
     $$("#bh .bringback").forEach((x) => (x.onclick = () => this.bringBack()));
+    const more = $("#bh details.more");
+    more.onkeydown = (e) => { if (e.key === "Escape" && more.open) { e.preventDefault(); e.stopPropagation(); more.open = false; $("summary", more).focus(); } };
   },
   drawMsgs(force) {
     const box = $("#msgs"); if (!box) return;
@@ -613,6 +684,7 @@ VIEWS.bot = {
       if (last && m.role === "bot" && last.role === "bot" && m.text === last.text && !m.need && !(m.chips || []).length) last.times = (last.times || 1) + 1;
       else msgs.push({ ...m });
     }
+    const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;  // you scrolled up to read: stay there
     box.innerHTML = msgs.map((m, idx) => {
       const d = new Date(m.ts * 1000).toDateString();
       const day = d !== lastDay ? `<div class="m sys">${d === new Date().toDateString() ? "Today" : d} ${hhmm(m.ts)}</div>` : "";
@@ -627,9 +699,9 @@ VIEWS.bot = {
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}${picked === o ? " chosen" : ""}" data-need="${need.id}" data-bot="${this.id}" data-o="${esc(o)}"${picked ? " disabled" : ""}>${esc(o)}</button>`).join("")}</div>
         ${picked ? `<span class="small muted">You chose “${esc(picked)}”…</span>` : ""}</div>`
         : picked ? `<span class="logl">● You chose “${esc(picked)}”</span>` : "";
-      const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(x)}</span>`).join("");
+      const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(one(x))}</span>`).join("");
       const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
-      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(m.text)}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>${done}${chips}${card}</div></div>`;
+      return `${day}<div class="m">${botCritter(b, 26)}<div class="body"><span>${esc(one(m.text))}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>${done}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.bot, +x.dataset.need, x.dataset.o)));
@@ -639,7 +711,7 @@ VIEWS.bot = {
       x.disabled = true;
       try { await post(`/api/bots/${this.id}/apply`, { apply: c.apply, message: m.id }); toast(c.label, b); this.refresh(true); } catch (e) { x.disabled = false; toast(e.message); }
     }));
-    box.scrollTop = 1e9;
+    if (force || atEnd) box.scrollTop = 1e9;
   },
   tabKey() {  // what each tab shows: it's only redrawn when that changed
     const d = this.data, b = d.bot;
@@ -652,11 +724,12 @@ VIEWS.bot = {
       : [b, d.skills, d.runs[0], d.events.slice(0, 12), hhmm(Date.now() / 1000)]);
   },
   drawTab(first, force) {  // force: after your own change; what you typed elsewhere in the tab stays
-    const tb = $("#tb"), fn = this["tab_" + this.tab];
+    const tb = $("#tb"), fn = this["tab_" + this.tab], live = this["live_" + this.tab];
     if (!tb || !fn) return;
-    const key = this.tabKey(), own = ["computer", "call"].includes(this.tab);  // these two update in place and keep their own inputs
+    const key = this.tabKey(), own = ["computer", "call"].includes(this.tab) || !!live;  // these update in place and keep their own inputs
     if (!first && !force && (key === this.tabSeen || (!own && tabBusy(tb)))) return;
     this.tabSeen = key;
+    if (!first && live && $(`[data-tab="${this.tab}"]`, tb)) return keepFocus(tb, () => live.call(this, tb));  // only what isn't yours to type in
     const a = document.activeElement, fid = a && tb.contains(a) && a.id;
     const keep = force ? $$("input[id],textarea[id]", tb).filter((x) => x.value !== x.defaultValue).map((x) => [x.id, x.value]) : [];
     fn.call(this, tb, first);
@@ -671,7 +744,8 @@ VIEWS.bot = {
   // ---- Computer tab: live view, take over, show me once, timeline
   tab_computer(tb, first) {
     const b = this.data.bot, run = b.run_kind, tk = b.takeover, show = run === "show", paused = b.status === "paused";
-    const skill = this.data.skills.find((s) => s.id === b.skill_id) || this.data.skills[0];
+    const sk = this.data.skills, r0 = this.data.runs.find((r) => r.learned || r.skill);  // the skill it runs now, else the one it last learned or ran
+    const skill = sk.find((s) => s.id === b.skill_id) || (r0 && sk.find((s) => s.id === r0.learned || s.name === r0.skill)) || sk.at(-1);
     if (first || !$("#live")) {
       tb.innerHTML = `<div class="between wrap"><span class="row" id="drv"></span><span class="row wrap">
         <span class="seg" id="speed" role="group" aria-label="Speed">${["slow", "normal", "turbo"].map((s) => `<button data-s="${s}">${cap(s)}</button>`).join("")}</span>
@@ -705,7 +779,7 @@ VIEWS.bot = {
       $("#showdone").onclick = () => post(`/api/bots/${b.id}/show/done`, {}).then(refreshSoon).catch((e) => toast(e.message));
       img.onerror = () => setTimeout(() => { if (img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg") + "&r=" + Date.now(); }, 2000);
     }
-    const idle = !run && !tk, img = $("#live");  // an idle bot's computer is a blank page: show that it's resting, and don't start its browser for nothing
+    const idle = idleBot(b), img = $("#live");  // an idle bot's computer is a blank page: show that it's resting, and don't start its browser for nothing
     if (idle) img.removeAttribute("src");
     else if (!img.getAttribute("src")) img.src = screenUrl(b.id, "mjpg");
     img.classList.toggle("hidden", idle); $("#idle").classList.toggle("hidden", !idle);
@@ -725,38 +799,42 @@ VIEWS.bot = {
     $("#stop").disabled = !run;
     $("#scr").classList.toggle("drive", !!tk);
     $("#over").classList.toggle("hidden", !tk || show);
-    $("#typebar").classList.toggle("hidden", !tk);
+    $("#typebar").classList.toggle("hidden", !tk || show);  // showing it once records clicks only, not typing
     $("#showbar").classList.toggle("hidden", !show);
     $("#shown").textContent = b.shown ? `${b.shown} recorded.` : "";
     $$("#speed button").forEach((x) => { const on = x.dataset.s === (b.look.speed || "normal"); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
     const mem = (b.memory || []).map((m) => `<span class="chip">${esc(m.text)}</span>`).join("") || `<span class="small muted">Nothing yet</span>`;
-    const lastRun = this.data.runs[0], n = this.data.skills.length;
-    $("#side").innerHTML = `<div class="head"><b>This run</b><span class="mono small muted">${calls}</span></div>
-      <div class="col small" style="gap:6px"><div class="between"><span class="muted">Skill</span><span>${esc(skill ? skill.name : "none yet")}</span></div>
-      <div class="between"><span class="muted">Step</span><span class="mono">${b.step_n || "–"}${skill && run && run !== "learn" ? " of " + skill.steps.length : ""}</span></div>
-      <div class="between"><span class="muted">Last run</span><span>${lastRun ? esc(RUN_WORDS[lastRun.status] || lastRun.status) + " · " + ago(lastRun.ts) : "–"}</span></div></div>
+    const n = sk.length, done = this.data.runs.find((r) => r.status !== "running"), row = (k, v) => `<div class="between"><span class="muted">${k}</span><span>${v}</span></div>`;
+    const went = (r) => (r ? esc(RUN_WORDS[r.status] || r.status) + " · " + ago(r.ts) : "–");
+    $("#side").innerHTML = (run ? `<div class="head"><b>This run</b><span class="mono small muted">${calls}</span></div>
+      <div class="col small" style="gap:6px">${row("Skill", run === "learn" ? "learning a new one" : esc(skill ? skill.name : "none yet"))}
+      ${row("Step", `<span class="mono">${b.step_n || "–"}${skill && run !== "learn" ? " of " + skill.steps.length : ""}</span>`)}${row("Last run", went(done))}</div>`
+      : `<div class="head"><b>Last run</b><span class="mono small muted">${done ? nWord(done.ai_calls || 0, "AI call") : ""}</span></div>
+      <div class="col small" style="gap:6px">${row("Skill", done && done.kind === "learn" ? esc((sk.find((s) => s.id === done.learned) || { name: "learning a new one" }).name) : esc((done && done.skill) || (skill ? skill.name : "none yet")))}
+      ${row("How it went", went(done))}${done && done.items != null ? row("Results", done.items) : ""}</div>`) + `
       <div style="height:1px;background:var(--line)"></div><div class="head"><b>It remembers</b><a class="small" href="#/bot/${b.id}/about">Edit</a></div><div class="row wrap" style="gap:6px">${mem}</div>
-      <div style="height:1px;background:var(--line)"></div><div class="col" style="gap:6px">${this.data.events.filter((e) => ["fixed", "repair", "problem", "learned"].includes(e.kind)).slice(0, 3).map((e) => `<span class="logl">${hhmm(e.ts)} · ${esc(e.text)}</span>`).join("") || `<span class="small muted">No fixes yet</span>`}</div>
+      <div style="height:1px;background:var(--line)"></div><div class="col" style="gap:6px">${this.data.events.filter((e) => ["fixed", "repair", "problem", "learned"].includes(e.kind)).slice(0, 3).map((e) => `<span class="logl">${hhmm(e.ts)} · ${esc(one(e.text))}</span>`).join("") || `<span class="small muted">No fixes yet</span>`}</div>
       ${n ? `<a class="small" href="#/bot/${b.id}/skills" style="margin-top:auto;font-weight:600">${n === 1 ? "See its skill" : `See all ${n} skills`}</a>` : ""}`;
     if (skill && run !== "learn") {
       const avg = this.aiPerRun(skill);
       $("#tlname").textContent = `${skill.name} · ${nWord(skill.steps.length, "step")}`;
       $("#tlnote").textContent = `${run ? "replaying now" : "replays a saved skill"} · ${nWord(avg, "AI call")} per run`;
       const at = run ? b.step_n : 0;
-      $("#tl").innerHTML = skill.steps.map((s, i) => `<div class="st ${i + 1 === at ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(s.text)}">${esc(s.text)}</span><span class="p"><i style="width:${i + 1 < at ? 100 : i + 1 === at ? 55 : 0}%"></i></span></div>`).join("");
+      $("#tl").innerHTML = skill.steps.map((s, i) => `<div class="st ${i + 1 === at ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(one(s.text))}">${esc(one(s.text))}</span><span class="p"><i style="width:${i + 1 < at ? 100 : i + 1 === at ? 55 : 0}%"></i></span></div>`).join("");
     } else {  // learning: only this learning run's steps, not earlier tries
       const lr = this.data.runs.find((r) => r.kind === "learn");
       const learned = lr ? this.data.events.filter((e) => e.kind === "learn" && (e.run ? e.run === lr.id : e.ts >= lr.ts - 1)).reverse() : [];
       $("#tlname").textContent = run === "learn" ? "Learning…" : "No skill yet";
       $("#tlnote").textContent = run === "learn" ? "you can correct any step in the chat" : "";
-      $("#tl").innerHTML = learned.map((e, i) => `<div class="st ${i === learned.length - 1 && run === "learn" ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(e.text)}">${esc(e.text)}</span><span class="p"><i style="width:${i === learned.length - 1 && run === "learn" ? 55 : 100}%"></i></span></div>`).join("")
+      $("#tl").innerHTML = learned.map((e, i) => `<div class="st ${i === learned.length - 1 && run === "learn" ? "cur" : ""}"><span class="n">${i + 1}</span><span class="x" title="${esc(one(e.text))}">${esc(one(e.text))}</span><span class="p"><i style="width:${i === learned.length - 1 && run === "learn" ? 55 : 100}%"></i></span></div>`).join("")
         || `<span class="small muted">Tell it the site and the job, or press Run now.</span>`;
     }
   },
 
   tab_results(tb) {
-    const b = this.data.bot, runs = this.data.runs;
+    const b = this.data.bot, runs = this.data.runs, seq = (this.resultsSeq = (this.resultsSeq || 0) + 1);
     get(`/api/bots/${this.id}/results?all=1&limit=1000`).then(({ results: all }) => {
+      if (seq !== this.resultsSeq || this.tab !== "results" || !tb.isConnected) return;  // you went to another tab, or a newer draw is coming
       const f = (b.filters || []).filter((x) => x && x.field);
       const fields = new Set(all.flatMap((r) => Object.keys(r)));
       const skip = all.length ? f.filter((x) => !fields.has(x.field)) : [];  // rules this site's results can't be checked against
@@ -764,95 +842,115 @@ VIEWS.bot = {
       const rows = all.filter((r) => checked.every((x) => rowPasses(r, x)));  // your rules as they are now, also right after you change them
       const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !["id", "ts", "run", "skill", "new", "last", "first"].includes(k));
       const cols = [...keys.filter((k) => k !== "link").slice(0, 5), ...keys.filter((k) => k === "link")];  // the link goes last
+      const price = keys.find((k) => /price/i.test(k)), cost = (r) => numOf(r[price]) ?? Infinity;
+      rows.sort((x, y) => (price ? cost(x) - cost(y) || 0 : (y.ts || 0) - (x.ts || 0) || (y.id || 0) - (x.id || 0)));  // cheapest first, else newest first
       const last = runs.find((r) => r.kind === "replay" && r.status !== "running" && r.items != null);
       const rules = checked.length ? ` its ${checked.length === 1 ? "rule" : "rules"}` : "";
       const head = rows.length ? (checked.length ? `${nWord(rows.length, "result")} ${rows.length === 1 ? "passes" : "pass"}${rules}` : nWord(rows.length, "result"))
         : last && last.items ? `None of the last ${nWord(last.items, "result")} ${last.items === 1 ? "passes" : "pass"}${rules}` : last ? "The last run found nothing to read" : "No results yet";
       tb.innerHTML = `<div class="between wrap"><b>${head}</b><span class="row wrap">${checked.map((x) => `<span class="chip">${esc(ruleText(x))}</span>`).join("")}</span></div>
         ${skip.length ? `<div class="card panel small" style="gap:4px"><b>Couldn’t check</b>${skip.map((x) => `<span>${esc(ruleText(x))} (this site doesn’t show ${esc(x.field)})</span>`).join("")}<span class="muted">Its search may already narrow it, or tell it another way to check in the chat.</span></div>` : ""}
-        ${rows.length ? `<div class="tscroll"><table class="t"><thead><tr><th></th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.new ? '<span class="badge hot">new</span>' : ""}</td>${cols.map((c) => `<td${c === "link" ? ' class="nw"' : ""}>${c === "link" && r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener">open ↗</a>` : esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+        ${rows.length ? `<div class="tscroll"><table class="t"><thead><tr><th><span class="vh">New</span></th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.new ? '<span class="badge hot">new</span>' : ""}</td>${cols.map((c) => `<td${c === "link" || String(r[c] ?? "").length <= 24 ? ' class="nw"' : ""}>${c === "link" && r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener">open ↗</a>` : esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
           : `<p class="muted">${last && last.items ? "Loosen a rule in Settings, or wait for the next run." : "Press Run now to check."}</p>`}`;
-    }).catch((e) => { tb.innerHTML = `<p class="muted">Couldn’t load its results: ${esc(e.message)}</p>`; });
+    }).catch((e) => { if (seq === this.resultsSeq && this.tab === "results") tb.innerHTML = `<p class="muted">Couldn’t load its results: ${esc(e.message)}</p>`; });
   },
 
-  tab_skills(tb) {
-    const sk = this.data.skills, b = this.data.bot;
-    const sel = sk.find((s) => s.id === this.skillSel) || sk[0];
-    const typed = (s) => s.value && ["fill", "select", "press"].includes(s.action) ? `<span class="typed">${s.action === "fill" ? "types" : s.action === "select" ? "picks" : "presses"} “${esc(s.value)}”</span>` : "";
-    tb.innerHTML = `<div class="row wrap">${sk.map((s) => `<button class="btn s ${sel && s.id === sel.id ? "p" : ""}" data-sk="${s.id}" aria-pressed="${!!sel && s.id === sel.id}">${esc(s.name)}</button>`).join("")}<label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
-      ${sel ? `<div class="row skrow" style="align-items:flex-start;gap:14px"><div class="card"><div class="head"><h2>${esc(sel.name)}</h2><span class="mono small muted">v${sel.version || 1} · ${esc(sel.site || "")}</span></div>
-        <div class="list">${sel.steps.map((s, i) => `<div class="row" style="padding:8px 0;font-size:14px;align-items:flex-start"><span class="mono small muted" style="width:22px;flex-shrink:0">${i + 1}</span><span class="grow">${esc(s.text)}${s.repaired ? ` <span class="badge">fixed ${s.repaired}×</span>` : ""}${s.shown ? ' <span class="badge">shown by you</span>' : ""}${s.approved_always ? ` <span class="badge">always allowed</span> <button class="chip" data-ask="${i}" style="border:0;cursor:pointer">ask again</button>` : ""}${typed(s)}</span>
-          <span class="mono small muted steptarget">${esc(s.action === "extract" ? nWord(Object.keys((s.spec || {}).fields || {}).length, "field") : s.target ? `${s.target.role} “${s.target.name}”` : s.value || "")}</span>${sel.steps.length > 1 ? `<button class="chip" data-rm="${i}" style="border:0;cursor:pointer" aria-label="Remove step ${i + 1}">remove</button>` : ""}</div>`).join("")}</div></div>
-        <aside class="col skside"><div class="card"><b>How it runs</b><div class="grid2" style="gap:8px">${[["good runs", this.data.runs.filter((r) => r.skill === sel.name && r.status === "ok").length], ["AI calls per run", this.aiPerRun(sel)],
-          ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
-          <div class="card small"><b>If the page changes</b><span>1. It finds the button again by its name. No AI.</span><span>2. If that fails, it asks the model once and only acts when sure.</span><span>3. Otherwise it stops and asks you.</span></div>
-          <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
-          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`}
+  tab_skills(tb) {  // the skills redraw in place (live_skills); the Learn a new site box keeps what you typed
+    const b = this.data.bot;
+    tb.innerHTML = `<div class="row wrap" data-tab="skills"><span id="sklist" style="display:contents"></span><label class="btn s" for="skf">Import a skill</label><input type="file" id="skf" class="vh" accept=".inkyskill,.json"></div>
+      <div id="skmain" style="display:contents"></div>
       <div class="card"><b>Learn a new site</b><div class="grid2"><label class="vh" for="lurl">Web address</label><input class="f" id="lurl" placeholder="https://…" value="${esc(b.start_url || "")}"><label class="vh" for="lgoal">What to do there</label><input class="f" id="lgoal" placeholder="What to do there" value="${esc(b.goal || "")}"></div><div><button class="btn p" id="learn">Learn it once</button></div></div>`;
-    const steps = (list) => patch(`/api/skills/${sel.id}`, { steps: list }).then(() => this.refresh(true)).catch((e) => toast(e.message));
-    $$("[data-sk]", tb).forEach((x) => (x.onclick = () => { this.skillSel = +x.dataset.sk; this.tab_skills(tb); }));
-    $$("[data-ask]", tb).forEach((x) => (x.onclick = () => steps(sel.steps.map((s, i) => (i === +x.dataset.ask ? { ...s, approved_always: false } : s)))));
-    $$("[data-rm]", tb).forEach((x) => (x.onclick = async () => {
-      const i = +x.dataset.rm;
-      if (await confirmBox(`Remove step ${i + 1}, “${sel.steps[i].text}”? It won’t do it on its next runs.`, "Remove step", true)) steps(sel.steps.filter((_, j) => j !== i));
-    }));
-    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
-    if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
-    if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
-    $("#learn").onclick = () => post(`/api/bots/${b.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => (location.hash = `#/bot/${b.id}/computer`)).catch((e) => toast(e.message));
+    const learn = () => post(`/api/bots/${this.id}/learn`, { url: $("#lurl").value, goal: $("#lgoal").value }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    $("#learn").onclick = learn; enterSends($("#lurl"), learn); enterSends($("#lgoal"), learn);
     $("#skf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       e.target.value = "";
       let d; try { d = JSON.parse(await f.text()); } catch (err) { return toast("That file isn’t valid JSON, so it can’t be a skill file."); }
-      try { const r = await post(`/api/bots/${b.id}/skills/import`, d); this.skillSel = r.skill.id; toast(`Added the skill “${r.skill.name}”`, b); this.refresh(true); }
+      try { const r = await post(`/api/bots/${this.id}/skills/import`, d); this.skillSel = r.skill.id; toast(`Added the skill “${r.skill.name}”`, this.data.bot); this.refresh(true); }
       catch (err) { toast(err.message); }  // the engine says what's wrong with it
     };
+    this.live_skills(tb);
+  },
+  live_skills(tb) {
+    const sk = this.data.skills, b = this.data.bot;
+    const sel = sk.find((s) => s.id === this.skillSel) || sk[0];
+    const typed = (s) => s.value && ["fill", "select", "press"].includes(s.action) ? `<span class="typed">${s.action === "fill" ? "types" : s.action === "select" ? "picks" : "presses"} “${esc(s.value)}”</span>` : "";
+    follow($("#lurl"), b.start_url || ""); follow($("#lgoal"), b.goal || "");
+    $("#sklist").innerHTML = sk.map((s) => `<button class="btn s ${sel && s.id === sel.id ? "p" : ""}" data-sk="${s.id}" aria-pressed="${!!sel && s.id === sel.id}">${esc(s.name)}</button>`).join("");
+    $("#skmain").innerHTML = sel ? `<div class="row skrow" style="align-items:flex-start;gap:14px"><div class="card"><div class="head"><h2>${esc(sel.name)}</h2><span class="mono small muted">v${sel.version || 1} · ${esc(sel.site || "")}</span></div>
+        <div class="list">${sel.steps.map((s, i) => `<div class="row" style="padding:8px 0;font-size:14px;align-items:flex-start"><span class="mono small muted" style="width:22px;flex-shrink:0">${i + 1}</span><span class="grow">${esc(one(s.text))}${s.repaired ? ` <span class="badge">fixed ${s.repaired}×</span>` : ""}${s.shown ? ' <span class="badge">shown by you</span>' : ""}${s.approved_always ? ` <span class="badge">always allowed</span> <button class="chip" data-ask="${i}" style="border:0;cursor:pointer" aria-label="Ask again before step ${i + 1}, “${esc(s.text)}”">ask again</button>` : ""}${typed(s)}</span>
+          <span class="mono small muted steptarget">${esc(s.action === "extract" ? nWord(Object.keys((s.spec || {}).fields || {}).length, "field") : s.target ? `${s.target.role} “${s.target.name}”` : s.value || "")}</span>${sel.steps.length > 1 ? `<button class="chip" data-rm="${i}" style="border:0;cursor:pointer" aria-label="Remove step ${i + 1}, “${esc(s.text)}”">remove</button>` : ""}</div>`).join("")}</div></div>
+        <aside class="col skside"><div class="card"><b>How it runs</b><div class="grid2" style="gap:8px">${[["good runs", this.data.runs.filter((r) => r.skill === sel.name && r.status === "ok").length], ["AI calls per run", this.aiPerRun(sel)],
+          ["steps", sel.steps.length], ["pages", sel.max_pages || 1]].map(([k, v]) => `<div class="stat" style="background:var(--panel);border:0"><b>${v}</b><span>${k}</span></div>`).join("")}</div></div>
+          <div class="card small"><b>If the page changes</b><span>1. It finds the button again by its name. No AI.</span><span>2. If that fails, it asks the model once and only acts when sure.</span><span>3. Otherwise it stops and asks you.</span></div>
+          <button class="btn p" id="runsk">Run now</button><button class="btn" data-dl="/api/skills/${sel.id}/export" data-name="${esc(sel.name)}.inkyskill">Download file</button>
+          ${S.settings.n8n_connected ? `<button class="btn" id="sendn8n">${logo("n8n", 20)}Send to n8n</button>` : ""}<button class="btn" data-dl="/api/skills/${sel.id}/export?format=n8n" data-name="${esc(sel.name)}.n8n.json">${S.settings.n8n_connected ? "Download for n8n" : "Export to n8n"}</button><button class="btn hot" id="delsk">Delete skill</button></aside></div>` : `<p class="muted">No skills yet.</p>`;
+    // a step is found again by what it does, in the skill as it is now: never by its place in what this page drew
+    const stepEdit = (i, change) => this.edit(async (d) => {
+      const was = sel.steps[i], now = (d.skills || []).find((s) => s.id === sel.id);
+      const j = now ? now.steps.findIndex((s) => s.action === was.action && s.text === was.text) : -1;
+      if (j < 0) { toast("That step changed meanwhile, so nothing was changed."); return this.refresh(true); }
+      await patch(`/api/skills/${sel.id}`, { steps: change(now.steps, j) });
+      return this.refresh(true);
+    });
+    $$("[data-sk]", tb).forEach((x) => (x.onclick = () => { this.skillSel = +x.dataset.sk; keepFocus(tb, () => this.live_skills(tb)); }));
+    $$("[data-ask]", tb).forEach((x) => (x.onclick = () => stepEdit(+x.dataset.ask, (st, j) => st.map((s, k) => (k === j ? { ...s, approved_always: false } : s)))));
+    $$("[data-rm]", tb).forEach((x) => (x.onclick = async () => {
+      const i = +x.dataset.rm;
+      if (await confirmBox(`Remove step ${i + 1}, “${sel.steps[i].text}”? It won’t do it on its next runs.`, "Remove step", true)) stepEdit(i, (st, j) => st.filter((_, k) => k !== j));
+    }));
+    if ($("#runsk")) $("#runsk").onclick = () => post(`/api/bots/${b.id}/run`, { skill: sel.id }).then(() => this.go("computer")).catch((e) => toast(e.message));
+    if ($("#sendn8n")) $("#sendn8n").onclick = async () => { $("#sendn8n").disabled = true; try { toast((await post(`/api/skills/${sel.id}/send-n8n`)).text); } catch (e) { toast(e.message); } if ($("#sendn8n")) $("#sendn8n").disabled = false; };
+    if ($("#delsk")) $("#delsk").onclick = async () => { if (await confirmBox(`Delete “${sel.name}”?`, "Delete", true)) { await del(`/api/skills/${sel.id}`).catch((e) => toast(e.message)); this.refresh(true); } };
   },
 
-  tab_settings(tb) {
+  save(p) {  // change the bot, then show it as it is now
+    return patch(`/api/bots/${this.id}`, p).then(() => { loadState().catch(() => {}); return this.refresh(true); });
+  },
+  tab_settings(tb) {  // drawn once per visit: live_settings keeps the rest current and never touches what you're typing
     const b = this.data.bot, s = b.schedule || {};
-    const seg = (on) => `class="${on ? "on" : ""}" aria-pressed="${!!on}"`;
-    tb.innerHTML = `<div class="gridfit">
+    tb.innerHTML = `<div class="gridfit" data-tab="settings">
       <div class="card"><b>Name and look</b><div class="row wrap"><label class="vh" for="bname">Name</label><input class="f" id="bname" value="${esc(b.name)}" maxlength="40" style="flex:1 1 160px"><a class="btn s" href="#/look/${b.id}">Change its look</a></div></div>
-      <div class="card"><b>Schedule</b><span class="seg" id="every" role="group" aria-label="How often">${[[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [1440, "Daily"]].map(([v, t]) => `<button data-v="${v}" ${seg((s.every_minutes || 0) === v)}>${t}</button>`).join("")}</span>
+      <div class="card"><b>Schedule</b><span class="seg" id="every" role="group" aria-label="How often">${[[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [1440, "Daily"]].map(([v, t]) => `<button data-v="${v}">${t}</button>`).join("")}</span>
         <div class="between small"><label for="sum">Summary at</label><input class="f" type="time" id="sum" value="${esc(s.summary_at || "")}" style="width:130px;height:36px"></div>
         <div class="between small"><span>Quiet hours</span><span class="row" style="gap:6px"><input class="f" type="time" id="qf" aria-label="Quiet from" value="${esc(s.quiet_from || "")}" style="width:120px;height:36px"><span class="muted">to</span><input class="f" type="time" id="qt" aria-label="Quiet until" value="${esc(s.quiet_to || "")}" style="width:120px;height:36px"></span></div>
         <span class="small muted">Skills replay with no AI, so checking often costs nothing extra.</span></div>
-      <div class="card"><b>What it may do</b>${(b.rules || []).map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><b>${{ own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" }[r.kind] || r.kind}</b><span>${esc(r.text)}</span>${r.kind === "filter" || i > 2 ? `<button class="chip" data-rr="${i}" style="border:0;cursor:pointer">remove</button>` : "<span></span>"}</div>`).join("")}
+      <div class="card"><b>What it may do</b><div id="rules" style="display:contents"></div>
         <label class="vh" for="rule">Add a rule</label><input class="f" id="rule" placeholder="Add a rule in your words, e.g. skip ground floor flats"><span class="small muted" id="rulenote" role="status"></span></div>
-      <div class="card"><div class="head"><b>It remembers</b><span class="small muted">${nWord((b.memory || []).length, "thing")} about you</span></div><a class="btn s" href="#/bot/${b.id}/about" style="align-self:flex-start">About you</a></div>
-      <div class="card"><b>Where it works</b>${b.remote ? `<span class="small">It runs on <b>${esc(b.remote)}</b> now.</span><button class="btn s bringback" style="align-self:flex-start">Bring back to this computer</button>`
-        : `<span class="seg" id="mode" role="group" aria-label="Where it works"><button data-m="own" ${seg(b.mode !== "screen")}>Its own computer</button><button data-m="screen" ${seg(b.mode === "screen")} ${S.settings.screen_allowed ? "" : "disabled"}>A window on your screen</button></span>
-        ${S.settings.screen_allowed ? "" : `<span class="small muted">A window on your screen is off until you allow bots on your screen in <a href="#/settings">Settings</a>.</span>`}
-        <span class="small muted">${b.mode === "screen" ? "It opens a visible window on your desktop with the coral frame. Move your mouse to pause it, Esc to stop, ⌥C to chat." : "A private browser, streamed here. Your screen stays yours."}</span>
-        <a class="btn s" href="#/computers" style="align-self:flex-start">Move to another computer</a>`}</div>
+      <div class="card"><div class="head"><b>It remembers</b><span class="small muted" id="memn"></span></div><a class="btn s" href="#/bot/${b.id}/about" style="align-self:flex-start">About you</a></div>
+      <div class="card" id="where"></div>
       <div class="card" style="grid-column:1/-1"><div class="head"><b>Automations · hand results to Claude Code, Codex or any connector</b><a class="small" href="#/connectors">Connectors</a></div>
-        ${(b.automations || []).map((a, i) => `<div class="rule"><b>${a.when === "every_run" ? "Every run" : "New results"}</b><span>${esc(a.label || "")} → <span class="mono">${esc(a.server)}.${esc(a.tool)}</span>${a.approved_always ? ` <span class="badge">always allowed</span> <button class="chip" data-aa="${i}" style="border:0;cursor:pointer">ask again</button>` : ""}</span><button class="chip" data-au="${i}" style="border:0;cursor:pointer">remove</button></div>`).join("") || `<span class="small muted">None yet. Or just ask it in the chat, e.g. “when you find new flats, ask Claude Code to add them to flats.md”.</span>`}
+        <div id="autos" style="display:contents"></div>
         <div class="autoform"><select class="f" id="aw" aria-label="When"><option value="new_results">When there are new results</option><option value="every_run">After every run</option></select><select class="f" id="as" aria-label="Connector"><option value="">Loading connectors…</option></select><select class="f" id="at" aria-label="Tool" disabled></select><input class="f" id="al" aria-label="Label" placeholder="Label"></div>
         <textarea class="f mono" id="aa" aria-label="Arguments as JSON" rows="2" placeholder='Arguments as JSON, e.g. {"description":"flats","prompt":"Add these to ~/flats.md: {{new_json}}"}'></textarea><div class="row wrap"><button class="btn s" id="addauto" disabled>Add automation</button><span class="small muted" id="autonote"></span></div></div>
-      <div class="card" style="grid-column:1/-1"><div class="between"><span><b>Delete ${esc(b.name)}</b><br><span class="small muted">Removes its skills, memory, results and computer. Can’t be undone.</span></span><button class="btn hot" id="delbot">Delete bot…</button></div></div></div>`;
-    const save = (p) => patch(`/api/bots/${b.id}`, p).then(() => { loadState().catch(() => {}); return this.refresh(true); }).catch((e) => toast(e.message));
+      <div class="card" style="grid-column:1/-1"><div class="between"><span id="delwhat"></span><button class="btn hot" id="delbot">Delete bot…</button></div></div></div>`;
+    const save = (p) => this.save(p).catch((e) => toast(e.message));
     const pick = (x) => $$("button", x.parentElement).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); });  // shows at once
-    $("#bname").onchange = (e) => { const v = e.target.value.trim(); if (v && v !== b.name) { e.target.defaultValue = e.target.value; save({ name: v }); } };
-    $("#bname").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) e.target.blur(); };
-    $$("#every button").forEach((x) => (x.onclick = () => { pick(x); save({ schedule: { ...s, every_minutes: +x.dataset.v } }); }));
-    $("#sum").onchange = () => save({ schedule: { ...s, summary_at: $("#sum").value || null } });
-    $("#qf").onchange = $("#qt").onchange = () => save({ schedule: { ...s, quiet_from: $("#qf").value, quiet_to: $("#qt").value } });
-    $("#rule").onkeydown = async (e) => {
-      const x = e.target, text = x.value.trim();
-      if (e.key !== "Enter" || e.isComposing || !text || x.disabled) return;
-      x.disabled = true; $("#rulenote").textContent = `Adding “${text}”… ${b.name} is reading it.`;
-      try { await post(`/api/bots/${b.id}/chat`, { text: `New rule: ${text}` }); x.value = ""; x.defaultValue = ""; }
-      catch (err) { x.disabled = false; $("#rulenote").textContent = err.message; return; }
-      await this.refresh(true);
-      if ($("#rule")) $("#rule").focus();
+    $("#bname").onchange = (e) => {
+      const x = e.target, v = x.value.trim(), name = this.data.bot.name;
+      if (!v || v === name) { x.value = x.defaultValue = name; return; }  // emptied: it keeps its name, and the field says so
+      x.defaultValue = x.value; save({ name: v });
     };
-    $$("[data-rr]", tb).forEach((x) => (x.onclick = () => { const r = b.rules[+x.dataset.rr]; save({ rules: b.rules.filter((_, i) => i !== +x.dataset.rr), filters: (b.filters || []).filter((f) => (f.text || "") !== r.text) }); }));
-    $$("#mode button").forEach((x) => (x.onclick = () => { pick(x); save({ mode: x.dataset.m }); }));
-    $$(".bringback", tb).forEach((x) => (x.onclick = () => this.bringBack()));
-    $$("[data-au]", tb).forEach((x) => (x.onclick = () => save({ automations: b.automations.filter((_, i) => i !== +x.dataset.au) })));
-    $$("[data-aa]", tb).forEach((x) => (x.onclick = () => save({ automations: b.automations.map((a, i) => (i === +x.dataset.aa ? { ...a, approved_always: false } : a)) })));
-    $("#delbot").onclick = () => goodbye(b);
+    $("#bname").onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) e.target.blur(); };
+    // only what you changed is sent: the engine keeps the rest of the schedule as it is now
+    $$("#every button").forEach((x) => (x.onclick = () => { pick(x); save({ schedule: { every_minutes: +x.dataset.v } }); }));
+    $("#sum").onchange = (e) => { e.target.defaultValue = e.target.value; save({ schedule: { summary_at: e.target.value || null } }); };
+    $("#qf").onchange = $("#qt").onchange = () => { ["#qf", "#qt"].forEach((q) => ($(q).defaultValue = $(q).value)); save({ schedule: { quiet_from: $("#qf").value, quiet_to: $("#qt").value } }); };
+    $("#rule").onkeydown = async (e) => {
+      const x = e.target, text = x.value.trim(), note = $("#rulenote"), had = (this.data.bot.rules || []).length;
+      if (e.key !== "Enter" || e.isComposing || !text || x.disabled) return;
+      x.disabled = true; note.textContent = `Adding “${text}”… ${this.data.bot.name} is reading it.`;
+      let r;
+      try { r = await post(`/api/bots/${this.id}/chat`, { text: `New rule: ${text}` }); }
+      catch (err) { x.disabled = false; note.textContent = err.message; x.focus(); return; }
+      await this.refresh(true);
+      x.disabled = false;
+      const said = (r.done || []).map(String).find((d) => d.startsWith("rule:"));
+      if (said || (this.data && (this.data.bot.rules || []).length > had)) { x.value = x.defaultValue = ""; note.textContent = said ? `Added “${said.slice(5).trim()}”.` : "Added."; }
+      else note.textContent = "Didn’t add it as a rule — try “Ask first before …”, “Never …” or a limit like “price under 20”.";  // your words stay, to change
+      if (x.isConnected) x.focus();
+    };
+    $("#delbot").onclick = () => goodbye(this.data.bot);
     const ready = () => { $("#addauto").disabled = !($("#as").value && $("#at").value); };
     get("/api/mcp").then(({ servers }) => {
       if (!tb.contains($("#as"))) return;
@@ -866,24 +964,64 @@ VIEWS.bot = {
         $("#at").disabled = !sv; ready();
       };
       $("#as").onchange = fillTools; $("#at").onchange = ready; fillTools();
-    }).catch(() => { $("#as").innerHTML = `<option value="">Couldn’t load connectors</option>`; });
+    }).catch(() => { if (tb.contains($("#as"))) $("#as").innerHTML = `<option value="">Couldn’t load connectors</option>`; });
     $("#addauto").onclick = () => {
       let args = {};
       try { args = JSON.parse($("#aa").value || "{}"); } catch (e) { return toast("The arguments aren’t valid JSON. They look like {\"prompt\": \"…\"}."); }
       if (!$("#as").value || !$("#at").value) return;
       const a = { when: $("#aw").value, server: $("#as").value, tool: $("#at").value, args, label: $("#al").value.trim() || $("#at").value };
       ["#aw", "#as", "#at", "#al", "#aa"].forEach((q) => { const x = $(q); delete x.dataset.touched; if (x.tagName !== "SELECT") x.value = x.defaultValue = ""; });
-      save({ automations: [...(b.automations || []), a] });
+      this.edit((d) => this.save({ automations: [...(d.bot.automations || []), a] }));
     };
+    this.live_settings(tb);
+  },
+  live_settings(tb) {
+    const b = this.data.bot, s = b.schedule || {}, rules = b.rules || [], autos = b.automations || [];
+    const put = (sel, html) => { const el = $(sel, tb); if (!el || el._html === html) return false; el.innerHTML = el._html = html; return true; };  // true: redrawn, bind it again
+    const seg = (on) => `class="${on ? "on" : ""}" aria-pressed="${!!on}"`;
+    follow($("#bname"), b.name); follow($("#sum"), s.summary_at || ""); follow($("#qf"), s.quiet_from || ""); follow($("#qt"), s.quiet_to || "");
+    $$("#every button", tb).forEach((x) => { const on = +x.dataset.v === (s.every_minutes || 0); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
+    $("#memn").textContent = `${nWord((b.memory || []).length, "thing")} about you`;
+    put("#delwhat", `<b>Delete ${esc(b.name)}</b><br><span class="small muted">Removes its skills, memory, results and computer${b.remote ? `, here and on ${esc(b.remote)}` : ""}. Can’t be undone.</span>`);
+    if (put("#rules", rules.map((r, i) => `<div class="rule ${r.kind === "ask" ? "ask" : ""}"><span class="badge">${esc(RULE_KINDS[r.kind] || r.kind)}</span><span>${esc(ruleBody(r))}</span>${r.kind === "filter" || i > 2 ? `<button class="chip" data-rr="${i}" aria-label="Remove the rule “${esc(r.text)}”">remove</button>` : "<span></span>"}</div>`).join("")))
+      $$("[data-rr]", tb).forEach((x) => (x.onclick = async () => {  // found again by what it says, in the bot as it is now
+        const r = rules[+x.dataset.rr];
+        await this.edit((d) => {
+          const rs = d.bot.rules || [], i = rs.findIndex((y) => y.kind === r.kind && y.text === r.text);
+          if (i < 0) return this.refresh(true);  // already gone
+          return this.save({ rules: rs.filter((_, j) => j !== i), filters: (d.bot.filters || []).filter((f) => (f.text || "") !== r.text) });
+        });
+        if (document.activeElement === document.body && $("#rule")) $("#rule").focus();  // the last one went: back to adding
+      }));
+    if (put("#where", `<b>Where it works</b>${b.remote ? `<span class="small">It runs on <b>${esc(b.remote)}</b> now.</span><button class="btn s bringback" style="align-self:flex-start"${this.bringing ? " disabled" : ""}>Bring back to this computer</button>`
+      : `<span class="seg" id="mode" role="group" aria-label="Where it works"><button data-m="own" ${seg(b.mode !== "screen")}>Its own computer</button><button data-m="screen" ${seg(b.mode === "screen")} ${S.settings.screen_allowed ? "" : "disabled"}>A window on your screen</button></span>
+        ${S.settings.screen_allowed ? "" : `<span class="small muted">A window on your screen is off until you allow bots on your screen in <a href="#/settings">Settings</a>.</span>`}
+        <span class="small muted">${b.mode === "screen" ? "It opens a visible window on your desktop with the coral frame. Move your mouse to pause it, Esc to stop, ⌥C to chat." : "A private browser, streamed here. Your screen stays yours."}</span>
+        <a class="btn s" href="#/computers" style="align-self:flex-start">Move to another computer</a>`}`)) {
+      $$("#mode button", tb).forEach((x) => (x.onclick = () => { $$("#mode button", tb).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); }); this.save({ mode: x.dataset.m }).catch((e) => toast(e.message)); }));
+      $$(".bringback", tb).forEach((x) => (x.onclick = () => this.bringBack()));
+    }
+    const name = (a) => esc(a.label || a.tool);
+    if (put("#autos", autos.map((a, i) => `<div class="rule"><b>${a.when === "every_run" ? "Every run" : "New results"}</b><span>${esc(a.label || "")} → <span class="mono">${esc(a.server)}.${esc(a.tool)}</span>${a.approved_always ? ` <span class="badge">always allowed</span> <button class="chip" data-aa="${i}" aria-label="Ask again before “${name(a)}”">ask again</button>` : ""}</span><button class="chip" data-au="${i}" aria-label="Remove the automation “${name(a)}”">remove</button></div>`).join("")
+      || `<span class="small muted">None yet. Or just ask it in the chat, e.g. “when you find new flats, ask Claude Code to add them to flats.md”.</span>`)) {
+      const change = (i, fn) => this.edit((d) => {  // found again by label and tool, in the bot as it is now
+        const list = d.bot.automations || [], a = autos[i], j = list.findIndex((y) => y.label === a.label && y.server === a.server && y.tool === a.tool);
+        return j < 0 ? this.refresh(true) : this.save({ automations: fn(list, j) });
+      });
+      $$("[data-au]", tb).forEach((x) => (x.onclick = () => change(+x.dataset.au, (l, j) => l.filter((_, k) => k !== j))));
+      $$("[data-aa]", tb).forEach((x) => (x.onclick = () => change(+x.dataset.aa, (l, j) => l.map((a, k) => (k === j ? { ...a, approved_always: false } : a)))));
+    }
   },
 
   tab_activity(tb) {
-    const b = this.data.bot, evs = [];
+    const b = this.data.bot, evs = [], you = (e) => ["control", "handback"].includes(e.kind);
+    const said = (e) => one(e.kind === "control" ? CONTROL_WORDS[e.text] || e.text : e.text);
     for (const e of this.data.events) {  // the same line many times in a row reads as one, with ×N
       const l = evs.at(-1);
-      if (l && l.kind === e.kind && l.text === e.text) l.times = (l.times || 1) + 1; else evs.push({ ...e });
+      if (l && l.kind === e.kind && l.text === e.text) l.times = (l.times || 1) + 1;
+      else if (l && l.kind !== e.kind && you(l) && you(e) && said(l) === said(e) && Math.abs(l.ts - e.ts) < 5) continue;  // one hand back, logged twice
+      else evs.push({ ...e });
     }
-    const said = (e) => (e.kind === "control" ? CONTROL_WORDS[e.text] || e.text : e.text);
     tb.innerHTML = `<div class="card" style="padding:6px 18px"><div class="list">${evs.map((e) => `<div class="ev"><span class="mono small muted">${ago(e.ts)}</span>${botCritter(b, 22)}<span>${esc(said(e))}${e.times ? ` <span class="badge">×${e.times}</span>` : ""}</span><span class="badge">${esc(EVENT_WORDS[e.kind] || String(e.kind).replace(/_/g, " "))}</span></div>`).join("") || `<p class="muted">Nothing yet.</p>`}</div></div>
       <div class="card"><b>Runs</b>${this.data.runs.length ? `<div class="tscroll"><table class="t"><thead><tr><th>When</th><th>What</th><th>How it went</th><th>Results</th><th>New</th><th>AI calls</th><th>Seconds</th></tr></thead><tbody>${this.data.runs.map((r) => `<tr><td>${ago(r.ts)}</td><td>${esc(RUN_KINDS[r.kind] || r.kind)}</td><td>${esc(RUN_WORDS[r.status] || r.status)}</td><td>${r.items ?? ""}</td><td>${r.new ?? ""}</td><td>${r.ai_calls ?? ""}</td><td>${r.seconds ?? ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<span class="small muted">No runs yet. Press Run now, and each run shows up here.</span>`}</div>`;
@@ -903,15 +1041,28 @@ VIEWS.bot = {
 
   tab_about(tb) {
     const b = this.data.bot, mem = b.memory || [];
-    const save = (memory) => patch(`/api/bots/${b.id}`, { memory }).then(() => this.refresh(true)).catch((e) => toast(e.message));
-    tb.innerHTML = `<div class="card"><div class="head"><b>Things ${esc(b.name)} knows about you</b><span class="small muted">only on this computer</span></div>
-      ${mem.map((m, i) => `<div class="row"><input class="f grow" data-mi="${i}" value="${esc(m.text)}" aria-label="Memory ${i + 1}"><button class="btn s" data-fg="${i}" aria-label="Forget “${esc(m.text)}”">Forget</button></div>`).join("") || `<span class="small muted">Nothing yet. Tell it things in the chat, like “I prefer Libertà”.</span>`}
+    // each change is made to its memory as it is now, found by what it says: never by its place in this list
+    const change = (text, fn) => this.edit((d) => {
+      const list = d.bot.memory || [], i = list.findIndex((m) => m.text === text);
+      return text !== null && i < 0 ? this.refresh(true) : this.save({ memory: fn(list, i) });
+    });
+    tb.innerHTML = `<div class="card"><div class="head"><b>Things ${esc(b.name)} knows about you</b><span class="small muted">${b.remote ? `only on ${esc(b.remote)}, where it lives` : "only on this computer"}</span></div>
+      ${mem.map((m, i) => `<div class="row"><input class="f grow" id="mi${i}" data-mi="${i}" value="${esc(m.text)}" aria-label="Memory ${i + 1}"><button class="btn s" id="fg${i}" data-fg="${i}" aria-label="Forget “${esc(m.text)}”">Forget</button></div>`).join("") || `<span class="small muted">Nothing yet. Tell it things in the chat, like “I prefer Libertà”.</span>`}
       <label class="vh" for="mem">Tell it something to remember</label><input class="f" id="mem" placeholder="Tell it something to remember, then press Enter"></div>`;
-    $$("[data-mi]", tb).forEach((x) => (x.onchange = () => { x.defaultValue = x.value; save(mem.map((m, i) => (i === +x.dataset.mi ? { ...m, text: x.value.trim() } : m)).filter((m) => m.text)); }));
-    $$("[data-fg]", tb).forEach((x) => (x.onclick = () => save(mem.filter((_, i) => i !== +x.dataset.fg))));
+    $$("[data-mi]", tb).forEach((x) => (x.onchange = () => {
+      const was = mem[+x.dataset.mi].text, t = x.value.trim();
+      x.defaultValue = x.value;
+      change(was, (list, i) => (t ? list.map((m, j) => (j === i ? { ...m, text: t } : m)) : list.filter((_, j) => j !== i)));
+    }));
+    $$("[data-fg]", tb).forEach((x) => (x.onclick = async () => {
+      const i = +x.dataset.fg;
+      await change(mem[i].text, (list, j) => list.filter((_, k) => k !== j));
+      const next = $("#fg" + i) || $("#mem");  // the next Forget, else back to adding
+      if (next) next.focus();
+    }));
     $("#mem").onkeydown = (e) => {  // the box keeps focus, so you can add the next one
       const t = e.target.value.trim();
-      if (e.key === "Enter" && !e.isComposing && t) { e.target.value = ""; save([...mem, { text: t, ts: Date.now() / 1000 }]); }
+      if (e.key === "Enter" && !e.isComposing && t) { e.target.value = ""; change(null, (list) => [...list, { text: t, ts: Date.now() / 1000 }]); }
     };
   },
 
@@ -923,15 +1074,24 @@ VIEWS.bot = {
     const canMic = !!(SR && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     tb.innerHTML = `<div class="row callrow"><section class="call" id="callbox" aria-label="Call with ${esc(b.name)}">
       <div class="between" style="align-self:stretch"><span class="small" style="color:#C9C5BD">Call with ${esc(b.name)}</span><span class="mono small" id="ctime">0:00</span></div>
-      <div class="rings" id="rings"><span style="width:65%;height:65%"></span><span style="width:85%;height:85%"></span><span style="width:100%;height:100%"></span>${botCritter(b, 130)}</div>
+      <div class="rings" id="rings"><span style="width:65%;height:65%"></span><span style="width:85%;height:85%"></span><span style="width:100%;height:100%"></span>${botCritter({ ...b, schedule: null }, 130)}</div>
       <b style="font-size:26px">${esc(b.name)}</b><span class="small" style="color:#F2957C;text-align:center" id="cstate" role="status">${canMic ? "Allow the microphone to talk…" : "Speech isn’t available in this browser. Type instead."}</span>
       <div id="trans" style="align-self:stretch;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:260px;overflow:auto;font-size:14px"></div>
       <div class="row" style="align-self:stretch"><label class="vh" for="ctype">Type instead</label><input class="f" id="ctype" placeholder="Type instead…" style="background:rgba(255,255,255,.08);border-color:transparent;color:#fff"></div>
       <div class="row" style="gap:26px;margin-top:auto"><button class="callbtn" id="mute" aria-label="Mute" aria-pressed="false" disabled>${icon("mic", 22)}</button><button class="callbtn on" id="spk" aria-label="Speaker" aria-pressed="true">${icon("speaker", 22)}</button><a class="callbtn end" href="#/bot/${b.id}/computer" aria-label="End call">${icon("phone", 22)}</a></div></section>
-      <aside class="col callside"><div class="card"><b>${b.step ? "It keeps working" : "Its computer"}</b><div class="thumb" style="height:160px"><img id="callimg" src="${screenUrl(b.id)}" alt=""></div><span class="small muted">${esc(b.step || "not running right now")}</span></div>
+      <aside class="col callside"><div class="card"><b id="cside"></b><div class="thumb" id="cthumb" style="height:160px"><img id="callimg" alt=""><span id="callidle">${botCritter({ ...b, schedule: null }, 72)}</span></div><span class="small muted" id="cstep"></span></div>
       <div class="card small"><b>Voice</b><span>${b.look.voice === "off" ? "Replies are text only (Make it yours → Voice)." : `Replies are spoken (${esc(b.look.voice || "soft")}). Changes it hears still show up as actions you can see in the chat.`}</span></div></aside></div>`;
     const t0 = Date.now();
-    const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($("#ctime")) $("#ctime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; if ($("#callimg")) $("#callimg").src = screenUrl(b.id); }, 1000);
+    const side = () => {  // its screen only while it works: asking an idle bot for one starts its browser for nothing
+      const lb = (this.data && this.data.bot) || b, live = !idleBot(lb), img = $("#callimg");
+      if (!img) return;
+      $("#cthumb").classList.toggle("idle", !live); img.classList.toggle("hidden", !live); $("#callidle").classList.toggle("hidden", live);
+      if (live) img.src = screenUrl(b.id); else img.removeAttribute("src");
+      $("#cside").textContent = lb.step ? "It keeps working" : "Its computer";
+      $("#cstep").textContent = lb.step || "not running right now";
+    };
+    side();
+    const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($("#ctime")) $("#ctime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; side(); }, 1000);
     const line = (who, text) => { const d = document.createElement("div"); d.innerHTML = `<b style="color:${who === "you" ? "#A8A49C" : "#F2957C"}">${who === "you" ? "You" : esc(b.name)}</b> ${esc(text)}`; $("#trans").appendChild(d); $("#trans").scrollTop = 1e9; };
     let speaking = true, muted = false, rec = null, talking = false, micOk = false, asking = canMic;
     const state = (t) => { if ($("#cstate")) $("#cstate").textContent = t; };
@@ -1005,7 +1165,7 @@ function hatch(b, intro) {
   o.className = "ritual"; o.tabIndex = -1; o.setAttribute("role", "dialog"); o.setAttribute("aria-label", `${b.name} hatched`);
   o.innerHTML = `<div class="splash">${[0, 1, 2, 3, 4, 5].map((i) => `<i style="--a:${i * 60}deg;--d:${i * 40}ms"></i>`).join("")}</div>
     <div class="hatchling">${critter(l.kind, l.color, l.acc, 150, "happy")}</div>
-    <div class="card bubble">${esc(intro || `Hi! I'm ${b.name}.`)}</div><span class="small muted">Click or press Enter to start</span>`;  // a newborn is happy, even at night
+    <div class="card bubble">${esc(intro || `Hi! I'm ${b.name}.`)}</div><span class="small muted">${TOUCH ? "Tap to start" : "Click or press Enter to start"}</span>`;  // a newborn is happy, even at night
   document.body.appendChild(o);
   o.focus();
   SOUND.play("rise", b);
@@ -1022,18 +1182,30 @@ function hatch(b, intro) {
   const timer = setTimeout(close, 4200);
 }
 
-function goodbye(b) {
-  const packed = { octopus: "tentacles", cat: "whiskers", blob: "goo" }[(b.look || {}).kind] || "things";
+function goodbye(b) {  // b.remote: it lives on another computer, and is deleted there too (or, if that one isn't answering, only here)
+  const packed = { octopus: "tentacles", cat: "whiskers", blob: "goo" }[(b.look || {}).kind] || "tentacles", far = b.remote;
   modal(`<div class="col" style="align-items:center;text-align:center;gap:10px"><div id="byecrit">${botCritter({ ...b, status: "needs_you", needs: 1, need_kind: "decision" }, 110)}</div>
-    <h2>${esc(b.name)} packed its ${packed}.</h2><span class="small muted">Delete for good? Its skills, memory and results go too. This can’t be undone.</span>
-    <div class="row"><button class="btn" id="byeno">Keep ${esc(b.name)}</button><button class="btn hot" id="byeyes">Delete</button></div></div>`, () => {
+    <h2 style="overflow-wrap:anywhere">${esc(b.name)} packed its ${packed}.</h2><span class="small muted">Delete for good? Its skills, memory and results go too${far ? `, here and on ${esc(far)}` : ""}. This can’t be undone.</span>
+    <span class="small bad hidden" id="byeerr" role="alert" style="background:none"></span>
+    <div class="row wrap" style="justify-content:center"><button class="btn" id="byeno">Keep ${esc(b.name)}</button><button class="btn hot" id="byeyes">Delete</button><button class="btn hot hidden" id="byehere">Remove only here</button></div></div>`, () => {
     $("#byeno").onclick = closeModal;
-    $("#byeyes").onclick = async () => {
-      $("#byecrit").classList.add("bye");
-      await new Promise((r) => setTimeout(r, calmMotion() ? 0 : 650));
-      closeModal(); await del(`/api/bots/${b.id}`); await loadState(); location.hash = "#/bots";
+    const go = async (here) => {
+      const btn = $(here ? "#byehere" : "#byeyes");
+      busyBtn(btn, true, here ? "Removing…" : "Deleting…");
+      try { await del(`/api/bots/${b.id}${here ? "?here=1" : ""}`); }
+      catch (e) {  // e.g. its computer isn't answering: say so, and offer to remove it only here
+        if (!btn.isConnected) return toast(e.message, b);
+        busyBtn(btn, false);
+        $("#byeerr").textContent = e.message; $("#byeerr").classList.remove("hidden");
+        if (far) { $("#byehere").classList.remove("hidden"); $("#byehere").focus(); }
+        return;
+      }
+      if ($("#byecrit")) { $("#byecrit").classList.add("bye"); await new Promise((r) => setTimeout(r, calmMotion() ? 0 : 650)); }
+      closeModal(); await loadState().catch(() => {}); location.hash = "#/bots";
       toast(`Goodbye from ${b.name}`);
     };
+    $("#byeyes").onclick = () => go(false);
+    $("#byehere").onclick = () => go(true);
   });
 }
 
@@ -1089,7 +1261,10 @@ async function answerNeed(bid, id, decision) {  // always through the bot, so a 
   btns.forEach((x) => { x.disabled = true; x.classList.toggle("chosen", x.dataset.o === decision); });
   try { await post(`/api/bots/${bid}/needs/${id}`, { decision }); toast(`You chose “${decision}”`, S.bots.find((b) => b.id === bid)); }
   catch (e) { delete CHOSEN[k]; btns.forEach((x) => { x.disabled = false; x.classList.remove("chosen"); }); toast(e.message); refreshSoon(50); return false; }
-  if (decision === "Open its computer" || decision === "Show me once") location.hash = `#/bot/${bid}/computer`;
+  if (decision === "Open its computer" || decision === "Show me once") {
+    if (S.view === VIEWS.bot && VIEWS.bot.id === bid && VIEWS.bot.data) VIEWS.bot.go("computer");  // already on its page: the chat stays as it is
+    else location.hash = `#/bot/${bid}/computer`;
+  }
   else if (decision === "Open Models") location.hash = "#/models";
   refreshSoon(50);
   return true;
