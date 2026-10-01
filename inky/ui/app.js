@@ -306,7 +306,7 @@ async function route() {
       }
       if (document.activeElement === document.body && el.isConnected) el.focus({ preventScroll: true });  // keyboard users land in the page (#view has tabindex=-1)
       const h = el.isConnected && $("h1", el);  // the window and tab say where you are
-      document.title = h && h.textContent.trim() ? `${h.textContent.trim().slice(0, 60)} · Inky` : "Inky";
+      document.title = v !== VIEWS.bots && h && h.textContent.trim() ? `${h.textContent.trim().slice(0, 60)} · Inky` : "Inky";
     })();
     return Promise.race([shown, new Promise((r) => setTimeout(r, 300))]);  // a slow page never freezes the screen mid-transition
   };
