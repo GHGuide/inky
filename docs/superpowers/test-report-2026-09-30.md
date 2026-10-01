@@ -157,7 +157,7 @@ Rule slips by QA agents during the sweeps, all on scratch engines and all revert
 - **Windows and Linux builds** come from CI; their tray, buddy and shortcuts were not tried by hand.
 - **"Your screen" means a visible browser window** the bot drives, not your whole desktop (a non-goal in the spec).
 - **Live view and events** still pass the token in the URL (`?t=`), because images and EventSource can't send headers. These URLs are never shown as links.
-- **The public library, the one-line install and "Set up over SSH" use the `main` branch** (`library/index.json`, `install.sh`). Until `build` is merged into `main`, the Library tab shows the two starters that ship with the app, and the install line and SSH setup won't find `install.sh`.
+- **The public library, the one-line install and "Set up over SSH" use the `main` branch** (`library/index.json`, `install.sh`). `build` was merged into `main` on 2026-10-01, so all three are live: the index lists the two starters and `install.sh` is reachable. Changes on `build` reach them only after the next merge.
 - **No install counts or ratings** in the library: they would need a server.
 - **Found on your network needs macOS's Local Network permission** for the app, which macOS asks for the first time you open Computers.
 - **A very small local model (qwen3:1.7b) chats fine but learns poor skills.** Learning now refuses repeated steps and empty loops, but for learning real sites use a bigger model (the local list recommends qwen3:8b) or a cloud key.
