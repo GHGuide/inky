@@ -103,7 +103,7 @@ class TailscaleTest(unittest.TestCase):
         probed = []
         probe = lambda url: (probed.append(url), {"ok": True, "name": "VPS"} if "100.64.0.2" in url else None)[1]
         peers = connect.tailnet_peers(status, probe=probe)
-        self.assertEqual(peers, [{"name": "VPS", "url": "http://100.64.0.2:8800", "via": "tailscale", "host": "vps.tail1.ts.net"}])
+        self.assertEqual(peers, [{"name": "VPS", "url": "http://100.64.0.2:8800", "via": "tailscale", "host": "vps.tail1.ts.net", "os": None, "id": None}])
         self.assertNotIn("http://100.64.0.4:8800/api/ping", probed)  # offline peers aren't probed
 
 

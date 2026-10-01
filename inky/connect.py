@@ -158,7 +158,8 @@ def ssh_setup(E, target, progress, run=None, install_url=INSTALL_URL):
 
 # ---------------------------------------------------------------- LAN discovery
 def beacon_packet(name, port, version, eid=None):
-    d = {"inky": 1, "name": str(name)[:60], "port": int(port), "version": version}
+    import platform
+    d = {"inky": 1, "name": str(name)[:60], "port": int(port), "version": version, "os": platform.system()}
     if eid:
         d["id"] = eid  # who it is (a hash, no secret), so a server you paired by another address isn't offered again
     return json.dumps(d, ensure_ascii=False).encode()
@@ -172,7 +173,8 @@ def parse_beacon(data):
     if not isinstance(d, dict) or d.get("inky") != 1 or not isinstance(d.get("port"), int) or not 0 < d["port"] < 65536:
         return None
     eid = d.get("id") if isinstance(d.get("id"), str) and re.match(r"^[0-9a-f]{16}$", d.get("id")) else None
-    return {"name": str(d.get("name") or "Inky")[:60], "port": d["port"], "version": str(d.get("version") or "")[:20], "id": eid}
+    os_ = d.get("os") if d.get("os") in ("Darwin", "Linux", "Windows") else None
+    return {"name": str(d.get("name") or "Inky")[:60], "port": d["port"], "version": str(d.get("version") or "")[:20], "id": eid, "os": os_}
 
 
 def local_ips():
@@ -280,7 +282,7 @@ def tailnet_peers(status, probe=_ping, port=8800):
         r = probe(f"http://{ip}:{port}/api/ping")
         if r and r.get("ok"):
             return {"name": r.get("name") or p.get("HostName"), "url": f"http://{ip}:{port}", "via": "tailscale",
-                    "host": (p.get("DNSName") or "").rstrip(".")}
+                    "host": (p.get("DNSName") or "").rstrip("."), "os": r.get("os"), "id": r.get("id")}
     with ThreadPoolExecutor(8) as ex:
         return [x for x in ex.map(check, cands) if x]
 

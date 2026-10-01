@@ -152,7 +152,9 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
         except Exception:
             pass
         raise
-    progress("checked", text=f"Checked a run there: {check.get('items', 0) if check else 0} results")
+    if check:
+        n = check.get("items", 0)
+        progress("checked", text=f"Checked a run there: {n} result{'' if n == 1 else 's'}" + (f" ({check['note']})" if check.get("note") else ""))
     engine.close_computer(bid)
     home = b.get("home") or {}
     if home.get("engine") and home.get("engine") == remote.req("GET", "/api/ping", timeout=10).get("id"):

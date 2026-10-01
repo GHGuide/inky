@@ -138,7 +138,9 @@ def bring_back(E, h, q, body, bid):
             b = E.store.get("bots", int(bid)) or {}
             E.bus.publish("move", bot=int(bid), step="failed", text=f"{b.get('name', 'It')} is no longer there. Remove it here from its page." if e.response.status_code == 404 else f"The other computer answered {e.response.status_code}.")
         except httpx.RequestError:
-            E.bus.publish("move", bot=int(bid), step="failed", text="The other computer isn’t answering. It can only pack up while it’s on.")
+            b = E.store.get("bots", int(bid)) or {}
+            c = E.store.get("computers", int(b["computer"])) if str(b.get("computer", "")).isdigit() else None
+            E.bus.publish("move", bot=int(bid), step="failed", text=f"{c['name'] if c else 'The other computer'} isn’t answering. It can only pack up while it’s on.")
         except Exception as e:
             E.bus.publish("move", bot=int(bid), step="failed", text=str(e)[:200])
     threading.Thread(target=go, daemon=True).start()
@@ -1064,8 +1066,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(410, {"error": f"{b['name']} is no longer on {c['name']}.", "gone": True}) or True
             if isinstance(data, dict) and isinstance(data.get("bot"), dict):
                 data["bot"].update(id=b["id"], computer=b["computer"], remote=c["name"])
-            if method == "POST" and re.search(r"/needs/\d+$", path) and r.status_code < 300:
-                REMOTE_NEEDS["at"] = 0
+            if method == "POST" and re.search(r"/needs/\d+$", path) and r.status_code in (200, 201, 404, 409):
+                REMOTE_NEEDS["at"] = 0  # answered (or already answered there): the list follows at once
             self._send(r.status_code, data)
         except Exception as e:
             self._send(502, {"error": f"can’t reach {c['name']}: {e}"})

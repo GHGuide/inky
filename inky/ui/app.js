@@ -267,7 +267,7 @@ function mobileBar(title) {
 let routedHash = null;
 async function route() {
   const h = location.hash || "#/bots";
-  if (S.view && S.view.dirty && !S.view.leaving && routedHash && h !== routedHash && S.view.dirty()) {  // unsaved changes: ask before leaving
+  if (S.view && typeof S.view.dirty === "function" && !S.view.leaving && routedHash && h !== routedHash && S.view.dirty()) {  // unsaved changes: ask before leaving
     const back = routedHash;
     history.replaceState(null, "", back);  // stay put while you decide (no redraw, nothing lost)
     if (!(await confirmBox(S.view.leaveText ? S.view.leaveText() : "Leave without saving your changes?", "Leave", true))) return;
