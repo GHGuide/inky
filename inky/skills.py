@@ -1,7 +1,10 @@
 """Skills: learned once with a model, replayed as plain steps with no model.
 A step targets an element by a descriptor (role, name, text, attrs, css). Replay finds it again by that
 descriptor; only if that fails does it ask a model once (repair), and it only acts when the model is sure."""
+import json
+import os
 import re
+import sys
 import time
 from urllib.parse import urljoin, urlparse
 
@@ -300,7 +303,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, pushed = bool(FINDING.search(goal or "")), set(), 0, False
+    watch, looked, idle, pushed = bool(FINDING.search(goal or "")), {}, 0, False
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
         if len(steps) >= max_steps:
@@ -315,9 +318,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         u = urlparse(page["url"])
         # typed into the search box but not searched yet, on the home page: what's listed is its feed, not results
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select") and home_page(page["url"])
-        if watch and not extract and page["url"] not in looked and not unsent and (steps or u.path.strip("/") or u.query):
-            looked.add(page["url"])  # a page that already lists priced results: read them now, no need to go on clicking
-            lists = comp.call("lists")
+        if watch and not extract and looked.get(page["url"], 0) < 2 and not unsent and (steps or u.path.strip("/") or u.query):
+            looked[page["url"]] = looked.get(page["url"], 0) + 1  # a page that already lists priced results: read them now, no need to go on clicking
+            lists = comp.call("lists")  # (looked at twice: some shops fill in their list a moment after the page loads)
             if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
                 spec, rows = read_results(ctx, goal, page)
                 if rows:
@@ -373,6 +376,8 @@ def learn(ctx, goal, start_url, max_steps=24):
                                 ["Try again", "Show me once", "Open Models"])
             continue
         act = d.get("action")
+        if os.environ.get("INKY_TRACE"):  # developers: every reply, the page it was on and the last thing it was told, in engine.log
+            print(json.dumps({"url": page["url"], "reply": d, "told": history[-1:], "steps": len(steps)}, ensure_ascii=False), file=sys.stderr, flush=True)
         if act in ("done", "next_page") or (act == "extract" and extract):
             finished = True
         if act in ("extract", "done") and unsent and not extract:  # it typed the search but never sent it

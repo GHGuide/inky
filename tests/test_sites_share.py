@@ -87,6 +87,23 @@ class LearningChecksTest(unittest.TestCase):
         self.assertFalse(skills.named([{"link": "/a"}, {"link": "/b"}, {"link": "/c"}, {"title": None, "link": "/d"}]))
         self.assertTrue(skills.named([{"title": "Gazelle", "price": "€220"}, {"title": "Batavus"}, {"price": "€99"}]))
 
+    def test_the_models_sites_start_on_their_listing_page(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from inky import sites
+        llm = SimpleNamespace(ask_json=lambda *a, **k: ({"sites": ["https://shop.example/l/e-bikes/", "https://made.example/up/page/", "parked.example", "gone.example"]}, None))
+        pages = {"https://shop.example/l/e-bikes/": (200, "<title>Used e-bikes</title>"), "https://made.example/up/page/": (404, "<title>Not found</title>"),
+                 "https://made.example/": (200, "<title>Made</title>"), "https://parked.example/": (200, "<title>parked.example</title> This domain is for sale")}
+
+        def get(url, **kw):
+            if url not in pages:
+                raise OSError("no such site")
+            code, body = pages[url]
+            return SimpleNamespace(status_code=code, text=body, url=url)
+        with mock.patch.object(sites.httpx, "get", get):
+            rows = sites.from_model(llm, "used e-bikes")
+        self.assertEqual([r["url"] for r in rows], ["https://shop.example/l/e-bikes/", "https://made.example/"])  # made-up page → home; for sale and gone → out
+
     def test_domains_for_sale_are_not_sites(self):
         from inky.sites import PARKED
         self.assertTrue(PARKED.search("mooiedomeinnaam.nl ebikeshop.nl is te koop"))

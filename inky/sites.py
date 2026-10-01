@@ -112,7 +112,8 @@ def suggest(queries, guess=None, limit=60, pages=1):
 
 
 SITES_SYSTEM = """List websites where this job can be done: shops, marketplaces, listing sites or suppliers that really exist.
-Reply with ONE JSON object: {"sites": ["<domain, e.g. example.com>", ...]} with up to 15 domains, the most useful first."""
+Reply with ONE JSON object: {"sites": ["<the page on that site that lists these things, full URL, e.g. https://www.marktplaats.nl/l/fietsen-en-brommers/elektrische-fietsen/; just the domain if you don't know the page>", ...]}
+with up to 15 sites, the most useful first."""
 
 
 def from_model(llm, job, have=(), label="the model"):
@@ -121,19 +122,27 @@ def from_model(llm, job, have=(), label="the model"):
         d, _ = llm.ask_json("chat", SITES_SYSTEM, job)
     except Exception:
         return []
-    raw = [str(x).strip().lower() for x in (d.get("sites") or []) if isinstance(x, str)]
-    names = [re.sub(r"^https?://", "", n).split("/")[0].removeprefix("www.") for n in raw]
+    raw = [str(x).strip() for x in (d.get("sites") or []) if isinstance(x, str)]
+    pages = {}  # domain -> the listing page it named, if any
+    for x in raw:
+        n = re.sub(r"^https?://", "", x, flags=re.I).split("/")[0].lower().removeprefix("www.")
+        if n not in pages:
+            pages[n] = x if re.match(r"https?://[^/]+/.+", x, re.I) else None
     have = set(have)
-    names = [n for n in dict.fromkeys(names) if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", n) and site_of(n) not in SKIP | have][:15]
+    names = [n for n in pages if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", n) and site_of(n) not in SKIP | have][:15]
 
     def real(n):
-        for url in (f"https://{n}/", f"https://www.{n}/"):
+        for url in ([pages[n]] if pages.get(n) else []) + [f"https://{n}/", f"https://www.{n}/"]:  # its listing page; a made-up one 404s, then the home page
             try:
                 r = httpx.get(url, headers={"User-Agent": UA}, timeout=5, follow_redirects=True)
             except Exception:
                 continue
+            if r.status_code >= 400 and url == pages.get(n):
+                continue
             if r.status_code < 500:
                 title = text((re.search(r"<title[^>]*>(.*?)</title>", r.text[:20000], re.S | re.I) or [None, ""])[1])[:120]
+                if url == pages.get(n) and re.search(r"\b404\b|not found|niet gevonden|nicht gefunden|introuvable|no encontrad|non trovat", title, re.I):
+                    continue  # a made-up page that still answers 200
                 if PARKED.search(f"{urlparse(str(r.url)).hostname} {title} {text(r.text[:20000])[:2000]}"):
                     return None  # it answers, but it's a domain for sale
                 if re.search(r"just a moment|attention required|access denied|forbidden|captcha|are you a robot", title, re.I):
