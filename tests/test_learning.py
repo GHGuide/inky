@@ -157,7 +157,7 @@ class LearningTest(unittest.TestCase):
         for it in items:
             self.assertTrue(it.get("title") and not GENERIC.match(it["title"]), f"a result without its own name: {it}")
             if priced:
-                self.assertIsNotNone(skills.parse_num(it.get("price")), f"a price that doesn't read: {it}")
+                self.assertTrue(skills.parse_num(it.get("price")) is not None or skills.FREE.search(it.get("price") or ""), f"a price that doesn't read: {it}")
         return skill, model, first
 
     # -------------------------------------------------------------- searching
@@ -208,6 +208,18 @@ class LearningTest(unittest.TestCase):
         self.assertFalse(any(s.get("next_page") for s in skill["steps"]))
 
     # -------------------------------------------------------------- prices, titles, odd lists
+    def test_prices(self):
+        _, _, out = self.learned_and_repeats("/prices", "Find bike deals")
+        self.assertEqual([skills.parse_num(i["price"]) or 0 for i in out["items"]], [p for _, p in learn_site.PRICES])
+        self.assertEqual(len(skills.apply_filters(out["items"], [{"field": "price", "op": "<=", "value": 100}])), 5)  # Free counts as 0
+
+    def test_parse_num(self):
+        for s, n in (("€ 1.234,56", 1234.56), ("$1,234.56", 1234.56), ("£12", 12), ("from €99", 99),
+                     ("€100 – €200", 100), ("1 234,56 €", 1234.56), ("€ 78.915", 78915), ("Price on request", None), ("Free", None)):
+            self.assertEqual(skills.parse_num(s), n, s)
+        for price in ("Free", "Gratis", "€ 0", "£12"):  # free things pass a price limit
+            self.assertTrue(skills.keep({"price": price}, {"field": "price", "op": "<=", "value": 20}), price)
+
     def test_results_without_prices(self):
         _, _, out = self.learned_and_repeats("/articles", "Find new articles about cycling", n=15, priced=False)
         self.assertNotIn("price", out["items"][0])

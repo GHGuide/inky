@@ -104,6 +104,9 @@ def parse_num(v):
         return None
 
 
+FREE = re.compile(r"\b(free|gratis|gratuit[oae]?|kostenlos|umsonst|darmo|бесплатно)\b", re.I)
+
+
 def has_word(s, w):
     """w in s as a word or the start of one: “remote” finds “Remote (EU)”, “bike” finds “bikes”, but “ai” doesn't find “rain”."""
     w = norm(str(w))
@@ -123,6 +126,8 @@ def keep(item, f):
     v = item.get(f.get("field"))
     if op in ("<", "<=", ">", ">="):
         a, b = parse_num(v), parse_num(want)
+        if a is None and FREE.search(str(v or "")):  # “Free” costs nothing: it passes “under £20”
+            a = 0.0
         if a is None or b is None:
             return False
         return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
