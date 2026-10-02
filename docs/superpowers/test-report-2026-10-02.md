@@ -3,47 +3,68 @@
 Branch `build`. Checked against [docs/acceptance.md](../acceptance.md), written this round together with [docs/agent-prompt.md](../agent-prompt.md).
 Model: gemma3:12b in Ollama, on this Mac. Every engine used a scratch home; your `~/.inky` was only read, never written. Do bots sent only to the local test site.
 
-Unit tests: `.venv/bin/python -m unittest`: **96 tests, OK** (the 2 install.sh tests skip without Docker).
+Unit tests: `.venv/bin/python -m unittest`: **103 tests, OK** (the 2 install.sh tests skip without Docker).
 
-## A. The five-bot test (release gate)
+## A. The five-bot test (release gate): passed
 
 `python -m tests.journeys five` creates the five bots from their sentences only, the way the New bot screen does: draft, find sites (unless one is named), check all, create, learn, then check again with no AI. It also asks "what did you find?" and makes one bot run on a 1-minute schedule by itself.
 
-FINAL_RESULTS
+Final run (commit c8fbf30), 266 s in total:
 
-Spot check (A5), E-bike Hunter: 5 random results opened on the live sites. 5 of 5 pages load, show the same title, and cost under €1500.
+| Bot | Sites | AI calls to learn | Found | Checked |
+|---|---|---|---|---|
+| Book Bargains | books.toscrape.com | 1 | 14 under £20, 3 pages | repeat 0 AI calls, "what did you find?" matches Found |
+| E-bike Hunter | netherlands-secondhandbikes.com, marktplaats.nl, ebikexl.nl (bikefair.org skipped: it blocks bots) | at most 1 per site | 23 under €1500, every one with a price | 5 random results opened on the live sites: all load, show the same title, are e-bikes |
+| Python Jobs | python.org/jobs | 3 | 16 remote jobs, each with its real title | "remote" rule checked on the whole result |
+| HN Watch | news.ycombinator.com | 4 | 3 AI stories | hourly schedule set |
+| Contact Form | local test site | 4 | asked before sending, sent once; the next run sent once more without asking ("Always") | |
+| Runs on its own | | | a 1-minute schedule ran by itself, 0 AI calls | |
+
+The gate also passed earlier in the night with different sites for E-bike Hunter (marktplaats, 2dehands, a bike shop), but that run had a flaw the test didn't catch yet: one site's "results" were a category menu with no prices. The test now fails on any found item without a price, and the final run above passed with that check.
+
+What still varies: when DuckDuckGo pauses Inky's searches (it did, often, after hours of test runs), the sites come from the model's own list instead. That list can include a site that doesn't fit (funda.nl, a housing site): learning gives up on it within its budget (15 AI calls), says so in one line, and the other sites carry on.
 
 ### What the five-bot test found, and what was fixed
 
 | Found | Fix |
 |---|---|
-| bikefair.org shows Cloudflare's "Sorry, you have been blocked", and learning spent 18 AI calls on that page | A site that turns bots away is recognised at once and skipped (0 AI calls), with one quiet line |
-| tweedehandsfietsen.nl prints prices with no € sign ("1.450,00", cents in their own element), so every bike "passed" €1500 | Money-shaped numbers count as prices, also when split over two elements; "old price" class checks use whole words, so a random class like `kOLdPq` no longer hides a price |
-| python.org: the job title was read from the "More jobs in Worldwide" link, so 29 jobs collapsed into 23 | A result's title is its own link: the one that goes somewhere different in every result |
-| "remote" and "about AI" became no rule at all | Word rules check everything a result shows (its new `text` field), as whole words: "ai" doesn't match "rain" |
-| The model invented "description must mention £", and every book failed it | A rule made only of symbols is never treated as yours; prices and currencies are never a word rule |
-| "Hacker News" became a guess, so the bot learned openai.com, huggingface.co and arxiv.org | Sites named by a well-known name keep their address (Hacker News → news.ycombinator.com); "Stack Overflow" matches stackoverflow.com |
-| marktplaats: it typed "e-bike" without pressing Enter, then read the home page feed (a skirt, a toy kitchen) | Nothing is read from a home page while a typed search hasn't been sent; the model is told to press Enter first |
-| netherlands-secondhandbikes: the home page's featured items (regular bikes) were read as e-bike results | On a shop's home page the model is asked once to open the right category or search first; a "front page" job (HN) reads it straight away |
-| Suggested sites included mooiedomeinnaam.nl, a domain-for-sale page | Domains for sale or parked are never suggested |
-| "What did you find?" described only the last site (18) while Found had 38 | It leads with the total over every site, then each site's last check |
-| The sidebar showed "learning · Click to reveal" (the model's step, reading like an order), and the chat card named the first site during a batch | Both say which site it's on: "learning 2dehands.be · 2 more after" |
+| bikefair.org shows Cloudflare's "Sorry, you have been blocked", and learning spent 18 AI calls on that page | A site that turns bots away is recognised at once and skipped (0 AI calls) |
+| tweedehandsfietsen.nl prints prices with no € sign ("1.450,00", cents in their own element) | Money-shaped numbers count as prices, also when split over two elements; "old price" class checks use whole words |
+| marktplaats: the first result was a dealer ad with no price, so the whole site was read without prices | The price field comes from the first result that shows one |
+| python.org: the job title was read from the "More jobs in Worldwide" link | A result's title is its own link: the one that goes somewhere different in every result |
+| "remote" and "about AI" became no rule | Word rules check everything a result shows, as whole words ("ai" doesn't match "rain") |
+| The model invented "description must mention £" | A rule made only of symbols is never treated as yours |
+| "Hacker News" became a guess, so the bot learned openai.com and arxiv.org | Sites named by a well-known name keep their address |
+| marktplaats: typed "e-bike" without pressing Enter, then read the home page feed (a skirt, a toy kitchen) | Inky presses Enter itself when a search was typed but not sent |
+| Home pages: featured items or a mixed feed were saved as results; ebikexl's home, which *is* its shop, was then blocked | Before results are saved, the model takes one look: are these the kind of thing the job is about? A mixed feed or boys' bikes for an e-bike job is turned down; a shop's real catalogue passes |
+| 2dehands: the sidebar's category menu ("Elektrische fietsen 743") was read as 45 results | A list of names with counts is a menu, not results; with a price limit, only lists with prices are offered |
+| 2dehands and speurders: gemma clicked "Plaats zoekertje" / "Maak advertentie" (*place an ad*) and tried to type a made-up email and password | A bot that finds things never clicks sell, post an ad, log in or register while learning (the password gate had already stopped it) |
+| A learned route that didn't work the next time (3 repairs, 0 results) was kept | What it learned is only kept if checking it right after learning finds something |
+| gemma said "goto Books" (a link's name), or invented an address next to a link's number | A goto with a link's number clicks the real link; a goto to the page it's on isn't a step |
+| Learning answered differently each run | Temperature 0 and a fixed seed for learning and repairs |
+| Suggested sites included a domain-for-sale page | Domains for sale or parked are never suggested; the model's backup list starts on the listing page when it exists |
+| "What did you find?" described only the last site | It leads with the total over every site, then each site's last check |
+| The sidebar showed "learning · Click to reveal"; the chat named the wrong site during a batch | Both say which site it's on: "learning 2dehands.be · 2 more after" |
 
 ## B–H. The rest of the criteria
 
+REGRESSION_RESULTS
+
 | Area | Result |
 |---|---|
-| B Setup | `newuser` journey passed on 1 Oct on the 3-step setup; not rerun this round |
-| C Chat | `chat` journey 10/10 on 1 Oct; this round "what did you find?" now counts every site |
-| D Connectors | Telegram: **new**, a bot's question arrives with answer buttons and a tap answers it; only taps from your own chat count; answered buttons are removed (unit-tested with a fake Telegram server; not tried with a real bot because no token is set up). n8n and Apify: unit-tested with fakes; not set up on this Mac. Claude Code: really signed out on this Mac (the `claude` command line), and the card says so with the fix. Codex: signed in, connected. Inky's own MCP server, started from the installed app exactly as Claude Code or Codex would: 7 tools, `list_bots` returned your 3 bots (read-only). Cards use plain words (a unit test now checks them) |
-| E Screen control | **New guard:** the engine refuses "work on my screen" until you allow it in Settings (before, only the button was greyed out). Seen on screen: one window with the coral frame, the bot's named cursor, the target label and the pill (Chat ⌥C, Pause, Take over, Stop Esc). Stop took 0.57 s. The window closed by itself after the run. Esc and "mouse move takes over" are covered by unit tests |
-| F Clean UI | "Skills" is now "Sites" on screen, and a unit test fails if words like skill, selector or headless appear in text you read. Phone width checked on Home and Connectors. **Not built:** a dark theme (about 150 fixed colours need to become tokens first) |
-| G Safety | Do bot: asked before sending, Approve sent once, "Always" not asked again (five-bot test). Screen permission now enforced by the engine |
-| H Share | `share` journey passed on 1 Oct; the privacy checks are unit-tested |
+| D Connectors | Telegram: **new**, a bot's question arrives with answer buttons and a tap answers it; only taps from your own chat count; answered buttons are removed (unit-tested with a fake Telegram server; not tried with a real bot because none is set up here). n8n and Apify: unit-tested with fakes; not set up here. Claude Code: the `claude` command line on this Mac is signed out, and the card says so with the fix. Codex: signed in, connected. Inky's own MCP server, started from the installed app the way Claude Code or Codex start it: 7 tools, `list_bots` returned your 3 bots (read-only). Connector texts are plain words (a unit test checks them) |
+| E Screen control | **New guard:** the engine refuses "work on my screen" until you allow it in Settings (before, only the button was greyed out). Seen on screen: one window with the coral frame, the bot's named cursor, the target label and the pill (Chat ⌥C, Pause, Take over, Stop Esc). Stop took 0.57 s. The window closed by itself after the run. Esc and "mouse move takes over" are unit-tested |
+| F Clean UI | "Skills" is "Sites" on screen; a unit test fails if words like skill, selector or headless appear in text you read. Phone width checked on Home and Connectors. **Not built:** a dark theme (about 150 fixed colours need to become tokens first) |
+| G Safety | The Do bot asks before sending and sends exactly once. Screen permission is enforced by the engine. Finding bots never click sell, post an ad or log in |
+
+## Tools added for whoever works on this next
+
+- `INKY_FIVE="E-bike Hunter" INKY_JOURNEY_KEEP=1 python -m tests.journeys five`: one of the five bots, keeping its folder to look at.
+- `INKY_TRACE=1`: every learning reply, the page it was on and what it was last told, written to engine.log.
 
 ## Not checked this round
 
-- An overnight run (A6 "overnight"): the 1-minute schedule check passed, but a real morning run wasn't waited for.
+- An overnight run (the 1-minute schedule check passed; a real morning run wasn't waited for).
 - Telegram, n8n and Apify with real accounts (no tokens on this Mac; Inky never types keys).
 - Claude Code handing work over (its command line is signed out).
 - A dark theme (not built).

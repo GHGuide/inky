@@ -558,6 +558,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         page = page_after
         if act == "next_page":
             break  # one next-page is enough to learn the loop
+        if step.get("sends") and not watch:  # the job was to send it, and it went: done (a small model may try to start over)
+            finished = True
+            break
     if not finished and not extract:  # it ran out of steps or kept failing: that isn't a learned job
         raise NeedsHelp("learn_failed", "Learning didn’t finish",
                         f"After {len(steps)} steps on {urlparse(page['url']).netloc} it still wasn’t done. Show it once, or try a smarter model.",
