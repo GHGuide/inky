@@ -190,7 +190,7 @@ Reply with ONE JSON object: {"index": <element number or null>, "confidence": <0
 Use null and low confidence when no element clearly does the same thing. A different action with a similar word is NOT a match."""
 
 
-NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)\b", re.I)
+NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)(?!\w)", re.I)  # (?!\w), not \b: a lone “›” has no word to end
 
 
 def said_number(v, text):

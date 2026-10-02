@@ -212,6 +212,11 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/more", "Find e-bikes")
         self.assertEqual(len(out["items"]), 25)  # every one once, though each “Load more” shows the earlier ones again
 
+    def test_next_page_arrows(self):
+        for name in ("›", "»", "→", "Next ›", "Volgende"):
+            self.assertTrue(skills.next_link({"url": "https://shop.example/l?q=x", "elements": [{"role": "link", "name": name, "href": "?page=2"}]}), name)
+        self.assertIsNone(skills.next_link({"url": "https://shop.example/l", "elements": [{"role": "link", "name": "Nextdoor deals", "href": "/nd"}]}))
+
     def test_infinite_scroll_reads_what_is_shown(self):
         skill, _, out = self.learned_and_repeats("/scroll", "Find e-bikes")
         self.assertGreaterEqual(len(out["items"]), 10)
