@@ -440,10 +440,16 @@ def learn(ctx, goal, start_url, max_steps=24):
             continue
         idx = d.get("index")
         el = next((e for e in page["elements"] if e["i"] == idx), None) if idx is not None else None
+        if act == "goto" and el is not None and el.get("role") in ("link", "button") and not re.match(r"https?://|www\.", str(d.get("value") or ""), re.I):
+            act = d["action"] = "click"  # “goto Books” with the link's number: it means click that link
+            d["step"] = (d.get("step") or "").replace("Go to", "Click", 1) or f"Click {el['name']}"
         if act == "goto":  # the model sometimes "goes to" a word it meant to type
             url = web_address(d.get("value"), page["url"])
             if not url:
                 history.append(f"goto {d.get('value')!r} is not a web address")
+                continue
+            if url.rstrip("/") == page["url"].rstrip("/"):  # already there: not a step
+                history.append("you are already on that page: pick an element on it")
                 continue
             d["value"] = url
         elif act not in ACTIONS:

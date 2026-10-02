@@ -62,6 +62,19 @@ class ForgetfulModel(ScriptedModel):
         return ({"action": "extract"} if "EXTRACTED: yes" not in user else {"action": "done"}), {}
 
 
+class GotoModel(ForgetfulModel):
+    """Says “goto Accetta” with the button's number instead of clicking it, and once “goes to” the page it's on."""
+
+    def ask_json(self, role, system, user, bot_id=None, **kw):
+        steps = user.split("STEPS SO FAR:")[1].split("EXTRACTED:")[0] if "STEPS SO FAR:" in user else ""
+        if system == skills.LEARN_SYSTEM and "Accetta" in user and "Close cookies" not in steps:
+            self.calls += 1
+            if "already on that page" not in user:
+                return {"action": "goto", "value": user.split("PAGE: ")[1].split(" — ")[1].split("\n")[0], "step": "Go to the home page"}, {}
+            return {"action": "goto", "index": idx(user, "Accetta"), "value": "Accetta", "step": "Go to Close cookies"}, {}
+        return super().ask_json(role, system, user, bot_id, **kw)
+
+
 class NoModel:
     def ask_json(self, *a, **k):
         raise AssertionError("replay must not call a model")
@@ -127,6 +140,15 @@ class SkillsTest(unittest.TestCase):
         texts = [s["text"] for s in skill["steps"]]
         self.assertEqual(texts[1:4], ["Type Bari", "Press Enter to search", texts[3]])
         self.assertTrue(texts[3].startswith("Read "))  # the results page, not the home page
+
+    def test_goto_a_link_name_is_a_click_and_goto_here_is_no_step(self):
+        self.layout(1)
+        comp = Computer(3, tempfile.mkdtemp(), look={"speed": "turbo"})
+        try:
+            skill = skills.learn(Ctx(comp, GotoModel()), "Flats in Bari", self.base + "/")
+        finally:
+            comp.close()
+        self.assertEqual([(s["action"], s["text"]) for s in skill["steps"]][:2], [("click", "Click Close cookies"), ("fill", "Type Bari")])
 
     def test_renamed_button_is_repaired_when_sure(self):
         skill, _ = self.learned()
