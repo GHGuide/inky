@@ -214,6 +214,7 @@ VIEWS.setup = {
       <div class="between"><span class="small" id="keymsg" role="status"></span>${has ? `<button class="btn s" id="keyuse">Use the saved key</button>` : ""}</div>`;
     $("#keyin").focus();
     const tile = $(`[data-prov="${p}"]`);
+    kf.onkeydown = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.openKey(p); tile.focus(); } };  // Esc closes it, back to its tile
     const busy = (on) => { busyBtn($("#keysave"), on, "Checking…"); if ($("#keyuse")) $("#keyuse").disabled = on; $("#keyin").disabled = on; };
     const sync = async () => {  // the tile says what the engine really kept (a refused key is deleted there)
       let kept = this.st.keys[p];
@@ -570,7 +571,7 @@ VIEWS.new = {
     const drawF = () => {
       $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><select class="f" data-i="${i}" data-k="field" aria-label="What it checks">${fieldOptions(f.field)}</select><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
         <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">Nothing yet: it keeps everything it finds. Add one like “price at most 20”.</span>`;
-      $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); filters[x.dataset.i][x.dataset.k] = x.value; }));  // read as a rule on Create
+      $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); filters[x.dataset.i][x.dataset.k] = x.value; filters[x.dataset.i].edited = true; }));  // read as a rule on Create
       $$("#filters [data-del]", box).forEach((x) => (x.onclick = () => { dirty.add("filters"); filters.splice(+x.dataset.del, 1); drawF(); }));
     };
     drawF();
@@ -667,7 +668,8 @@ function asRule(f) {
   if (!raw) return null;
   const value = ["in", "not_in"].includes(f.op) ? raw.split(",").map((x) => x.trim()).filter(Boolean)
     : ["<", "<=", ">", ">="].includes(f.op) ? (numOf(raw) ?? raw) : raw;
-  return { ...f, value, text: ruleWords({ ...f, value }) };
+  const { edited, ...rule } = f;
+  return { ...rule, value, text: !edited && f.text ? f.text : ruleWords({ ...f, value }) };  // the draft's words (“under £20”) until you change the rule
 }
 const DRAFTS = {};  // what you were typing to each bot, kept when you go to another page and back
 // ponytail: a copy of skills.parse_num()/keep(), so Results follow your rules the moment you change them; drop it if the results route re-checks rules itself
@@ -1226,7 +1228,7 @@ VIEWS.bot = {
     };
     $("#delbot").onclick = () => goodbye(this.data.bot);
     const ready = () => { $("#addauto").disabled = !($("#as").value && $("#at").value); };
-    get("/api/mcp").then(({ servers }) => {
+    get(`/api/bots/${this.id}/mcp`).then(({ servers }) => {  // a moved bot: its server's connectors, where it runs
       if (!tb.contains($("#as"))) return;
       const on = servers.filter((x) => x.enabled);
       $("#as").innerHTML = on.length ? `<option value="">Pick a connector</option>${on.map((x) => `<option value="${esc(x.name)}">${esc(x.label)}</option>`).join("")}` : `<option value="">No connectors yet</option>`;
@@ -1308,7 +1310,7 @@ VIEWS.bot = {
     tb.innerHTML = `<div class="grid4">${tile(g.days, g.days === 1 ? "day on the job" : "days on the job")}${tile(g.streak, "day streak")}${tile(g.hours_saved + " h", "of your time saved")}${tile(g.ai_saved, g.ai_saved === 1 ? "AI call saved" : "AI calls saved")}</div>
       <div class="card"><div class="between"><b>Level ${g.level}</b><span class="small muted">${nWord(g.runs, "good run")}</span></div>
         <div style="height:10px;border-radius:5px;background:var(--panel);overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--coral);border-radius:5px"></div></div>
-        <span class="small muted">${next ? `${nWord(next.at - g.runs, "more run")} to unlock the ${esc(next.acc)} ${critter(b.look.kind, b.look.color, next.acc, 22)}` : "Everything unlocked. A true veteran."}</span>
+        <span class="small muted">${next ? `${nWord(next.at - g.runs, "more run")} to unlock the ${esc(next.acc === "party" ? "party hat" : next.acc)} ${critter(b.look.kind, b.look.color, next.acc, 22)}` : "Everything unlocked. A true veteran."}</span>
         ${g.unlocked.length ? `<span class="row wrap small">Unlocked: ${g.unlocked.map((a) => `<span class="chip">${critter(b.look.kind, b.look.color, a, 20)} ${esc(a)}</span>`).join("")} <a href="#/look/${b.id}">wear one</a></span>` : ""}</div>
       <div class="col"><b>Diary</b>${(this.data.diary || []).map((d) => `<div class="card"><span class="mono small muted">${esc(d.date)}</span><span>${esc(d.text)}</span></div>`).join("") || `<span class="small muted">${esc(b.name)} writes a short entry each evening, on days something happened.</span>`}</div>`;
   },
@@ -1749,7 +1751,7 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
       return p;
     };
     const confirmPublic = (p, go, label) => {
-      out(`<span class="small"><b>This becomes public.</b> Visits ${esc(p.check.domains.join(", ") || "no sites")}. ${p.check.irreversible.length ? "May do (asks first): " + esc(p.check.irreversible.join("; ")) : "Nothing it can’t undo."}</span>
+      out(`<span class="small"><b>This becomes public${p.login ? `, posted as @${esc(p.login)} on GitHub` : ""}.</b> Visits ${esc(p.check.domains.join(", ") || "no sites")}. ${p.check.irreversible.length ? "May do (asks first): " + esc(p.check.irreversible.join("; ")) : "Nothing it can’t undo."}</span>
         <details><summary class="small">See the whole file (${Math.round(p.text.length / 1024 * 10) / 10} KB)</summary><pre class="code" style="max-height:30vh;overflow:auto">${esc(p.text)}</pre></details>
         <div class="row" style="justify-content:flex-end"><button class="btn p" id="shgo">${esc(label)}</button></div>`);
       $("#shgo").onclick = async () => { busyBtn($("#shgo"), true, "Working…"); try { await go(); } catch (e) { failed(e.message); } };
@@ -2005,13 +2007,22 @@ VIEWS.computers = {
       const where = c.kind === "local" ? `this computer${c.docker && c.docker.running ? ` · ${logo("docker", 18)} Docker ${esc(c.docker.version)}` : ""}` : esc(c.url);
       return `<div class="card" data-comp="${esc(c.id)}" tabindex="-1"><div class="row">${logo(OS_LOGO[c.os] || "server", 40)}<div class="grow"><b class="cname" style="font-size:18px">${esc(c.name)}</b><div class="mono small muted cname">${where}${count}</div></div><span class="pill ${c.ok ? "live" : "hot"}"><i style="background:${c.ok ? "var(--green)" : "var(--coral)"}"></i>${c.ok ? (c.kind === "local" ? "awake" : "reachable") : "can’t reach it"}</span></div>
         <div class="grid2">${c.bots.map((b) => botCard(c, b)).join("") + away.map((b) => botCard(c, b, true)).join("") || `<span class="small muted">${c.ok ? "No bots here" : "It isn’t answering, so Inky can’t see its bots."}</span>`}</div>
-        ${c.kind === "local" ? `<div class="card panel small"><span>This computer’s pairing code: <b class="mono">${esc(pair_code)}</b>. Type it on another Inky to send bots here.</span></div>` : `<button class="btn s hot" data-unpair="${c.id}" style="align-self:flex-start">Unpair</button>`}</div>`;
+        ${c.kind === "local" ? `<div class="card panel small"><span>This computer’s pairing code: <b class="mono">${esc(pair_code)}</b>. Type it on another Inky to send bots here.</span></div>` : `<span class="row" style="gap:6px"><button class="btn s" data-rename="${c.id}">Rename</button><button class="btn s hot" data-unpair="${c.id}">Unpair</button></span>`}</div>`;
     }).join("")));  // a redraw (every "bots" event) keeps the focus on the same card's button or link
     const back = this.focusBot && ($(`[data-move="${this.focusBot}"],[data-back="${this.focusBot}"],[data-open="${this.focusBot}"]`, box)
       || $(`[data-comp="${CSS.escape(String(this.focusComp))}"]`, box) || $("#addsrv", this.el));  // a bot that went home is gone from here: its computer
     if (back && (!document.activeElement || document.activeElement === document.body)) back.focus();  // after its dialog: back to that bot
     this.focusBot = this.focusComp = null;
     $$("[data-unpair]", box).forEach((x) => (x.onclick = () => this.unpair(computers.find((c) => String(c.id) === x.dataset.unpair))));
+    $$("[data-rename]", box).forEach((x) => (x.onclick = () => {  // your name for it here; its own name stops following
+      const c = computers.find((y) => String(y.id) === x.dataset.rename);
+      modal(`<h2>Rename ${esc(c.name)}</h2><form id="rnf" class="col"><label class="l" for="rnn">Name</label><input class="f" id="rnn" maxlength="40" value="${esc(c.name)}"><span class="small bad" id="rnmsg" role="status"></span>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn p">Save</button></div></form>`, () => {
+        $("#rnn").select();
+        $("#rnf").onsubmit = async (e) => { e.preventDefault();
+          try { await patch(`/api/computers/${c.id}`, { name: $("#rnn").value }); closeModal(); this.cards(); } catch (err) { $("#rnmsg").textContent = err.message; } };
+      });
+    }));
     $$("[data-back]", box).forEach((x) => (x.onclick = () => this.bringBack(S.bots.find((b) => b.id === +x.dataset.back))));
     $$("[data-move]", box).forEach((x) => (x.onclick = () => {
       const b = S.bots.find((y) => y.id === +x.dataset.move), targets = (this.computers || []).filter((c) => c.kind === "remote" && c.ok);
@@ -2196,8 +2207,9 @@ VIEWS.models = {
       const r = s.dataset.rp, list = suggest(s.value), i = row(r).m;
       $(`#ml-${r}`, this.el).innerHTML = opts(s.value);
       const saved = (md.roles[r] || {}).provider === s.value ? md.roles[r].model : null;  // back to its own provider: its own model again
+      const inUse = [...Object.values(md.roles).filter((v) => v && v.provider === s.value).map((v) => v.model), md.recommended].find((m) => m && list.includes(m));
       if (saved) i.value = saved;
-      else if (!list.includes(i.value)) i.value = list[0] || "";
+      else if (!list.includes(i.value)) i.value = inUse || list[0] || "";  // the model your other jobs use (or the one that fits best), not just the first
       i.placeholder = list.length ? "model name" : "type the model name";
     }));
     $$("[data-save]", this.el).forEach((b) => (b.onclick = async () => {
@@ -2207,8 +2219,8 @@ VIEWS.models = {
       try {
         const res = await post("/api/models/role", { role: r, provider: x.p.value, model });
         if (res.roles) md.roles = res.roles;  // switching provider back and the suggestions follow what's saved now
-        formSay(x.out, res.warning || `✓ Saved. ${x.label} uses ${model}.`, res.warning ? "warn" : true);
-        if (!res.warning) toast(`Saved: ${x.label} uses ${model}`);
+        toast(`Saved: ${x.label} uses ${model}`);
+        return this.refresh();  // the line above says what your bots use now
       } catch (e) { formSay(x.out, e.message, false); }
       busy(b, false);
     }));

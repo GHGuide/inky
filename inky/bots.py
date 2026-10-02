@@ -217,6 +217,23 @@ def command_reply(a, out):
             "forget": f"Forgotten: {str(out).removeprefix('forgot: ')}.", "speed": f"Speed: {a.get('value')}."}.get(t, "Done.")
 
 
+LIMIT_WORDS = [(r"under|below|less than|cheaper than", "<"), (r"at most|up to|max(?:imum)?|no more than", "<="),
+               (r"over|above|more than", ">"), (r"at least|min(?:imum)?|from", ">=")]
+
+
+def in_your_words(f, job):
+    """“under £20” stays “under £20”: the limit's direction and currency as you wrote them, not the model's “at most 20”."""
+    n = skills.parse_num(f.get("value")) if f.get("op") in ("<", "<=", ">", ">=") else None
+    if n is None:
+        return f
+    for m in re.finditer(r"(?i)\b(" + "|".join(w for w, _ in LIMIT_WORDS) + r")\s*([£€$])?\s*(\d[\d.,]*\s*k?)\s*([£€$])?", job):
+        if skills.parse_num(m.group(3).rstrip("kK")) * (1000 if m.group(3).strip().lower().endswith("k") else 1) == n:
+            op = next(o for w, o in LIMIT_WORDS if re.fullmatch(w, m.group(1), re.I))
+            if (op in ("<", "<=")) == (f["op"] in ("<", "<=")):  # same direction: your word decides < or <=
+                return {**f, "op": op, "text": f"{m.group(1).lower()} {m.group(2) or ''}{m.group(3).strip()}{m.group(4) or ''}"}
+    return f
+
+
 def stated(f, job):
     """Did your job text say this limit? Its value (each word of it, or the number) must be in what you wrote."""
     if not isinstance(f, dict) or not f.get("field") or f.get("value") in (None, "", []):
@@ -280,6 +297,7 @@ def plain_error(e):
         return "It tried to open something that isn’t a web address."
     if "did not return JSON" in t:
         return "The model’s answers didn’t make sense. Try again, show it once, or pick a smarter model in Models."
+    t = re.split(r"\s*(?:Call log:|=====)", t)[0].strip()  # Playwright's call log is for developers
     return f"Something went wrong ({type(e).__name__}): {t.splitlines()[0][:200] if t else 'no details'}"
 
 
@@ -607,7 +625,7 @@ class Engine:
                 d["guess"], d["start_url"] = skills.web_address(d["start_url"], ""), None
         d["questions"] = [q for q in d.get("questions") or [] if isinstance(q, str) and not re.search(r"\b(website|web site|which site|what site|url)\b", q, re.I)][:2]
         said = lambda f: {**f, "value": [v for v in f["value"] if stated({**f, "value": v}, job)]} if isinstance(f.get("value"), list) else f
-        d["filters"] = [f for f in (said(f) for f in d.get("filters") or [] if isinstance(f, dict)) if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
+        d["filters"] = [in_your_words(f, job) for f in (said(f) for f in d.get("filters") or [] if isinstance(f, dict)) if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
         d["search"] = [q for q in d.get("search") or [] if isinstance(q, str) and q.strip()][:3] or [d.get("goal") or job]
         if re.search(r"\b(buy|order|purchase|pay|check ?out|book (it|a|the))\b", job, re.I) and not d.get("notice"):  # said up front, not after
             d["notice"] = "Bots never buy or pay. This one can watch for it and tell you, and asks before anything it can’t undo."
@@ -2081,8 +2099,9 @@ class Engine:
         acc = growth.level_up(n - 1, n)
         if not acc:
             return None
-        self.store.event(bid, "level", f"Reached {n} runs: unlocked the {acc}")
-        self.store.message(bid, "bot", f"🎉 {n} runs on the job! I unlocked the {acc}. You can put it on me in Make it yours.", team=True)
+        name = "party hat" if acc == "party" else acc
+        self.store.event(bid, "level", f"Reached {n} runs: unlocked the {name}")
+        self.store.message(bid, "bot", f"🎉 {n} runs on the job! I unlocked the {name}. You can put it on me in Make it yours.", team=True)
         self.bus.publish("level", bot=bid, acc=acc, runs=n)
         self.bus.publish("messages", bot=bid)
         return acc

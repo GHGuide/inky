@@ -214,8 +214,8 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
             pass
         raise
     if check:
-        n = check.get("items", 0)
-        progress("checked", text=f"Checked a run there: {n} result{'' if n == 1 else 's'}" + (f" ({check['note']})" if check.get("note") else ""))
+        n = check.get("matched", check.get("items", 0)) or 0  # what passes its rules, as its chat would say
+        progress("checked", text=f"Checked a run there: {n} found" + (f" ({check['note']})" if check.get("note") else ""))
     engine.close_computer(bid)
     engine.drop_profile(bid)  # its sign-ins went with it
     home = b.get("home") or {}

@@ -347,8 +347,9 @@ async function route() {
     S.view.leaving = true;  // you chose to leave (its show() resets this)
     history.replaceState(null, "", h);
   }
+  if (S.setupDone === undefined) return;  // still starting: the boot routes once it knows whether setup is done
   routedHash = h;
-  if (!S.setupDone && !h.startsWith("#/setup") && !sessionStorage.getItem("skipSetup")) { location.hash = "#/setup/1"; return; }
+  if (!S.setupDone && !h.startsWith("#/setup")) { location.hash = "#/setup/1"; return; }
   const [, name, ...rest] = h.split(/[/?]/);
   const qs = new URLSearchParams(h.split("?")[1] || "");
   if (CMD.open && !BAR) closeCmd();  // a new page never sits under an old command bar

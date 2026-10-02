@@ -54,6 +54,18 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - Pause all bots pauses every bot, not only the ones running. The command bar opens a bot you typed the name of instead of sending it its own name.
 - A moved bot whose computer is off says so, never shows results from before the move, and keeps its name on the other computer.
 - Team shows milestones and good nights.
+- Paired computers:
+  - their names follow when they're renamed there, and you can rename them here;
+  - addresses like `root@[::1]` work for SSH;
+  - a move's check counts what passes the bot's rules.
+- Models: a role can't be set to a model Ollama doesn't have, or to a provider with no key, so a job can't fail on it later. The picker suggests the model your other jobs use.
+- A draft keeps “under £20” as you wrote it.
+- Other fixes:
+  - the publish preview says which GitHub account it posts as;
+  - a moved bot's automations list its server's connectors;
+  - Esc closes the key box in setup;
+  - a quick click before the app has loaded no longer opens setup;
+  - errors never show Playwright's call log.
 - Setup's first page appears at once; Docker's state is checked in the background. A key that couldn't be checked isn't kept; “Is it running?” is only said of servers on this computer.
 - Dark mode: code blocks, separators and “idle” are readable; the phone status bar follows the theme. Wording and small fixes across Settings, Models and the wizard.
 

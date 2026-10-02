@@ -18,7 +18,7 @@ from inky import transfer
 INSTALL_URL = os.environ.get("INKY_INSTALL_URL", "https://raw.githubusercontent.com/GHGuide/inky/main/install.sh")
 BEACON_PORT = 48800
 CODE = re.compile(r"^[A-Z0-9]{4,12}$")
-TARGET = re.compile(r"^(?:([A-Za-z0-9._][A-Za-z0-9._-]*)@)?([A-Za-z0-9][A-Za-z0-9.-]*)(?::(\d{1,5}))?$")
+TARGET = re.compile(r"^(?:([A-Za-z0-9._][A-Za-z0-9._-]*)@)?([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:]+\])(?::(\d{1,5}))?$")  # [::1] for IPv6
 
 
 class SetupError(Exception):
@@ -63,6 +63,7 @@ def split_target(target):
     if not m:
         raise ValueError("Use user@host, or user@host:port.")
     user, host, port = m.groups()
+    host = host.strip("[]")  # ssh takes an IPv6 address as it is, with the port given apart
     if port and not 0 < int(port) < 65536:
         raise ValueError("That port isn’t valid.")
     return user, host, port

@@ -654,13 +654,14 @@ def set_role(E, h, q, body):
         raise HTTPError(400, "unknown provider or role")
     if not model:
         raise HTTPError(400, "Pick or type a model name first.")
-    E.llm.set_role(body["role"], prov, model)
-    warn = None if PROVIDERS[prov].get("local") or E.keys.get(prov) else f"There’s no {PROVIDERS[prov]['label']} key yet, so this role won’t work until you add one in API keys."
+    if not (PROVIDERS[prov].get("local") or E.keys.get(prov)):  # it would only fail later, in the middle of a job
+        raise HTTPError(400, f"There’s no {PROVIDERS[prov]['label']} key yet. Add one in Models and keys first.")
     if prov == "ollama":
         have = {m["name"] for m in E.llm.local_status()["ollama"]["models"]}
         if have and model not in have and f"{model}:latest" not in have:
-            warn = f"Ollama doesn’t have “{model}”. Saved anyway: download it in Models → On this computer, or pick one it has ({', '.join(sorted(have)[:4])})."
-    return {"roles": E.llm.roles(), "warning": warn}
+            raise HTTPError(400, f"Ollama doesn’t have “{model}”. Download it in Models → On this computer, or pick one it has ({', '.join(sorted(have)[:4])}).")
+    E.llm.set_role(body["role"], prov, model)
+    return {"roles": E.llm.roles(), "warning": None}
 
 
 @route("GET", "/api/models/local")
@@ -854,6 +855,13 @@ def mcp(E, h, q, body):
     return {"servers": E.mcp.servers()}
 
 
+@route("GET", r"/api/bots/(\d+)/mcp")
+def bot_mcp(E, h, q, body, bid):
+    """The connectors a bot's automations can use: this computer's, or (forwarded) those of the server it moved to."""
+    bot_or_404(E, bid)
+    return {"servers": E.mcp.servers()}
+
+
 @route("POST", "/api/mcp")
 def mcp_save(E, h, q, body):
     import shlex
@@ -974,7 +982,7 @@ def publish_preview(E, h, q, body, bid):
     b, c, text = library.prepare(E, int(bid), body.get("meta") or {})
     import shutil
     gh = bool(shutil.which("gh")) and library._gh("auth", "status").returncode == 0
-    return {"text": text, "check": c, "listing": b["listing"], "gh": gh}
+    return {"text": text, "check": c, "listing": b["listing"], "gh": gh, "login": library.gh_login() if gh else ""}
 
 
 @route("POST", r"/api/bots/(\d+)/publish")
@@ -1148,9 +1156,13 @@ def computers(E, h, q, body):
         r = transfer.Remote(c["url"], c["token"])
         try:
             ok, rbots = True, [x for x in r.req("GET", "/api/bots", timeout=4)["bots"] if x.get("status") != "moved"]
-            if not c.get("os"):  # remember what it runs, for its logo
-                c["os"] = r.req("GET", "/api/ping", timeout=4).get("os") or "Linux"
-                E.store.update("computers", c["id"], os=c["os"])
+            p = r.req("GET", "/api/ping", timeout=4)
+            fresh = {"os": c.get("os") or p.get("os") or "Linux"}  # what it runs, for its logo
+            if p.get("name") and not c.get("renamed") and p["name"] != c["name"]:
+                fresh["name"] = p["name"]  # renamed over there: the name follows, unless you named it here
+            if any(c.get(k) != v for k, v in fresh.items()):
+                c.update(fresh)
+                E.store.update("computers", c["id"], **fresh)
         except Exception:
             ok, rbots = False, []
         return {"id": c["id"], "name": c["name"], "url": c["url"], "kind": "remote", "ok": ok, "bots": rbots, "os": c.get("os")}
@@ -1188,7 +1200,7 @@ def add_computer(E, h, q, body):
     except httpx.RequestError:
         raise HTTPError(400, f"Couldn’t reach {url}. Is Inky running there, and is the port open?")
     if body.get("name"):
-        E.store.update("computers", cid, name=body["name"])
+        E.store.update("computers", cid, name=body["name"], renamed=True)
     return {"id": cid, "name": (E.store.get("computers", cid) or {}).get("name")}
 
 
@@ -1220,6 +1232,17 @@ def computers_ssh(E, h, q, body):
             say("failed", text=str(e)[:300])
     threading.Thread(target=go, daemon=True).start()
     return {"ok": True}
+
+
+@route("PATCH", r"/api/computers/(\d+)")
+def rename_computer(E, h, q, body, cid):
+    name = str(body.get("name") or "").strip()[:40]
+    if not E.store.get("computers", int(cid)):
+        raise HTTPError(404, "That computer isn’t paired any more.")
+    if not name:
+        raise HTTPError(400, "Give it a name first.")
+    E.store.update("computers", int(cid), name=name, renamed=True)
+    return {"ok": True, "name": name}
 
 
 @route("DELETE", r"/api/computers/(\d+)")
@@ -1446,7 +1469,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):  # other devices sign in with the pairing code instead
             html = (UI / "index.html").read_text(encoding="utf-8").replace("__INKY_TOKEN__", self.engine.token if self._local() else "")
             return self._send(200, html.encode(), TYPES[".html"])
-        f = (UI / path.lstrip("/")).resolve()
+        if len(path) > 300 or "\x00" in path:
+            return self._send(404, b"not found", "text/plain")
+        try:
+            f = (UI / path.lstrip("/")).resolve()
+        except (OSError, ValueError):
+            return self._send(404, b"not found", "text/plain")
         if UI.resolve() not in f.parents or not f.is_file():
             return self._send(404, b"not found", "text/plain")
         return self._send(200, f.read_bytes(), TYPES.get(f.suffix, "application/octet-stream"))
