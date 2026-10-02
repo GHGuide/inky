@@ -250,6 +250,16 @@ ACCOUNT = re.compile(r"plaats(en)?\s+(een\s+)?(zoekertje|advertentie)|maak\s+(ee
                      r"\blog\s?in\b|\binloggen\b|\bsign\s?(in|up)\b|\bregist(er|reren|rieren)\b|/login|/identity/|/account|AdWizard", re.I)
 
 
+def category_link(page, job):
+    """A link on the page named like what the job is about (“Laptops” for “find laptops under $500”), to another page."""
+    for e in page.get("elements") or []:
+        name = norm(e.get("name"))
+        if e.get("role") == "link" and 3 < len(name) < 30 and not re.match(r"#|javascript:|$", e.get("href") or "") and \
+                urljoin(page["url"], e["href"]).rstrip("/") != page["url"].rstrip("/") and has_word(norm(job), name[:-1] if name.endswith("s") else name):
+            return e
+    return None
+
+
 def home_page(url):
     u = urlparse(url or "")
     return not u.path.strip("/") and not u.query
@@ -353,7 +363,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, doubted = bool(FINDING.search(goal or "")), {}, 0, set()
+    watch, looked, idle, doubted, hinted = bool(FINDING.search(goal or "")), {}, 0, set(), set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -476,6 +486,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             if extract:
                 break
             spec, rows = read_results(ctx, goal, page)
+            cat = category_link(page, f"{goal} {ctx.bot.get('job') or ''}") if rows and len(rows) < 6 and page["url"] not in hinted else None
+            if cat:  # a few featured items next to a link to exactly what the job is about: that link first
+                hinted.add(page["url"])
+                history.append(f"these few look like featured items; “{cat['name']}” on this page is what the job is about: open it")
+                continue
             if rows and on_home and (len(rows) < 6 or page["url"] in doubted):  # a home page's few tiles, or a feed already judged not to fit
                 rows = []
                 history.append("these are the shop's categories or featured items, not results: open the right category or search first")
@@ -523,6 +538,10 @@ def learn(ctx, goal, start_url, max_steps=24):
             continue
         elif el is None:
             history.append(f"element {idx} does not exist")
+            continue
+        if act == "click" and el.get("role") == "link" and not re.match(r"#|javascript:|$", el.get("href") or "") and \
+                urljoin(page["url"], el["href"]).split("#")[0].rstrip("/") == page["url"].split("#")[0].rstrip("/"):
+            history.append("you are already on that page: pick an element on it")  # “Computers” on the Computers page
             continue
         if watch and act in ("click", "goto") and el and not DOING.search(goal or "") and \
                 ACCOUNT.search(f"{el.get('name') or ''} {el.get('href') or ''} {d.get('step') or ''}"):
