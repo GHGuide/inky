@@ -196,6 +196,8 @@ class LearningTest(unittest.TestCase):
         verdict = {e["name"]: classify("click" if e["role"] == "button" else "press", e, page)[0] for e in page["elements"] if e["form"] and e["role"] != "link"}
         self.assertEqual(verdict, {"Search bikes": "ok", "Search": "ok", "User name": "password", "Password": "password", "Log in": "password",
                                    "Newsletter": "irreversible", "Subscribe": "irreversible"})
+        page = self.comp.call("open", self.base + "/contact")  # a contact form is still a contact form, whatever is inside it
+        self.assertEqual(classify("click", next(e for e in page["elements"] if e["name"] == "Continue"), page)[0], "irreversible")
 
     def test_category_links_instead_of_search(self):
         skill, _, _ = self.learned_and_repeats("/cats/", "Find e-bikes", step("click", "E-bikes", label="Open E-bikes"), n=25)

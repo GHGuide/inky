@@ -79,7 +79,7 @@ INDEX_JS = r"""() => {
     const ty = (el.getAttribute('type') || '').toLowerCase();
     // one form around the whole page (ASP.NET): only the controls beside this one count, not a newsletter or sign-in box elsewhere
     let near = f;
-    if (f.querySelector('input[name=__VIEWSTATE], main, header, nav, footer'))
+    if (f.querySelector('input[name=__VIEWSTATE], input[name="javax.faces.ViewState"], main, nav'))  // a contact form's own <header> doesn't count
       for (let g = el.parentElement; g && g !== f; g = g.parentElement)
         if ([...g.querySelectorAll('input:not([type=hidden]), textarea, select, button')].some((x) => x !== el)) { near = g; break; }
     return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!near.querySelector('input[type=password]'),

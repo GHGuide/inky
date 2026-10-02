@@ -191,6 +191,10 @@ class Site(BaseHTTPRequestHandler):
                             (("e-bikes", "E-bikes", 743), ("city", "City bikes", 1210), ("kids", "Kids' bikes", 86), ("racing", "Racing bikes", 312),
                              ("cargo", "Cargo bikes", 97), ("folding", "Folding bikes", 54)))
             return self.send(shell("All bikes", f"<h1>All bikes</h1><ul class='cats'>{items}</ul>"))
+        if p == "/contact":  # a contact form with its own header, and a box to tick beside its button
+            return self.send(shell("Contact", '<form method="post" action="/sent"><header><h2>Write to the seller</h2></header>'
+                                              '<label for="msg">Message</label><textarea id="msg" name="msg"></textarea>'
+                                              '<div class="actions"><label><input type="checkbox" name="ok"> I agree</label><button type="submit">Continue</button></div></form>'))
         if p == "/members":
             return self.send("", 302, headers=[("Location", "/login")])
         if p == "/login":
