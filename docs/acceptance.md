@@ -94,7 +94,7 @@ Connectors are secondary (vision.md). Each one shown in the app must pass all of
 3. Sidebar: New bot, your bots, Needs you, More. A bot opens on Found; tabs are Found, Watch, Settings, More. *(U `test_ui_wizard`)*
 4. Every empty screen says what will appear there and offers one next step. No dead ends: every screen has a way back. *(M)*
 5. Every error is one sentence saying what happened and what to do, with a button when there's a fix. No stack traces, no codes. *(M)*
-6. Layout: one spacing scale, one radius, one type scale; nothing overlaps or overflows at 375 px, 1024 px and 1440 px. *(J `newuser` phone width, M)* A dark theme isn't built yet: the colours are tokens on `:root`, but about 150 places still use fixed colours.
+6. Layout: one spacing scale, one radius, one type scale; nothing overlaps or overflows at 375 px, 1024 px and 1440 px, in light and dark (System, Light or Dark in Settings → About). *(J `newuser` phone width, M)*
 7. Contrast meets WCAG AA; every control is reachable by keyboard with a visible focus ring; motion is calm and respects "reduce motion". *(M)*
 8. No page errors in the console on any screen. *(J `newuser`)*
 9. Loading states show within 200 ms; nothing jumps when data arrives. *(M)*

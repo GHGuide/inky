@@ -1,7 +1,7 @@
 # Logo sources
 
 Official brand marks, used unmodified and only to show which service a connector or model provider is.
-Trademarks belong to their owners. Simple Icons files are CC0; the brand colour is applied by the app (from Simple Icons' data).
+Trademarks belong to their owners. Simple Icons files are CC0 and Lobe Icons files are MIT; the brand colour is applied by the app.
 
 | File | Source | Licence / terms |
 |---|---|---|
@@ -15,11 +15,11 @@ Trademarks belong to their owners. Simple Icons files are CC0; the brand colour 
 | mistral.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mistralai.svg | CC0 (Simple Icons), Mistral AI trademark |
 | github.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/github.svg | CC0 (Simple Icons), GitHub trademark |
 | docker.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/docker.svg | CC0 (Simple Icons), Docker trademark |
-| linux.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/linux.svg | CC0 (Simple Icons), Linux Foundation trademark |
+| linux.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/linux.svg | CC0 (Simple Icons); Linux is a trademark of Linus Torvalds |
 | tailscale.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/tailscale.svg | CC0 (Simple Icons), Tailscale trademark |
 | apple.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/apple.svg | CC0 (Simple Icons), Apple trademark |
 | windows.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/windows.svg | CC0 (Simple Icons), Microsoft trademark |
-| xai.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/x.svg | CC0 (Simple Icons), X / xAI trademark |
+| xai.svg | https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.95.1/icons/xai.svg | MIT (Lobe Icons, lobehub/lobe-icons), xAI trademark |
 | openrouter.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openrouter.svg | CC0 (Simple Icons), OpenRouter trademark |
 | lmstudio.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/lmstudio.svg | CC0 (Simple Icons), LM Studio trademark |
 | mcp.svg | https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/modelcontextprotocol.svg | CC0 (Simple Icons), Model Context Protocol |

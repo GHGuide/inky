@@ -65,6 +65,15 @@
           "inky"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU1NkJGOUZGQ0U1OTk4RjMKUldUem1Gbk8vL2xyNVd2eFBieVB6emtDSjlSU0lxcHhVTmFtRzk5am5ucys5dEh3UjA3NkxkaFcK",
+      "endpoints": [
+        "https://github.com/GHGuide/inky/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

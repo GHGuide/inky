@@ -71,11 +71,11 @@ The app should feel calm and obvious to someone who has never used it.
 - **Errors are one sentence** (what happened and what to do) with a button when there's a fix. No codes, no stack traces.
 - **Consistency:** one spacing scale, one corner radius, one type scale, the same button styles everywhere. Reuse the existing CSS classes in `app.css`, `pages.css`, `forms.css` and `bot.css` before adding new ones.
 - **Real brand logos** for every service (in `inky/ui/logos`). Never generic or AI-looking pictures.
-- **Works everywhere:** 375 px (phone) to 1440 px, keyboard only with a visible focus ring, WCAG AA contrast, motion that respects "reduce motion". New colours go in the tokens on `:root` in `app.css`, never as fixed values, so a dark theme stays possible.
+- **Works everywhere:** 375 px (phone) to 1440 px, light and dark, keyboard only with a visible focus ring, WCAG AA contrast, motion that respects "reduce motion". Colours are tokens on `:root` in `app.css` (with a dark set below them); never write a fixed colour, or dark mode breaks.
 - **Fast feel:** something visible within 200 ms of a click; nothing jumps when data arrives; long jobs show one progress line that updates.
 - **Remove before you add.** If a screen is confusing, first try taking something away.
 
-Check every UI change in the browser at phone and desktop width, with no console errors, and take a screenshot as proof.
+Check every UI change in the browser at phone and desktop width, in light and dark, with no console errors, and take a screenshot as proof.
 
 ## 6. Connectors
 

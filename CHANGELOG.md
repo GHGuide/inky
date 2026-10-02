@@ -19,10 +19,15 @@ The first public release.
 - Alerts in the app, as notifications, and on Telegram, where you can tap an answer to a bot's question.
 - Your own screen (off until you allow it), other computers and servers (pair link, code, SSH, `install.sh`, Docker), connectors (Claude Code, Codex, n8n, Apify, any MCP server), Inky as an MCP server, sharing bots by link and the public library.
 - Desktop app for macOS (Apple Silicon and Intel), Windows and Linux, built in public with provenance and SHA256SUMS.
+- Updates inside the app: signed, checked a few seconds after it opens and every six hours, one click to restart into the new version.
+- Light and dark, following your system or your choice in Settings → About.
 
 ### Security
 - Strict Content-Security-Policy on the app's page; fonts bundled, so opening the app makes no outside request.
 - Token checks are constant-time; the pairing code is made from a hash of the token.
+
+### Fixed
+- A first launch no longer waits about 30 seconds on macOS: starting the engine doesn't look up the computer's own name any more.
 
 [Unreleased]: https://github.com/GHGuide/inky/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/GHGuide/inky/releases/tag/v0.1.0

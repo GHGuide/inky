@@ -396,7 +396,7 @@ VIEWS.bots = {
       const m = botMeta(b);
       const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
       const said = b.status === "moved" ? m.meta : (STATUS[b.status] || [b.status.replace("_", " ")])[0];  // the line under it says this already
-      const mid = b.status === "needs_you" || (b.status === "moved" && b.needs) ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:#F3C9BC"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
+      const mid = b.status === "needs_you" || (b.status === "moved" && b.needs) ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:var(--coral-line)"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
         : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
           : b.found && b.top && b.top.length ? `<div class="card panel cfound"><span class="small" style="font-weight:600">${nWord(b.found, "thing")} found${b.fresh ? ` · <span style="color:var(--coral-t)">${b.fresh} new</span>` : ""}</span>${b.top.map((t) => `<span class="small clip1">${esc(t.title)}${t.price ? ` <b>${esc(t.price)}</b>` : ""}</span>`).join("")}</div>`
           : `<div class="thumb idle">${esc(b.remote_id ? `runs on ${b.remote || "your server"}` : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
@@ -708,7 +708,7 @@ VIEWS.bot = {
       <section class="chatcol" aria-label="Conversation"><div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Messages with ${esc(b.name)}"></div>
         <div class="chatlive hidden" id="chatlive" role="status"></div>
         <div class="chatin"><div class="chatbox"><label class="vh" for="say">Message ${esc(b.name)}</label><input id="say" placeholder="Message ${esc(b.name)}…" autocomplete="off">
-        <div class="between"><span class="small muted">Ask what it found, or tell it what to change: “only under €500”, “every hour”, “pause”</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:#fff;border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section></div></div>`;
+        <div class="between"><span class="small muted">Ask what it found, or tell it what to change: “only under €500”, “every hour”, “pause”</span><span class="row"><a class="iconbtn" href="#/bot/${b.id}/call" aria-label="Call">${icon("mic")}</a><button class="iconbtn" id="send" style="background:var(--ink);color:var(--on-ink);border:0" aria-label="Send">${icon("send", 17, 2.2)}</button></span></div></div></div></section></div></div>`;
     $(".skipchat", el).onclick = (e) => { e.preventDefault(); if (onPhone()) this.go("chat"); $("#say").focus(); };  // before the tabs' own click: on a computer, chat isn't a tab
     const nav = $(".tabs", el), fade = () => { nav.classList.toggle("fr", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4); nav.classList.toggle("fl", nav.scrollLeft > 4); };
     nav.onscroll = fade;
@@ -2622,8 +2622,14 @@ VIEWS.settings = {
           <span class="small muted">Everything stays on your computers. There is no Inky server. Data folder: <span class="mono">${esc(s.data_folder || "~/.inky")}</span></span></div>
         <div class="card"><b>Notifications</b>${tog("notify_app", s.notify_app !== false, "In this app")}${tog("sounds", s.sounds !== false, "Sounds (each bot has its own)")}${APP ? tog("buddy", s.buddy !== false, "Desktop buddy: a critter peeks in when a bot needs you") + `<div class="between"><span>Open Inky when you log in</span><button class="toggle" id="autost" role="switch" aria-checked="false" aria-label="Open Inky when you log in"></button></div>` : ""}${tog("telegram", s.telegram.enabled, "On Telegram")}${field("chat", "Telegram chat id", s.telegram.chat_id || "", 'inputmode="numeric"')}
           <div class="between"><span>Bots on your screen</span><button class="toggle ${s.screen_allowed ? "on" : ""}" data-t="screen_allowed" role="switch" aria-checked="${!!s.screen_allowed}" aria-label="Bots on your screen"></button></div></div>
-        <div class="card"><b>About</b><div class="between"><span>Inky 0.1.0</span><span class="small muted">open source · MIT</span></div>${field("en", "This computer’s name", String(s.engine_name || "").trim() || S.engine || "", 'maxlength="40"')}${field("un", "What should bots call you?", s.user_name || "", 'maxlength="40" placeholder="your name"')}
-          <div class="row wrap"><a class="btn s" href="https://github.com/GHGuide/inky" target="_blank" rel="noopener">Read the code ↗</a><a class="btn s" href="#/setup/1">Run setup again</a></div><span class="small muted">Inky ${esc(S.settings.version || "")}</span></div></div></div>`;
+        <div class="card"><b>About</b><div class="between"><span>Inky ${esc(s.version || "")}</span><span class="small muted">open source · MIT</span></div>
+          <div class="between"><span id="themel">Appearance</span><span class="seg" role="group" aria-labelledby="themel">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, t]) => `<button type="button" data-theme="${v}" aria-pressed="${(s.theme || "system") === v}" class="${(s.theme || "system") === v ? "on" : ""}">${t}</button>`).join("")}</span></div>${field("en", "This computer’s name", String(s.engine_name || "").trim() || S.engine || "", 'maxlength="40"')}${field("un", "What should bots call you?", s.user_name || "", 'maxlength="40" placeholder="your name"')}
+          <div class="row wrap"><a class="btn s" href="https://github.com/GHGuide/inky" target="_blank" rel="noopener">Read the code ↗</a><a class="btn s" href="#/setup/1">Run setup again</a></div></div></div></div>`;
+    $$("button[data-theme]", this.el).forEach((x) => (x.onclick = async () => {
+      applyTheme(x.dataset.theme);
+      $$("button[data-theme]", this.el).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); });
+      try { S.settings = await post("/api/settings", { theme: x.dataset.theme }); } catch (e) { toast(e.message); }
+    }));
     $$("[data-t]", this.el).forEach((x) => (x.onclick = async () => {  // shows the new state at once, and goes back if the engine says no
       if (x.dataset.busy) return;
       const k = x.dataset.t, on = !x.classList.contains("on"), set = (v) => { x.classList.toggle("on", v); x.setAttribute("aria-checked", v); };

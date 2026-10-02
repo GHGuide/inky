@@ -23,6 +23,9 @@
     "allow-buddy-snooze",
     "allow-autostart",
     "allow-app-info",
-    "allow-open-url"
+    "allow-open-url",
+    "updater:default",
+    "allow-check-update",
+    "allow-install-update"
   ]
 }

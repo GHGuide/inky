@@ -98,7 +98,8 @@ def suggestion(bot, nm):
 
 def morning_paper(store, bot, now):
     r = recap(store, now - DAY, bot["id"])[0]
-    lines = [f"Good morning! Since yesterday: {r['runs']} runs, {r['results']} results checked, {r['new']} new."]
+    n = lambda k, w: f"{r[k]} {w}{'' if r[k] == 1 else 's'}"
+    lines = [f"Good morning! Since yesterday: {n('runs', 'run')}, {n('results', 'result')} checked, {r['new']} new."]
     results = [x for x in store.find("results", bot_id=bot["id"], limit=2000) if x["ts"] >= now - 7 * DAY]
     t = trend(store.find("results", bot_id=bot["id"], limit=2000), "price", now)
     if t and abs(t["pct"]) >= 2:

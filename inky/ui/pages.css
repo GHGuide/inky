@@ -60,7 +60,7 @@
 .needrow{align-items:flex-start;gap:28px}
 .needside{flex:0 1 330px;min-width:240px}
 .need .between,.need .between>.row{flex-wrap:nowrap;align-items:flex-start}.need .between>.mono{flex-shrink:0;white-space:nowrap}.need .between svg{flex-shrink:0}.nwho{min-width:0;overflow-wrap:anywhere;padding-top:2px}
-.need .btn.chosen,.need .btn.chosen:disabled{background:var(--ink);color:#fff;border-color:var(--ink);opacity:1}
+.need .btn.chosen,.need .btn.chosen:disabled{background:var(--ink);color:var(--on-ink);border-color:var(--ink);opacity:1}
 @media (max-width:1100px){.needrow{flex-wrap:wrap}.needside{flex:1 1 100%}}
 
 /* activity */

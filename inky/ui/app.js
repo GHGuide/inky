@@ -193,6 +193,7 @@ async function loadState() {
   if (knockFor && S.settings && st.needs > S.needs) { SOUND.play("knock", knockFor); appNotify(knockFor, `${knockFor.name} needs you`, "Open Inky to decide.", "#/needs"); }
   knockFor = null;
   Object.assign(S, { bots: st.bots, needs: st.needs, settings: st.settings, pair: st.pair_code, today: st.today, engine: st.engine, setupDone: st.setup_done, engineId: st.engine_id || S.engineId, thinking: st.thinking || [] });
+  if ((st.settings.theme || "system") !== (document.documentElement.dataset.theme || "system")) applyTheme(st.settings.theme);
   renderNav();
   if (APP && !BAR && !BUDDY) invoke("tray", { needs: S.needs, bots: S.bots.map((b) => ({ id: b.id, name: b.name, status: b.status })), buddy: S.settings.buddy !== false });
   if (BUDDY) drawBuddy();
@@ -203,6 +204,35 @@ function appNotify(bot, title, body, hash) {
   if (!APP || BAR || BUDDY || (document.hasFocus() && !document.hidden) || S.settings.notify_app === false) return;
   if (bot && inQuiet(bot.schedule, new Date())) return;
   invoke("notify", { title, body, hash });
+}
+
+// light, dark, or the system's choice (Settings → About)
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem("inkyTheme", t || "system"); } catch (e) {}  // so the next start draws in the right colours at once
+}
+try { applyTheme(localStorage.getItem("inkyTheme")); } catch (e) {}
+
+// updates: the app checks the latest GitHub release (signed) a little after it opens and every 6 hours, and offers it
+function watchUpdates() {
+  if (!APP || BAR || BUDDY) return;
+  const check = async () => { const v = await invoke("check_update"); if (v) showUpdate(v); };
+  setTimeout(check, 8000);
+  setInterval(check, 6 * 3600 * 1000);
+}
+function showUpdate(v) {
+  if ($("#updatebar")) return;
+  const bar = document.createElement("div");
+  bar.id = "updatebar"; bar.className = "updatebar"; bar.setAttribute("role", "status");
+  bar.innerHTML = `<span>Inky ${esc(v)} is ready.</span><button class="btn s p" id="updgo">Restart to update</button><button class="btn s" id="updlater">Later</button>`;
+  document.body.appendChild(bar);
+  $("#updlater").onclick = () => bar.remove();
+  $("#updgo").onclick = async () => {
+    busyBtn($("#updgo"), true, "Updating…");
+    try { await window.__TAURI__.core.invoke("install_update"); }  // it restarts when it's done
+    catch (e) { busyBtn($("#updgo"), false); $("#updgo").textContent = "Restart to update"; toast(`Couldn’t update: ${e}`); }
+  };
 }
 
 // "Send me a test": alerts reach you before you rely on them (in the app: the system notification; in a browser: the browser's)
@@ -607,7 +637,7 @@ window.addEventListener("load", async () => {
   listen();
   if (!BAR && !BUDDY && !(await get("/api/setup/browser").catch(() => ({ ready: true }))).ready) return getBrowser();
   if (BUDDY) { document.body.classList.add("buddymode"); window.inkyBuddy = () => loadState(); return drawBuddy(); }
-  if (!BAR) return route();
+  if (!BAR) { watchUpdates(); return route(); }
   document.body.classList.add("bar");
   window.inkyBarOpen = async () => { await loadState(); CMD.sel = 0; openCmd(); return true; };
   openCmd();

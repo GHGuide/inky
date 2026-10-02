@@ -84,6 +84,8 @@ Every installer is built in public by [GitHub Actions](.github/workflows/release
 - **Watch**: its browser, live, while it learns or works. Press **Take over** to use it yourself, or **Show it once** when a site changed.
 - **Settings**: schedule, rules ("Price at most 400", "Mentions remote") and what it may do.
 
+**Light or dark** follows your system, or pick one in Settings → About.
+
 **Chat with it** in plain words: "only keep ones under €500", "check every hour", "what did you find?", "pause". Simple commands work without a model.
 
 <p align="center"><img src="docs/images/home.png" width="49%" alt="Home: describe a job, or pick a ready-made one"> <img src="docs/images/found.png" width="49%" alt="A bot's Found tab: 14 books under £20, each new"></p>
@@ -142,6 +144,8 @@ Or with Docker: `docker build -t inky . && docker run -d -p 8800:8800 -v inky-da
 **Where do I see what it did?** Every bot's chat says what it ran, what it found and what it skipped. More → Activity has the full log.
 
 **Can it log in to sites for me?** No, by design. If a site needs a login, you sign in once yourself in the bot's browser (Watch → Take over), and it keeps that session.
+
+**How does it update?** The app checks for a new version a few seconds after it opens and every six hours, and offers it in a small bar: "Restart to update". Updates are signed, and the app checks that signature before installing.
 
 **Does it keep running when the app is closed?** On your computer, while Inky is open (it can sit in the menu bar or tray). For bots that never sleep, move them to another computer or a server (More → Computers).
 
