@@ -275,6 +275,12 @@ class LearningTest(unittest.TestCase):
             skill, _, out = self.learned_and_repeats(path, "Find e-bikes", n=25)
             self.assertEqual(skill["start_url"], self.base + path)
 
+    def test_broken_address_stops_at_once(self):
+        model = Plan(step("click", "Category 3"))
+        with self.assertRaises(skills.NeedsHelp) as e:
+            skills.learn(Ctx(self.comp, model, "Find e-bikes"), "Find e-bikes", self.base + "/missing")
+        self.assertEqual((e.exception.kind, e.exception.title, model.total), ("learn_failed", "That page doesn’t exist", 0))
+
     def test_slow_page(self):
         t0 = time.time()
         self.learned_and_repeats("/slow", "Find e-bikes", n=25)

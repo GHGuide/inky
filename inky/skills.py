@@ -367,6 +367,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             raise NeedsHelp("blocked", f"{urlparse(page['url']).netloc.removeprefix('www.')} doesn’t let bots in",
                             f"It showed “{short(page.get('title') or (page.get('heads') or ['Access denied'])[0], 60)}”, so I skipped it. Nothing for you to do.")
         u = urlparse(page["url"])
+        if page.get("status") in (404, 410):  # an address that leads nowhere: nothing to learn, and no model needed to see it
+            raise NeedsHelp("learn_failed", "That page doesn’t exist",
+                            f"{u.netloc} says “{short(page.get('title') or 'Not found', 60)}” for {page['url'][:120]}. Check the address, or start on the site’s home page.", ["Try again"])
+        if (page.get("status") or 0) >= 500:
+            raise NeedsHelp("error", f"{u.netloc.removeprefix('www.')} isn’t working right now", f"It answered with an error ({page['status']}).", ["Try again"])
         # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
         on_home = home_page(page["url"]) and not front
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet

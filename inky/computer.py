@@ -380,15 +380,16 @@ class Computer:
     # ---- actions
     def _go(self, page, url):
         """Every navigation a bot makes: only web pages, never Inky itself, even when a site redirects there."""
-        page.goto(safe_url(url), wait_until="domcontentloaded", timeout=45000)
+        resp = page.goto(safe_url(url), wait_until="domcontentloaded", timeout=45000)
         if is_inky(page.url) or page.url.startswith("file:"):
             page.goto("about:blank")
             raise ValueError("That site sent the bot to this computer's own Inky, so it stopped.")
+        return resp
 
     def _open(self, url):
-        self._go(self.page, url)
+        resp = self._go(self.page, url)
         self._settle()
-        return self._elements()
+        return {**self._elements(), "status": resp.status if resp else None}  # 404: the address is wrong
 
     def _elements(self):
         return self.page.evaluate(INDEX_JS)
