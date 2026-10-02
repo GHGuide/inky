@@ -363,10 +363,10 @@ def learn(ctx, goal, start_url, max_steps=24):
 
         def settle_for_page():  # about to give up: if the page already lists real results, those are the job
             nonlocal extract, finished
-            if not watch or extract or (on_home and page["url"] in doubted):
+            if not watch or extract or page["url"] in doubted:
                 return False
             spec, rows = read_results(ctx, goal, comp.call("elements"))
-            if not rows or len(rows) < 6 or (on_home and not fits(ctx, goal, rows)[0]):
+            if not rows or len(rows) < 6 or not fits(ctx, goal, rows)[0]:  # giving up is better than keeping the wrong things
                 return False
             extract = spec
             steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
@@ -422,9 +422,9 @@ def learn(ctx, goal, start_url, max_steps=24):
                     raise
                 except Exception:
                     pass
-        if act == "done" and not extract and FINDING.search(goal or "") and not (on_home and page["url"] in doubted):  # a watch job that never read anything: read the results here, if there are any
+        if act == "done" and not extract and FINDING.search(goal or "") and page["url"] not in doubted:  # a watch job that never read anything: read the results here, if they fit
             spec, rows = read_results(ctx, goal, page)
-            if rows and (not on_home or fits(ctx, goal, rows)[0]):
+            if rows and fits(ctx, goal, rows)[0]:
                 extract = spec
                 steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
                 ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))

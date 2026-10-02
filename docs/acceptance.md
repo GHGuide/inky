@@ -22,7 +22,7 @@ A release ships only when one person can create these five bots from plain sente
 For **each** of the five, all of these hold:
 
 1. **Draft** — the name, job, schedule and rules match the sentence; no made-up rules; numbers only from the sentence (£20, €1500). *(J)*
-2. **Sites** — a site named in the sentence is used as-is; otherwise at least 3 real, reachable sites are suggested and "Check all" learns them one after another with one progress line. *(J)*
+2. **Sites** — a site named in the sentence is used as-is; otherwise at least 3 real, reachable sites are suggested (never a domain for sale) and "Check all" learns them one after another with one progress line. At least 2 are learned; a site that refuses bots or wants a sign-in is skipped with a one-line reason. *(J)*
 3. **Learn** — learning finishes without asking you, in at most 12 AI calls per site, and what it saves reads the right list (titles, and prices when the site shows them), never a home page's featured items. An empty or nameless read is never saved. A suggested site that turns out not to fit gives up by itself within 16 AI calls, says so in one line, and the other sites carry on. *(J)*
 4. **Repeat for free** — the first check after learning uses 0 AI calls and returns the same items. *(J)*
 5. **Correct results** — every item on Found is a real item from that site, with a working link; rules are applied (nothing over £20 / €1500, only AI stories). Spot-check 5 items by opening them. *(M)*

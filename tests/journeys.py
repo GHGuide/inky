@@ -356,7 +356,7 @@ def j_new_user():
 
 FIVE = [  # docs/acceptance.md section A: the release gate
     {"name": "Book Bargains", "say": "Every morning, find books under £20 on books.toscrape.com", "min": 10, "under": 20, "every": 1440},
-    {"name": "E-bike Hunter", "say": "Find second-hand e-bikes under €1500 in the Netherlands", "min": 5, "under": 1500, "sites": 3},
+    {"name": "E-bike Hunter", "say": "Find second-hand e-bikes under €1500 in the Netherlands", "min": 5, "under": 1500, "sites": 2},  # of up to 4: some refuse bots or want a sign-in
     {"name": "Python Jobs", "say": "Tell me about new remote Python jobs on python.org", "min": 3, "word": "remote", "site": "python.org"},
     {"name": "HN Watch", "say": "Every hour, tell me new Hacker News front page stories about AI", "min": 1, "every": 60, "word": "ai", "site": "news.ycombinator.com"},
     {"name": "Contact Form", "say": "Send the message 'Is the flat still free?' through the contact form on http://127.0.0.1:8766/contact?id=1", "do": True},
