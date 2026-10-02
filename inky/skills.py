@@ -372,6 +372,11 @@ def learn(ctx, goal, start_url, max_steps=24):
                             f"{u.netloc} says “{short(page.get('title') or 'Not found', 60)}” for {page['url'][:120]}. Check the address, or start on the site’s home page.", ["Try again"])
         if (page.get("status") or 0) >= 500:
             raise NeedsHelp("error", f"{u.netloc.removeprefix('www.')} isn’t working right now", f"It answered with an error ({page['status']}).", ["Try again"])
+        if not steps and page.get("pw") and len(page.get("elements") or []) < 40 and \
+                sum(e.get("role") == "textbox" for e in page["elements"]) <= 1 and not comp.call("lists"):  # a sign-in wall: a name, a password, nothing else
+            raise NeedsHelp("sign_in", f"{u.netloc.removeprefix('www.')} wants you to sign in first",
+                            "Bots never see or type your passwords. Sign in yourself on its computer and it keeps the session, then it learns the site.",
+                            ["Open its computer", "Later"])
         # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
         on_home = home_page(page["url"]) and not front
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet

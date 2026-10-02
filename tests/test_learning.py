@@ -304,6 +304,15 @@ class LearningTest(unittest.TestCase):
                                                  step("click", "E-bikes", label="Open E-bikes"), fits=lambda s: "boys" not in s, n=25)
         self.assertIn("e-bike", out["items"][0]["title"])
 
+    def test_sign_in_wall_stops_and_types_nothing(self):
+        with self.assertRaises(skills.NeedsHelp) as e:
+            self.learn("/members", "Find members' deals", step("fill", "Email", "me@example.com"), step("fill", "Password", "hunter2"),
+                       step("click", "Sign in"))
+        self.assertEqual(e.exception.kind, "sign_in")
+        self.assertIn("sign in", e.exception.title)
+        typed = self.comp.call("extract", {"item": "input", "fields": {"v": "@value"}})
+        self.assertEqual([r["v"] for r in typed], ["", ""])
+
     def test_robot_check_and_bot_refusal_stop_with_no_model(self):
         for path, kind in (("/robot", "robot"), ("/blocked", "blocked")):
             with self.assertRaises(skills.NeedsHelp) as e:
