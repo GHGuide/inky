@@ -75,6 +75,7 @@ function botMeta(b) {
     meta = `next run ${days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, { weekday: "long" })} at ${d.toTimeString().slice(0, 5)}`;
   }
   else if (b.status === "idle" && !b.skills.length) meta = "hasn’t learned yet";
+  else if (b.status === "idle") meta = "runs when you ask";
   else if (b.status === "moved") meta = b.offline ? `${b.remote || "its computer"} isn’t answering` : b.needs ? `needs you · on ${b.remote || "another computer"}` : `on ${b.remote || "another computer"}`;
   if (b.offline) c = "var(--faint)";
   return { meta, color: b.status === "moved" && b.needs && !b.offline ? STATUS.needs_you[1] : c, hot: b.status === "needs_you" || (b.status === "moved" && b.needs > 0) };

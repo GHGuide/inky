@@ -40,7 +40,9 @@ def safe_url(url):
     if is_inky(url):
         raise ValueError("That address is Inky itself. Bots never open it.")
     return url
-SPEED = {"slow": 0.9, "normal": 0.35, "turbo": 0.0}
+# how a bot moves: seconds it points before acting, ms per letter it types (0 = all at once), seconds it rests after a step
+SPEED = {"slow": {"point": 1.2, "type": 110, "rest": 1.0}, "normal": {"point": 0.45, "type": 35, "rest": 0.3},
+         "turbo": {"point": 0.0, "type": 0, "rest": 0.0}}
 
 INDEX_JS = r"""() => {
   const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=tab],[role=checkbox],[role=menuitem],[onclick],[contenteditable=true]';
@@ -390,17 +392,20 @@ class Computer:
                 out.append({**c, "count": len(rows), "rows": rows[:3]})
         return out
 
+    def _speed(self):
+        return SPEED.get(self.look.get("speed", "normal"), SPEED["normal"])
+
     def _settle(self):
         try:
             self.page.wait_for_load_state("domcontentloaded", timeout=8000)
         except Exception:
             pass
-        self.page.wait_for_timeout(250)
+        self.page.wait_for_timeout(250 if self.look.get("speed") != "turbo" else 60)
 
     def _point_at(self, el, step_text):
         if not el:
             return
-        speed = SPEED.get(self.look.get("speed", "normal"), 0.35)
+        speed = self._speed()["point"]
         cx, cy = el["x"] + el["w"] * 0.6, el["y"] + el["h"] * 0.7
         try:  # the overlay is decoration: a page that blocks it must never stop the step
             self.page.evaluate("([x,y,t,s]) => window.__inky && window.__inky.point(x,y,t,s)",
@@ -430,7 +435,17 @@ class Computer:
             if action == "click":
                 loc.click(timeout=10000)
             elif action == "fill":
-                loc.fill(str(value or ""), timeout=10000)
+                sp, text = self._speed(), str(value or "")
+                if sp["type"] and len(text) <= 80 and (el or {}).get("role") in (None, "textbox", "combobox") and (el or {}).get("type") not in ("date", "number", "range", "color", "time"):
+                    loc.fill("", timeout=10000)  # typed letter by letter, so you can follow it
+                    loc.press_sequentially(text, delay=sp["type"], timeout=10000 + len(text) * sp["type"])
+                    try:
+                        if loc.input_value(timeout=2000) != text:
+                            loc.fill(text, timeout=10000)  # a box that reformats as you type: just set it
+                    except Exception:
+                        pass  # not an input (a contenteditable): what it typed stands
+                else:
+                    loc.fill(text, timeout=10000)
             elif action == "select":
                 try:
                     loc.select_option(label=str(value), timeout=5000)
@@ -445,6 +460,8 @@ class Computer:
             else:
                 raise ValueError(f"unknown action {action}")
             self._settle()
+            if self._speed()["rest"]:
+                page.wait_for_timeout(int(self._speed()["rest"] * 1000))
         finally:
             try:
                 page.wait_for_timeout(150)

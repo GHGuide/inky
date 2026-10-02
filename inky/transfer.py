@@ -21,9 +21,15 @@ def pair_code(token):
 
 
 def engine_id(engine):
-    """A stable id for an engine that reveals nothing about its token."""
+    """A stable id for an engine that reveals nothing about its token. Kept once made: a new main key keeps the same id."""
     import hashlib
-    return hashlib.sha256(("inky-engine:" + engine.token).encode()).hexdigest()[:16]
+    store = getattr(engine, "store", None)
+    eid = store.setting("engine_id") if store else None
+    if not eid:
+        eid = hashlib.sha256(("inky-engine:" + engine.token).encode()).hexdigest()[:16]
+        if store:
+            store.set_setting("engine_id", eid)
+    return eid
 
 
 def shareable(bot):
@@ -163,14 +169,15 @@ class Remote:
         return r.json()
 
 
-def pair(url, code):
+def pair(url, code, me=None):
+    """me: what this computer is called, so the other one can list (and revoke) it."""
     url = url.rstrip("/")
     try:  # is it an Inky at all?
         ping = httpx.get(url + "/api/ping", timeout=8).json()
         assert ping.get("ok")
     except (ValueError, AssertionError, AttributeError):
         raise ValueError(f"{url} answered, but it isn’t an Inky.")
-    r = httpx.post(url + "/api/pair", json={"code": (code or "").strip().upper()}, timeout=15)
+    r = httpx.post(url + "/api/pair", json={"code": (code or "").strip().upper(), "name": me}, timeout=15)
     if r.status_code == 429:
         raise ValueError("Too many tries. Wait a minute, then type the code again.")
     if r.status_code != 200:

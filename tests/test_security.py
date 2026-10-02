@@ -110,6 +110,28 @@ class SecurityTest(unittest.TestCase):
             self.assertEqual(code, 400, route)
             self.assertIn("your yes", r["error"])
 
+    def test_signing_out_older_pairings_keeps_who_this_computer_is(self):
+        import json
+        from inky import transfer
+        E = make_engine()  # its own engine: the key changes
+        srv = serve(E, port=0)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url, old, eid = f"http://127.0.0.1:{srv.server_port}", E.token, transfer.engine_id(E)
+        try:
+            req = lambda tok, body: urllib.request.Request(url + "/api/peers/reset", method="POST", data=json.dumps(body).encode(),
+                                                           headers={"X-Inky-Token": tok, "Content-Type": "application/json"})
+            with self.assertRaises(urllib.error.HTTPError):  # needs the yes the app asks for
+                urllib.request.urlopen(req(old, {}))
+            urllib.request.urlopen(req(old, {"confirm": True}))
+            self.assertNotEqual(E.token, old)
+            self.assertEqual((E.home / "api_token").read_text(), E.token)
+            self.assertEqual(transfer.engine_id(E), eid)  # bots that moved still know it
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(urllib.request.Request(url + "/api/bots", headers={"X-Inky-Token": old}))
+        finally:
+            srv.shutdown()
+            E.close()
+
 
 if __name__ == "__main__":
     unittest.main()

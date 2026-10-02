@@ -251,7 +251,15 @@ class ServerMCPTransferTest(unittest.TestCase):
         self.assertIn(self.A.token, local)
         rebound = urllib.request.urlopen(urllib.request.Request(self.ua + "/", headers={"Host": "evil.example:8800"})).read().decode()
         self.assertNotIn(self.A.token, rebound)
-        self.assertEqual(self.api(self.ua, "", "POST", "/api/pair", {"code": transfer.pair_code(self.A.token)})["token"], self.A.token)
+        # pairing gives that device its own key (never this computer's main one), which can be signed out
+        tok = self.api(self.ua, "", "POST", "/api/pair", {"code": transfer.pair_code(self.A.token), "name": "Test laptop"})["token"]
+        self.assertNotEqual(tok, self.A.token)
+        self.assertIn("bots", self.api(self.ua, tok, "GET", "/api/bots"))
+        peer = next(p for p in self.api(self.ua, self.A.token, "GET", "/api/peers")["peers"] if p["name"] == "Test laptop")
+        self.api(self.ua, self.A.token, "DELETE", f"/api/peers/{peer['id']}")
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self.api(self.ua, tok, "GET", "/api/bots")
+        self.assertEqual(e.exception.code, 401)
 
     def test_inky_mcp_server_and_move(self):
         A = self.A

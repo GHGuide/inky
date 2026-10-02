@@ -86,10 +86,56 @@ def pair_route(E, h, q, body):
     PAIR_TRIES[:] = [(t, a) for t, a in PAIR_TRIES if now - t < 60]
     if sum(1 for _, a in PAIR_TRIES if a == ip) >= 5 or len(PAIR_TRIES) >= 60:
         raise HTTPError(429, "too many tries, wait a minute")
-    if (body.get("code") or "").upper() != transfer.pair_code(E.token):
+    if str(body.get("code") or "").upper() != transfer.pair_code(E.token):
         PAIR_TRIES.append((now, ip))
         raise HTTPError(403, "wrong code")
-    return {"token": E.token, "name": E.store.setting("engine_name", platform.node())}
+    # its own key, not this computer's: you can see who paired and sign each one out on its own
+    import secrets
+    token = "p-" + secrets.token_urlsafe(24)
+    ua = (h.headers.get("User-Agent") or "") if h else ""
+    who = str(body.get("name") or "").strip()[:60] or ("A phone" if re.search(r"iPhone|Android|Mobile", ua) else "A browser")
+    peers = E.store.setting("peers", []) or []
+    E.store.set_setting("peers", peers + [{"id": secrets.token_hex(4), "name": who, "hash": peer_hash(token), "since": now, "seen": now, "ip": ip}])
+    return {"token": token, "name": E.store.setting("engine_name", platform.node())}
+
+
+def peer_hash(token):
+    import hashlib
+    return hashlib.sha256(("inky-peer:" + token).encode()).hexdigest()
+
+
+@route("GET", "/api/peers")
+def peers_list(E, h, q, body):
+    """Computers, phones and browsers that paired with this one: each can be signed out."""
+    return {"peers": [{k: p.get(k) for k in ("id", "name", "since", "seen")} for p in E.store.setting("peers", []) or []]}
+
+
+@route("DELETE", r"/api/peers/([0-9a-f]+)")
+def peer_remove(E, h, q, body, pid):
+    peers = E.store.setting("peers", []) or []
+    if not any(p["id"] == pid for p in peers):
+        raise HTTPError(404, "Already signed out.")
+    E.store.set_setting("peers", [p for p in peers if p["id"] != pid])
+    return {"ok": True}
+
+
+@route("POST", "/api/peers/reset")
+def peers_reset(E, h, q, body):
+    """A new main key: signs out every pairing made before each had its own key (Inky 0.1.0), and a new pairing code.
+    Who this computer is (its engine id) stays, so bots that moved keep working."""
+    if body.get("confirm") is not True:
+        raise HTTPError(400, "Signing everyone out needs your yes in the app.")
+    import secrets
+    transfer.engine_id(E)  # kept before the key changes
+    E.token = secrets.token_urlsafe(24)
+    tok = E.home / "api_token"
+    tok.write_text(E.token)
+    tok.chmod(0o600)
+    E.store.set_setting("peers", [])
+    n8n = E.store.setting("n8n", {}) or {}
+    if n8n.get("cred_id"):  # its saved copy of the key is the old one: made again on the next send
+        E.store.set_setting("n8n", {**n8n, "cred_id": None})
+    return {"ok": True, "pair_code": transfer.pair_code(E.token)}
 
 
 @route("GET", "/api/state")
@@ -409,6 +455,10 @@ def import_skill(E, h, q, body, bid):
     if "max_pages" in s:  # a file can't make it read a billion pages
         s["max_pages"] = max(1, min(int(s["max_pages"]) if str(s["max_pages"]).isdigit() else 3, 20))
     s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in steps]  # someone else's yes isn't yours: it asks again
+    same = lambda x: x.get("start_url") == s.get("start_url") and [(a.get("action"), a.get("value"), a.get("target")) for a in x.get("steps") or []] == \
+        [(a.get("action"), a.get("value"), a.get("target")) for a in s["steps"]]
+    if any(same(x) for x in E.store.find("skills", bot_id=int(bid))):
+        raise HTTPError(400, "It already has that site.")
     sid = E.store.insert("skills", s, bot_id=int(bid), status="ok")
     E.bus.publish("bots")  # the sidebar stops saying it hasn't learned yet
     return {"skill": E.store.get("skills", sid)}
@@ -718,10 +768,19 @@ def start_local(E, h, q, body):
 @route("POST", "/api/models/custom")
 def custom(E, h, q, body):
     base = (body.get("base") or "").strip().rstrip("/")
+    if re.match(r"^[a-z][a-z0-9+.-]*:(?!\d)", base, re.I) and not re.match(r"^https?://", base, re.I):
+        raise HTTPError(400, "That isn’t a server address. It looks like http://127.0.0.1:1234/v1")  # javascript:, ftp:…
     if base and "://" not in base:
         base = "http://" + base
-    if not re.match(r"^https?://[^\s/]+(/\S*)?$", base):
+    u = urlparse(base)
+    try:
+        u.port
+    except ValueError:
         raise HTTPError(400, "That isn’t a server address. It looks like http://127.0.0.1:1234/v1")
+    if not re.match(r"^https?://[^\s/]+(/\S*)?$", base) or not u.hostname or not re.fullmatch(r"[A-Za-z0-9.-]+|[0-9a-fA-F:]+", u.hostname):
+        raise HTTPError(400, "That isn’t a server address. It looks like http://127.0.0.1:1234/v1")
+    if u.path in ("", "/"):  # OpenAI-style servers (LM Studio, llama.cpp, vLLM) answer under /v1
+        base += "/v1"
     E.store.set_setting("custom_provider", {"base": base})
     return {"ok": True, "base": base, "reachable": E.llm.local_status()["custom"]["reachable"]}
 
@@ -1115,8 +1174,14 @@ def add_computer(E, h, q, body):
         if not url.startswith(("http://", "https://")):
             url = "http://" + url
         u = urlparse(url)
-        host = f"[{u.hostname}]" if u.hostname and ":" in u.hostname else u.hostname
-        url = f"{u.scheme}://{host}:{u.port or 8800}" if host else url  # just the server, not a page on it
+        try:
+            port = u.port
+        except ValueError:  # "javascript:alert(1)", ":99999"
+            raise ValueError("That isn’t an address. It looks like 192.168.1.20:8800 or a pair link.")
+        if not u.hostname or not re.fullmatch(r"[A-Za-z0-9.-]+|[0-9a-fA-F:]+", u.hostname) or u.hostname.startswith((".", "-")):
+            raise ValueError("That isn’t an address. It looks like 192.168.1.20:8800 or a pair link.")
+        host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+        url = f"{u.scheme}://{host}" + (f":{port}" if port else "" if u.scheme == "https" else ":8800")  # just the server, not a page on it
         cid = connect.pair_and_save(E, url, code)
     except ValueError as e:
         raise HTTPError(400, str(e))
@@ -1262,7 +1327,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authed(self, q):
         t = self.headers.get("X-Inky-Token") or q.get("t") or ""
-        return hmac.compare_digest(t.encode(), self.engine.token.encode())
+        if hmac.compare_digest(t.encode(), self.engine.token.encode()):
+            return True
+        if not t.startswith("p-"):
+            return False
+        E, hx = self.engine, peer_hash(t)  # a paired device's own key
+        peers = E.store.setting("peers", []) or []
+        p = next((p for p in peers if hmac.compare_digest(p.get("hash", ""), hx)), None)
+        if p and time.time() - (p.get("seen") or 0) > 300:  # when it last called, for the list (not on every call)
+            p["seen"] = time.time()
+            E.store.set_setting("peers", peers)
+        return bool(p)
 
     def do_GET(self):
         self._handle("GET")

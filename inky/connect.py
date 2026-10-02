@@ -43,16 +43,16 @@ def parse_pair_link(link):
 
 
 def pair_and_save(E, url, code):
-    token, name = transfer.pair(url, code)
     try:
         eid = httpx.get(url.rstrip("/") + "/api/ping", timeout=8).json().get("id")
     except (httpx.HTTPError, ValueError):
         eid = None
-    if token == getattr(E, "token", None):
+    if eid and eid == transfer.engine_id(E):
         raise ValueError("That’s this computer. Pair another one.")
+    token, name = transfer.pair(url, code, me=E.store.setting("engine_name", None) or __import__("platform").node())
     for c in E.store.find("computers"):
-        if c.get("token") == token:  # the same server again (maybe by another address): refresh it
-            E.store.update("computers", c["id"], url=url.rstrip("/"), name=name, engine_id=eid)
+        if (eid and c.get("engine_id") == eid) or c.get("token") == token:  # the same server again (maybe by another address): refresh it
+            E.store.update("computers", c["id"], url=url.rstrip("/"), name=name, engine_id=eid, token=token)
             return c["id"]
     return E.store.insert("computers", {"name": name, "url": url.rstrip("/"), "token": token, "engine_id": eid})
 

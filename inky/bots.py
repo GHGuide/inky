@@ -609,6 +609,8 @@ class Engine:
         said = lambda f: {**f, "value": [v for v in f["value"] if stated({**f, "value": v}, job)]} if isinstance(f.get("value"), list) else f
         d["filters"] = [f for f in (said(f) for f in d.get("filters") or [] if isinstance(f, dict)) if stated(f, job)]  # a rule you never said (“wholesale is true”) isn't yours
         d["search"] = [q for q in d.get("search") or [] if isinstance(q, str) and q.strip()][:3] or [d.get("goal") or job]
+        if re.search(r"\b(buy|order|purchase|pay|check ?out|book (it|a|the))\b", job, re.I) and not d.get("notice"):  # said up front, not after
+            d["notice"] = "Bots never buy or pay. This one can watch for it and tell you, and asks before anything it can’t undo."
         return d
 
     def create_bot(self, d):
@@ -642,12 +644,18 @@ class Engine:
         b = self.store.get("bots", bid)
         allowed = {"name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "memory", "schedule", "automations", "mode", "computer", "persona"}
         patch = {k: v for k, v in patch.items() if k in allowed}
+        if "name" in patch:
+            patch["name"] = str(patch["name"] or "").strip()[:40] or b["name"]
+            if any(o["id"] != bid and o["name"].lower() == patch["name"].lower() for o in self.store.find("bots")):
+                raise ValueError(f"You already have a bot called {patch['name']}. Pick another name.")
         if patch.get("mode") == "screen" and not self.screen_allowed():
             raise ValueError("Bots may not use your screen yet. Turn on “Allow bots on my screen” in Settings first.")
         if "look" in patch:
             patch["look"] = {**b.get("look", {}), **patch["look"]}
         if "schedule" in patch:
             patch["schedule"] = {**(b.get("schedule") or {}), **(patch["schedule"] or {})}
+            if not (patch["schedule"].get("quiet_from") and patch["schedule"].get("quiet_to")):  # half a quiet spell is none
+                patch["schedule"].update(quiet_from=None, quiet_to=None)
             if minutes(patch["schedule"].get("every_minutes")) >= 1440 and not patch["schedule"].get("at"):
                 patch["schedule"]["at"] = "07:30"
             patch["schedule"]["every_minutes"] = minutes(patch["schedule"].get("every_minutes"))
@@ -960,6 +968,12 @@ class Engine:
                 return self._say(bid, said, **({"items": items} if items else {}))
             if (SCREEN_ASK.search(text) or OWN_ASK.search(text)) and (not is_question(text) or POLITE.match(text)):
                 return self._say(bid, self._switch_screen(bid, bool(SCREEN_ASK.search(text))))
+            at = re.match(r"^@(.+)$", text.strip())
+            other = at and next((o for o in sorted(self.store.find("bots"), key=lambda o: -len(o["name"]))
+                                 if o["id"] != bid and at.group(1).lower().startswith(o["name"].lower())), None)
+            if other and at.group(1)[len(other["name"]):].strip():  # “@Flat Checker how many did you send?”: that bot answers, not this one
+                out = self.apply_action(bid, {"type": "ask_bot", "bot": other["name"], "text": at.group(1)[len(other["name"]):].strip(" ,:")})
+                return self._say(bid, f"I asked {other['name']}. Its answer comes back here.", done=[out])
             h = handoff(text)
             if h:  # you named the agent: it goes to that one, with what this bot found
                 return self._handoff(bid, *h)
@@ -992,6 +1006,7 @@ class Engine:
         hist = [m for m in reversed(self.store.find("messages", bot_id=bid, limit=12))]
         saved = len(self.kept(bid, b=b))  # under your rules as they are now
         status = self.bot_view(b)["status"] + (f" · {run.step}" if run and run.step else "") + \
+            (". The user paused your schedule: you only run when they say resume" if b.get("held") else "") + \
             ("" if saved else ". You have NO results yet: never say you found anything." + ("" if sk else " You haven’t learned a site yet."))
         last = next((r for r in self.store.find("runs", bot_id=bid, limit=5) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
         if last:
@@ -1073,6 +1088,8 @@ class Engine:
                 self.store.update("bots", bid, rules=bb.get("rules", []) + ([] if have else [{"kind": "filter", "text": rule}]),
                                   filters=bb.get("filters", []) + ([] if have else [{**f, "text": rule}]))
                 done = [x for x in done if not str(x).startswith("rule:")] + [f"already a rule: {rule}" if have else f"rule: {rule}"]
+            elif rule and not added and any(r.get("text", "").strip().lower() == rule.lower() for r in bb.get("rules", [])):
+                done.append(f"already a rule: {rule}")
             elif rule and not added:  # a small model returned no action: add it anyway
                 self.store.update("bots", bid, rules=bb.get("rules", []) + [{"kind": kind, "text": rule}])
                 done.append(f"rule: {rule}")
@@ -1113,6 +1130,8 @@ class Engine:
             kind = "filter" if a.get("filter") else (a.get("kind") if a.get("kind") in ("own", "ask", "never") else "own")
             if not (a.get("text") or "").strip():
                 raise ValueError("the rule has no words")
+            if any(r.get("text", "").strip().lower() == a["text"].strip().lower() for r in b.get("rules", [])):
+                raise Guard("already a rule")  # said twice, kept once
             rules, filters = b.get("rules", []), b.get("filters", [])
             f = a.get("filter")
             if f and f.get("op") in FLIP and negated(a["text"], f.get("value")):  # a small model reads “skip senior” as “contains senior”
@@ -1775,8 +1794,9 @@ class Engine:
             self.store.update("bots", bid, held=True)
         elif cmd in ("resume", "handback"):
             if run:
-                run.paused.clear()
-                run.takeover = False
+                if not (cmd == "handback" and getattr(run, "was_paused", False)):  # you'd paused it before taking over: still paused
+                    run.paused.clear()
+                run.takeover, run.was_paused = False, False
             if cmd == "resume" and b.get("held"):
                 self.store.update("bots", bid, held=False)
             if cmd == "handback":
@@ -1799,6 +1819,7 @@ class Engine:
             run.paused.clear()
         elif cmd == "takeover":
             if alive:
+                run.was_paused = run.paused.is_set()  # handing back returns it to how you left it
                 run.paused.set()
                 run.takeover = True
             else:
@@ -2116,7 +2137,7 @@ class Engine:
         if not nm:
             return None
         text, chips = insights.suggestion(b, nm)
-        self.store.message(bid, "bot", text + " Want me to widen it?", chips=chips, unprompted=True)
+        self.store.message(bid, "bot", text + " Want me to?", chips=chips, unprompted=True)
         self.bus.publish("messages", bot=bid)
         return chips
 

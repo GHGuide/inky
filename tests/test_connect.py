@@ -56,7 +56,7 @@ class SSHTest(unittest.TestCase):
     def test_setup_pairs_using_the_ssh_host(self):
         E, steps, cid, err, pair = self.run_setup((0, '{"url":"http://10.1.2.3:8800","code":"AB12CD"}', ""))
         self.assertIsNone(err)
-        pair.assert_called_once_with("http://my-vps.example:8800", "AB12CD")  # the private IP it printed may not be reachable
+        self.assertEqual(pair.call_args.args, ("http://my-vps.example:8800", "AB12CD"))  # the private IP it printed may not be reachable
         self.assertEqual(E.store.get("computers", cid)["url"], "http://my-vps.example:8800")
         self.assertEqual([s for s, _ in steps][:2], ["connecting", "installing"])
         self.assertEqual(steps[-1][0], "done")

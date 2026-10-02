@@ -42,6 +42,19 @@ class ComputerTest(unittest.TestCase):
         page = self.c.call("open", self.base + "/captcha")
         self.assertTrue(page["robot"])
 
+    def test_speed_is_really_different(self):
+        import time
+        took = {}
+        for sp in ("turbo", "slow"):
+            self.c.look = {"speed": sp}
+            page = self.c.call("open", self.base + "/")
+            box = next(e for e in page["elements"] if e["role"] == "textbox")
+            t0 = time.time()
+            self.c.call("act", "fill", box["i"], "Bari", el=box)
+            took[sp] = time.time() - t0
+        self.c.look = {"speed": "turbo"}
+        self.assertGreater(took["slow"], took["turbo"] + 1.5, took)  # you can watch a slow bot type; a turbo one just goes
+
     def test_forms_say_what_they_send(self):
         from inky.safety import classify
         page = self.c.call("open", self.base + "/login")

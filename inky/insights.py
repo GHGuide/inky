@@ -68,7 +68,9 @@ def near_misses(items, filters, margin=0.05):
         if miss:
             vs = [parse_num(it[f["field"]]) for it in miss]
             new = nice_up(max(vs), lim) if up else int(min(vs))
-            return {"filter": f, "items": miss, "suggest": new}
+            gain = [it for it in items if not keep(it, f) and all(keep(it, g) for g in others)
+                    and (v := parse_num(it.get(f.get("field")))) is not None and (lim < v <= new if up else new <= v < lim)]
+            return {"filter": f, "items": miss, "suggest": new, "gain": len(gain) or len(miss)}  # what the new limit really lets in
     return None
 
 
@@ -86,13 +88,15 @@ def fmt(v):
 
 def suggestion(bot, nm):
     f = nm["filter"]
-    new_filters = [dict(g, value=nm["suggest"], text=f"{g['field']} {g['op']} {fmt(nm['suggest'])}") if g is f else g
-                   for g in bot.get("filters") or []]
-    n = len(nm["items"])
     raw = str(nm["items"][0].get(f["field"], ""))
     cur = re.match(r"^[^\d-]*", raw).group(0).strip()  # "£36.94" → "£", so the button says "£40"
+    words = {"<": "under", "<=": "at most", ">": "over", ">=": "at least"}
+    new_filters = [dict(g, value=nm["suggest"], text=f"{g['field']} {words.get(g['op'], g['op'])} {cur}{fmt(nm['suggest'])}") if g is f else g
+                   for g in bot.get("filters") or []]
+    n = nm.get("gain") or len(nm["items"])
     word = "Raise" if f["op"] in ("<", "<=") else "Lower"
-    text = f"{n} {'result was' if n == 1 else 'results were'} just outside your {f.get('text') or f['field']} rule."
+    text = (f"{n} more {'result' if n == 1 else 'results'} would pass at {cur}{fmt(nm['suggest'])}: "
+            f"{'it is' if len(nm['items']) == 1 else 'some are'} just outside your “{f.get('text') or f['field']}” rule.")
     return text, [{"label": f"{word} it to {cur}{fmt(nm['suggest'])}", "apply": {"filters": new_filters}}]
 
 
