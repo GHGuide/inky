@@ -429,8 +429,11 @@ def j_five():
                     bad.append(f"{len(found)} found, {len(named)} named")
                 if spec.get("under"):
                     over = [r for r in found if (skills_num(r.get("price")) or 0) > spec["under"]]
+                    unpriced = [r for r in found if skills_num(r.get("price")) is None]
                     if over:
                         bad.append(f"{len(over)} over {spec['under']}: {over[0].get('price')}")
+                    if unpriced:  # a price limit can't vouch for something without a price (a category menu, an ad)
+                        bad.append(f"{len(unpriced)} without a price: {str(unpriced[0].get('title'))[:40]}")
                 if spec.get("word"):
                     from inky.skills import has_word, norm
                     off = [r for r in found if not has_word(norm(str(r.get("text") or r.get("title") or "")), spec["word"])]

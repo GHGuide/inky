@@ -258,6 +258,9 @@ def read_results(ctx, goal, page):
     lists = comp.call("lists")
     if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
         lists = [c for c in lists if c["count"] >= 6]
+    lists = [c for c in lists if not menu_list(c.get("rows") or [])]  # "Elektrische fietsen 743": a category menu with counts
+    if any(f.get("field") == "price" for f in ctx.bot.get("filters") or []) and any(c.get("priced") for c in lists):
+        lists = [c for c in lists if c.get("priced")]  # the job has a price limit: a list without prices can't be checked against it
     if lists:
         pick = 1
         if len(lists) > 1:
@@ -298,7 +301,8 @@ def read_results(ctx, goal, page):
 
 FIT_SYSTEM = """Are these results the kind of thing the goal is about (the right sort of item, from the right category)?
 Ignore prices, limits and how many match a topic: Inky applies the user's rules itself later. Say no only when they are clearly
-a different kind of thing (for example children's bikes when the goal is e-bikes, houses when it is bikes).
+a different kind of thing (for example children's bikes when the goal is e-bikes, houses when it is bikes), or not things at all
+(category names, menu entries, filters with counts like "Ladies' bikes 86").
 Reply with ONE JSON object: {"fits": true|false, "why": "<at most 8 words>"}"""
 
 
@@ -313,6 +317,12 @@ def fits(ctx, goal, rows):
             raise
         return True, ""
     return (d.get("fits") is not False), str(d.get("why") or "")[:80]
+
+
+def menu_list(rows):
+    """Category links with counts ("Elektrische fietsen 743", "Fietsen | Dames 86"), not results."""
+    titles = [str(r.get("title") or "") for r in rows if r.get("title")]
+    return len(titles) >= 3 and not any(r.get("price") for r in rows) and sum(1 for t in titles if re.search(r"(?<![.,:\d])\(?\d{1,6}\)?$", t.strip())) >= 0.6 * len(titles)
 
 
 def named(rows):

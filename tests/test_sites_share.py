@@ -118,6 +118,12 @@ class LearningChecksTest(unittest.TestCase):
         for t in ("Fietsen en Brommers", "Elektrische fietsen", "Zoeken", "Selling price €20", "Volgende"):
             self.assertFalse(ACCOUNT.search(t), t)
 
+    def test_category_menus_with_counts_are_not_results(self):
+        from inky.skills import menu_list
+        self.assertTrue(menu_list([{"title": "Alle zoekertjes"}, {"title": "Elektrische fietsen 743"}, {"title": "Fietsen | Heren | Herenfietsen75"}]))
+        self.assertFalse(menu_list([{"title": "Gazelle C7", "price": "€ 1.249"}, {"title": "Batavus 2"}, {"title": "Sparta 48"}]))  # priced: results
+        self.assertFalse(menu_list([{"title": "Python 3.13 released"}, {"title": "Pi 1.0"}, {"title": "Show HN: a 3D viewer"}]))
+
     def test_word_rules(self):
         from inky import skills
         from inky.bots import stated
