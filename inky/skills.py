@@ -427,9 +427,10 @@ def learn(ctx, goal, start_url, max_steps=24):
                 steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
             finished = True
             return True
-        if idle > 10 and settle_for_page():
+        looping = idle > 3 and len(history) >= 3 and len(set(history[-3:])) == 1  # the same mistake three times running
+        if (idle > 10 or looping) and settle_for_page():
             break
-        if idle > 10:  # ten replies without a new step: it's going round in circles
+        if idle > 10 or looping:  # ten replies without a new step: it's going round in circles
             raise NeedsHelp("learn_failed", "Learning got stuck on this site",
                             f"The model tried for a while on {u.netloc} without getting further. Show it once, or try a smarter model.",
                             ["Show me once", "Try a smarter model", "Try again"])

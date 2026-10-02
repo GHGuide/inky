@@ -270,6 +270,13 @@ class LearningTest(unittest.TestCase):
                                                  step("click", "Laptops", label="Open Laptops"), n=15)
         self.assertEqual(self.texts(skill), ["Open Computers", "Open Laptops", "Read 6 results", "Next page (›)"])
 
+    def test_the_same_mistake_three_times_gives_up_soon(self):
+        model = Plan(step("click", "Computers", tries=99))  # a link to the page it's already on, again and again
+        with self.assertRaises(skills.NeedsHelp) as e:
+            skills.learn(Ctx(self.comp, model, "Find laptops"), "Find laptops", self.base + "/shop/computers")
+        self.assertEqual(e.exception.kind, "learn_failed")
+        self.assertLessEqual(model.total, 5)
+
     # -------------------------------------------------------------- how pages behave
     def test_cookie_banner_over_the_page(self):
         comp = self.computer()
