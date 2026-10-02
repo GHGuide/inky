@@ -46,7 +46,7 @@ Write commit messages that say what changed for the person using the app.
 
 ## Releases
 
-Maintainers bump the version in the five places `scripts/check_versions.py` checks, add a section to [CHANGELOG.md](CHANGELOG.md), and push a tag (`git tag v0.2.0 && git push origin v0.2.0`). [The release workflow](.github/workflows/release.yml) builds every installer into a draft release, which a maintainer checks and publishes.
+Maintainers bump the version in the five places `scripts/check_versions.py` checks, add a section to [CHANGELOG.md](CHANGELOG.md), and push a tag (`git tag v0.2.0 && git push origin v0.2.0`). [The release workflow](.github/workflows/release.yml) builds every installer into a draft release, which a maintainer checks and publishes. The full checklist is in [docs/releasing.md](docs/releasing.md).
 
 ## Code of conduct
 
