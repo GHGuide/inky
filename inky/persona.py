@@ -36,7 +36,7 @@ def prompt_lines(bot, user_name, now, events):
     who = (f"YOUR CHARACTER: {talk}, {mood}. Quirk: {p['quirk']}. Catchphrase (use rarely): \"{p['catchphrase']}\"."
            + (f" In your own words: {p['bio']}" if p["bio"] else "")
            + (" Emoji are fine, at most one." if p["emoji"] else " No emoji."))
-    lines = [who]
+    lines = [who, "Your character shows in how you word a reply, never as extra sentences (no naps, moods or jokes on their own)."]
     if user_name:
         lines.append(f"You call the user {user_name}.")
     lines.append(f"It is {part_of_day(now.hour)} ({now.strftime('%a %H:%M')}).")

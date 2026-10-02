@@ -252,6 +252,12 @@ def every_words(m):
     return unit if n == 1 else f"{n} {unit}s"
 
 
+def card_items(rows, n=3):
+    """The few results a chat message shows as rows: name, price, link."""
+    return [{k: str(v)[:160] for k, v in (("title", r.get("title") or r.get("name") or "Untitled"), ("price", r.get("price")), ("link", r.get("link") or r.get("url"))) if v}
+            for r in rows[:n]]
+
+
 def nres(n, word="result"):
     return f"{n} {word}{'' if n == 1 else 's'}"
 
@@ -339,7 +345,8 @@ Filters: only limits the user actually stated (a price, a size, a place, a word)
 start_url: when the job names a site, by its address or its well-known name, use that site. No question about which website: Inky searches for sites itself."""
 
 CHAT_SYSTEM = """You are {name}, an Inky bot with its own computer (a browser). Your job: {job}.
-Talk {tone}. Keep replies short (1–3 sentences). You can take actions. Reply with ONE JSON object:
+Talk {tone}. Keep replies to one or two short sentences, in the language the user writes in. Answer only what was asked: don't add
+your status, schedule, counts or small talk about yourself unless asked. You can take actions. Reply with ONE JSON object:
 {{"reply": "<what you say>", "actions": [<zero or more actions>]}}
 Actions:
 {{"type":"add_rule","text":"<rule in words>","kind":"own|ask|never","filter":{{"field":..,"op":..,"value":..}} or null}}   (op: < <= > >= == != contains not_contains in not_in; kind ask = ask the user first, never = never do it)
@@ -848,7 +855,7 @@ class Engine:
         what = ", ".join(host(u) for u in urls[:3]) + (f" and {len(urls) - 3} more" if len(urls) > 3 else "") if urls else "it"
         why = plain_error(h.body) if h.body and len(h.body) < 160 else ""
         text = f"{h.title} ({what}){': ' + why.rstrip('.') if why else ''}. I’ll try again on my own {when}; nothing for you to do."
-        self.store.message(bid, "bot", text, handled=True)
+        self.store.message(bid, "bot", text, handled=True, kind="status")
         self.store.event(bid, "handled", text)
         self.bus.publish("messages", bot=bid)
         return None
@@ -945,10 +952,12 @@ class Engine:
             if last and last.get("offers") and not last.get("chips_used") and AFFIRM.match(text):  # “yes” to the button it offered
                 return self._say(bid, self.take_offer(bid, last["id"], 0, said_yes=True))
             if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
-                return self._say(bid, self.recap(bid))
+                said, items = self.recap(bid)
+                return self._say(bid, said, **({"items": items} if items else {}))
             fact = self.facts(bid, text)
             if fact:  # “what's the cheapest?”, “how many did you find?”: from what it found, never a guess
-                return self._say(bid, fact)
+                said, items = fact if isinstance(fact, tuple) else (fact, [])
+                return self._say(bid, said, **({"items": items} if items else {}))
             if (SCREEN_ASK.search(text) or OWN_ASK.search(text)) and (not is_question(text) or POLITE.match(text)):
                 return self._say(bid, self._switch_screen(bid, bool(SCREEN_ASK.search(text))))
             h = handoff(text)
@@ -1223,8 +1232,14 @@ class Engine:
         r = self._say(bid, f"I’ll hand that to {who} as soon as you say yes. Its answer comes back here.")
         return {**r, "actions": [{"type": "delegate", **a}], "done": [f"handing to {server}"]}
 
-    def _say(self, bid, text):
-        self.store.message(bid, "bot", text)
+    def _said_stopped(self, bid):
+        """A run that ends because you stopped it says so once: not again after the chat already said “Stopped.”"""
+        last = next((m for m in self.store.find("messages", bot_id=bid, limit=3) if m["role"] == "bot"), None)
+        if not (last and last["text"].startswith("Stopped") and time.time() - last["ts"] < 30):
+            self.store.message(bid, "bot", "Stopped.", kind="status")
+
+    def _say(self, bid, text, **meta):
+        self.store.message(bid, "bot", text, **meta)
         self.bus.publish("messages", bot=bid)
         return {"reply": text, "actions": [], "done": []}
 
@@ -1302,8 +1317,7 @@ class Engine:
         top = re.search(r"most|priciest|dearest|highest", price.group(0), re.I)
         p, r = (max if top else min)(priced, key=lambda x: x[0])
         name = r.get("title") or r.get("name") or "One"
-        return (f"The {'most expensive' if top else 'cheapest'} of the {nres(len(priced), 'thing')}{rules} is “{name}” at {r.get('price')}."
-                + (f" {r['link']}" if r.get("link") else ""))
+        return f"The {'most expensive' if top else 'cheapest'} of the {nres(len(priced), 'thing')}{rules} is “{name}” at {r.get('price')}.", card_items([r])
 
     def _switch_screen(self, bid, screen):
         """“Work on my screen from now on”: done in code, so it's never claimed and not done."""
@@ -1317,15 +1331,43 @@ class Engine:
         return "Done: from now on I work in a window on your screen." if screen else "Done: from now on I work on my own computer, out of your way."
 
     def recap(self, bid):
-        """What it did, from its own records: the last run, what's next, what waits for you."""
+        """What it did, from its own records, in two short sentences: the last check and what's next. -> (text, newest results)."""
         b = self.store.get("bots", bid)
         v = self.bot_view(b)
         runs = [r for r in self.store.find("runs", bot_id=bid, limit=20) if r.get("status") != "running"]
         busy = self.busy(bid)
         if not runs:
-            s = "I haven’t run yet. " + ("I’m working on it right now." if busy else "Press Run now and I’ll start." if v["skills"] or b.get("start_url")
-                                         else "Tell me a site and what to look for, and I’ll learn it.")
-            return s
+            return "I haven’t run yet. " + ("I’m working on it right now." if busy else "Press Run now and I’ll start." if v["skills"] or b.get("start_url")
+                                            else "Tell me a site and what to look for, and I’ll learn it."), []
+        r, when, items = runs[0], when_words(runs[0]["ts"]), []
+        sites = len(v["skills"])
+        rules = " that pass your rules" if b.get("filters") else ""
+        last = {}  # the latest check of each site: with several sites, the last run alone is only one of them
+        for x in runs:
+            if x.get("kind") == "replay" and x.get("status") == "ok" and x.get("items") is not None:
+                last.setdefault(x.get("skill"), x)
+        site = lambda k: str(k or "a site").removeprefix("Check ").removeprefix("www.")
+        if r.get("kind") == "learn":
+            s = f"{when} I learned {(urlparse(r.get('url') or b.get('start_url') or '').netloc or 'the site').removeprefix('www.')}" + \
+                ("." if r.get("status") == "ok" else f", but it stopped: {plain_error(r.get('note') or r.get('status')).rstrip('.')}.")
+        elif r.get("status") == "ok":
+            ai = sum(x.get("ai_calls") or 0 for x in last.values()) if sites > 1 else r.get("ai_calls") or 0
+            checked = f"{len(last)} sites ({', '.join(site(k) for k in last)})" if sites > 1 and len(last) > 1 else f"“{site(r.get('skill') or 'my check')}”"
+            s = (f"{when} I checked {checked}: {v['found']} found{rules}, {v['fresh']} new." if r.get("items") or v["found"]
+                 else f"{when} I ran {checked}.") + (f" I used AI {'once' if ai == 1 else f'{ai} times'} to fix a step." if ai else "")
+            items = card_items([x for x in self.kept(bid, 200, b=b) if x.get("new")])  # shown as rows under the message
+        else:
+            s = f"{when} my run {'stopped' if r.get('status') == 'stopped' else 'needed you' if r.get('status') == 'needs_you' else 'failed'}" + \
+                (f": {plain_error(r['note']).rstrip('.')}." if r.get("note") else ".")
+        if busy:
+            s += " I’m checking again right now."
+        elif b.get("held"):
+            s += " My schedule is paused."
+        elif v.get("next_run"):
+            s += f" Next check {when_words(v['next_run'], future=True)}."
+        if v.get("needs"):
+            s += f" {nres(v['needs'], 'thing')} {'needs' if v['needs'] == 1 else 'need'} you."
+        return s, items
         r, when = runs[0], when_words(runs[0]["ts"])
         sites = len(v["skills"])
         lead = (f"So far I’ve found {v['found']} {'that pass your rules' if b.get('filters') else 'things'}"
@@ -1349,9 +1391,7 @@ class Engine:
             s = (f"{when}, I ran “{r.get('skill') or 'my check'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} {passed}, "
                  f"{r.get('new') or 0} new" if reads else f"{when}, I ran “{r.get('skill') or 'my check'}”") + \
                 (f", with {ai} AI call{'s' if ai != 1 else ''} to fix a step." if ai else ", no AI needed.")
-            fresh = [x for x in self.kept(bid, 200, b=b) if x.get("new")][:3]
-            if fresh:
-                s += " Newest: " + "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in fresh) + "."
+            items = card_items([x for x in self.kept(bid, 200, b=b) if x.get("new")])  # shown as rows under the message
         else:
             s = f"{when}, my run {'stopped' if r.get('status') == 'stopped' else 'needed you' if r.get('status') == 'needs_you' else 'failed'}" + \
                 (f": {plain_error(r['note']).rstrip('.')}." if r.get("note") else ".")
@@ -1462,7 +1502,7 @@ class Engine:
         if batch:
             self._batch_say(bid, now=url)
         else:
-            self.store.message(bid, "bot", f"Learning {urlparse(url).netloc or url} now, once. Watch if you like, and tell me if I pick something wrong.")
+            self.store.message(bid, "bot", f"Learning {(urlparse(url).netloc or url).removeprefix('www.')}. Watch if you like, and tell me if I pick something wrong.", kind="status")
             self.bus.publish("messages", bot=bid)
         try:
             skill = skills.learn(Ctx(self, bid, run), goal, url)
@@ -1477,8 +1517,7 @@ class Engine:
             self._finish(run, "ok", learned=sid)
             reads = any(st["action"] == "extract" for st in skill["steps"])
             if not batch:
-                self.store.message(bid, "bot", f"Learned “{skill['name']}” in {nres(len(skill['steps']), 'step')} with {nres(run.ai_calls, 'AI call')}. "
-                                               f"From now on it repeats with none." + (" Checking it once now." if reads else " Done for now."))
+                self.store.message(bid, "bot", f"Learned {run.site} with {nres(run.ai_calls, 'AI call')}. From now on I check it with none.", kind="status")
                 self.bus.publish("messages", bot=bid)
             if reads:  # an action (like sending) already happened while learning: never twice
                 run2 = Run("replay", sid)
@@ -1506,7 +1545,7 @@ class Engine:
             self.store.update("bots", bid, site_queue=[])  # you stopped it: the other sites wait for you
             if batch:
                 self._batch_record(bid, url, False, "stopped")
-            self.store.message(bid, "bot", "Stopped. Nothing was learned this time." if not batch else "Stopped. The sites still to go were dropped.")
+            self.store.message(bid, "bot", "Stopped. Nothing was learned this time." if not batch else "Stopped. The sites still to go were dropped.", kind="status")
             self.bus.publish("messages", bot=bid)
         except NoModel as e:
             self.problem(bid, skills.NeedsHelp("no_model", "No model to learn with", str(e), ["Open Models"]))
@@ -1542,7 +1581,7 @@ class Engine:
         if bt.get("msg") and self.store.get("messages", bt["msg"]):
             self.store.update("messages", bt["msg"], text=text)
         else:
-            bt["msg"] = self.store.message(bid, "bot", text, batch=True)
+            bt["msg"] = self.store.message(bid, "bot", text, batch=True, kind="status")
             self.store.update("bots", bid, site_batch=bt)
         self.bus.publish("messages", bot=bid)
 
@@ -1587,7 +1626,7 @@ class Engine:
         url, rest = b["site_queue"][0], b["site_queue"][1:]
         self.store.update("bots", bid, site_queue=rest)
         if not b.get("site_batch"):
-            self.store.message(bid, "bot", f"Next site: {urlparse(url).netloc}." + (f" {len(rest)} more after this." if rest else ""))
+            self.store.message(bid, "bot", f"Next site: {urlparse(url).netloc.removeprefix('www.')}." + (f" {len(rest)} more after this." if rest else ""), kind="status")
         try:
             self.learn(bid, goal, url)
         except Exception as e:
@@ -1666,22 +1705,22 @@ class Engine:
             self._worked(bid, f"skill:{sid}")
             self.store.event(bid, "replay", f"{nres(len(out['items']))}, {len(kept)} pass your rules, {len(new)} new" if reads
                              else f"Done in {len(skill['steps'])} steps", ai=run.ai_calls)
+            fixed = f" I used AI {'once' if run.ai_calls == 1 else f'{run.ai_calls} times'} to fix a step." if run.ai_calls else ""  # only worth saying when it happened
             if new and reason != "silent":
                 top = "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in new[:3])
-                self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {nres(len(out['items']))}: {top}")
+                self.store.message(bid, "bot", f"{len(new)} new: {top}.{fixed}", kind="results", items=card_items(new), count=len(new), checked=len(out["items"]))
                 self.notify(bid, f"{len(new)} new: {top}")
             elif not reads:
-                self.store.message(bid, "bot", f"Done: “{skill['name']}”, {nres(len(skill['steps']), 'step')}, {nres(run.ai_calls, 'AI call')}.")
+                self.store.message(bid, "bot", f"Done: {skill['name'].removeprefix('Check ')}.{fixed}", kind="status")
             elif reason not in ("schedule", "silent"):
-                ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
-                self.store.message(bid, "bot", f"Checked {nres(len(out['items']))} with {ai}. {len(kept)} pass{'es' if len(kept) == 1 else ''} your rules, none new.")
+                self.store.message(bid, "bot", f"Nothing new" + (f" ({len(kept)} found{' under your rules' if b.get('filters') else ''})." if kept else ".") + fixed, kind="status")
             if not new and reason != "silent":
                 self.maybe_suggest(bid, missed)
             skipped = skills.unchecked(out["items"], b.get("filters"))
             if skipped and b.get("warned_unchecked") != skipped:
                 self.store.update("bots", bid, warned_unchecked=skipped)
-                self.store.message(bid, "bot", f"I couldn’t check {'; '.join(skipped)}: this site’s results don’t show that. "
-                                               f"Its search already narrows it, or tell me another way to check.")
+                self.store.message(bid, "bot", f"I can’t check “{'”, “'.join(skipped)}”: this site’s results don’t show it. "
+                                               f"Tell me another way to check, or remove that rule in Settings.")
             self.check_level(bid)  # after this run's own messages
             for auto in b.get("automations", []):
                 if auto.get("when") == "every_run" or (auto.get("when") == "new_results" and new):
@@ -1693,14 +1732,14 @@ class Engine:
             self._finish(run, "ok", note=f"Checked up to “{c}”, which asks you first")
         except (skills.Stopped, ModelStopped):
             self._finish(run, "stopped")
-            self.store.message(bid, "bot", "Stopped.")
+            self._said_stopped(bid)
         except NoModel as e:
             self.problem(bid, skills.NeedsHelp("no_model", "A step needs a fix, but there’s no model", str(e), ["Open Models"]), skill_id=sid)
             self._finish(run, "failed", note=str(e))
         except Exception as e:
             if run.stop:  # you pressed Stop while a step was waiting on the page
                 self._finish(run, "stopped")
-                self.store.message(bid, "bot", "Stopped.")
+                self._said_stopped(bid)
                 return
             self.problem(bid, skills.NeedsHelp("error", f"“{skill['name']}” stopped", plain_error(e), ["Try again"]), skill_id=sid)
             self._finish(run, "failed", note=str(e)[:300])

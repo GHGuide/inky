@@ -9,6 +9,12 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - Inky as an MCP server: `create_bot` answers within a minute and keeps making the bot in the background (`create_bot_status`); bots are found by loose names ("books", "the ebike bot"); short, readable answers; tool hints so clients know which tools only read. [docs/mcp.md](docs/mcp.md) explains it, including `codex exec`.
 
 ### Changed
+- The chat is tidier:
+  - What a bot found is a small card of results you can open, with “See all in Found”, instead of a run-on sentence.
+  - Run and learning updates are one quiet line each, with their time.
+  - A bot's messages in a row share one avatar. Repeated settings notes show only the latest, and long answers fold.
+  - Older messages show the same way.
+- Bots say less that you didn't ask for. “What did you do?” is two short sentences. “No AI needed” is only said when AI was used, and replies have no small talk about the bot itself. Replies come in the language you write in.
 - `run_skill` is now `run_bot`. The old name still works.
 - Daily and weekly checks run at a time of day (07:30 unless you say “every evening” or “at 9”), so Run now in between never moves tomorrow's check. Settings offers the same choices as New bot (6 hours and weekly too).
 

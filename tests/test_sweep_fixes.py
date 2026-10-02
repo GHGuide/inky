@@ -129,7 +129,8 @@ class ActionsTest(unittest.TestCase):
         self.assertIn("haven’t run yet", r["reply"])
         self.E.store.insert("runs", {"kind": "replay", "skill": "Cheap books", "items": 60, "matched": 14, "new": 14, "pages": 3, "ai_calls": 0}, bot_id=bid, status="ok")
         r = self.E.chat(bid, "So what did you do?")
-        self.assertIn("“Cheap books”: read 60 results over 3 pages, 14 pass your rules, 14 new, no AI needed.", r["reply"])
+        self.assertIn("I checked “Cheap books”", r["reply"])
+        self.assertNotIn("AI", r["reply"])  # only worth saying when it was used
         # a question the model answers with a change: nothing changes, it offers a button, and “yes” does it
         self.E.llm.chat = lambda *a, **k: ('{"reply": "I’ll check every hour.", "actions": [{"type": "schedule", "every_minutes": 60}]}', {})
         self.E.chat(bid, "Should you check every hour?")

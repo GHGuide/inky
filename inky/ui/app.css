@@ -100,6 +100,26 @@ label[for]:has(+ input.vh:focus-visible){outline:2px solid var(--ink);outline-of
 .m{display:flex;gap:10px;align-items:flex-start;font-size:15px;line-height:1.5}.m .body{min-width:0;display:flex;flex-direction:column;gap:8px;white-space:pre-wrap;word-break:break-word}
 .m.you{justify-content:flex-end}.m.you .body{max-width:340px;padding:10px 14px;border-radius:18px 18px 4px 18px;background:var(--chip)}
 .m.sys{justify-content:center;font-size:12.5px;color:var(--muted)}
+/* the chat: replies read as text, a bot's run of messages shares one avatar, status is one quiet line, results are rows */
+.m:not(.you):not(.sys):not(.status)>.body{flex:1}.m.cont{margin-top:-6px}.m.cont>.critter{visibility:hidden}
+.m.sys.when{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin:4px 0 -2px}
+.m.sys.note{font-size:12px;color:var(--faint);text-align:center}
+.m.status{align-items:center;gap:8px;font-size:13px;line-height:1.4;color:var(--muted);padding-left:36px;margin:-4px 0}
+.m.status>span{min-width:0;flex:1}
+.m.status time{font-family:var(--mono);font-size:11px;color:var(--faint);flex-shrink:0}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--line2);flex-shrink:0}.sdot.ok{background:var(--green)}.sdot.bad{background:var(--coral)}
+.m .who{color:var(--coral-t);font-weight:600}
+.m .done{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);line-height:1.4}.m .done svg{color:var(--green);flex-shrink:0}
+.clamp{display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
+.linkbtn{background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer;font:inherit;align-self:flex-start}
+.rcard{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;display:flex;flex-direction:column;white-space:normal}
+.rhead{display:flex;align-items:baseline;gap:8px;padding:9px 12px 7px}
+.rrow{display:flex;gap:12px;align-items:baseline;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line);font-size:14px;line-height:1.35;color:var(--ink);text-decoration:none}
+.rcard .rrow:first-child{border-top:0}.rhead+.rrow{border-top:1px solid var(--line)}
+a.rrow:hover{background:var(--panel)}
+.rrow>span:first-child{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rrow .p{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.rfoot{border-top:1px solid var(--line)!important;padding:8px 12px;text-align:left;align-self:stretch;font-size:13px}
 .logl{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
 .chatin{padding:12px 16px 16px}
 .chatbox{border:1px solid var(--line2);border-radius:16px;padding:10px 10px 10px 14px;display:flex;flex-direction:column;gap:6px}

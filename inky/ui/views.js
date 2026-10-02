@@ -641,7 +641,25 @@ const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads
 const homeOf = (b) => (b.home && b.home.engine ? `${b.home.engine}:${b.home.bot}` : `${S.engineId}:${b.id}`);  // who a bot really is, across computers
 const sameBot = (mine, rb) => !!(rb.home && rb.home.engine) && homeOf(mine) === `${rb.home.engine}:${rb.home.bot}`;  // never by id alone: a reset server reuses ids
 const offName = (m) => (String(m || "").match(/^(.+?) isn’t answering\. It may be/) || String(m || "").match(/can’t reach (.+?):/) || [])[1];  // a moved bot's server is off
-const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
+const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");
+// what a bot message is, for how the chat shows it: older messages (before kinds were stored) are read from their words
+const OLD_STATUS = /^(Learning \S+ (now, once|\.)|Learning \d+ sites|Learned “|Checked \d+ results? with|Next site:|Stopped\.( Nothing was learned| The sites still)?$|Done: “)/;
+const chatKind = (m) => m.role !== "bot" ? m.role : m.kind || (m.need || m.paper || (m.chips || []).length ? "reply" : OLD_STATUS.test(m.text) || m.handled ? "status" : "reply");
+function upgradeMsg(m) {  // an older “14 new matches from 60 results: A £1; B £2” (or a recap's “Newest: …”) shows as the same card a new one does
+  if (m.role !== "bot" || m.kind || m.items) return m;
+  const rows = (list) => list.split("; ").slice(0, 3).map((x) => { const p = x.match(/^(.*?)\s+((?:[£€$]\s?)?\d[\d.,]*(?:\s?[£€$])?)$/); return p ? { title: p[1], price: p[2] } : { title: x }; });
+  const r = String(m.text).match(/^(\d+) new (?:match|matches) from (\d+) results?: (.+)$/s);
+  if (r) return { ...m, kind: "results", count: +r[1], checked: +r[2], items: rows(r[3]) };
+  const n = String(m.text).match(/^(.*?) Newest: (.+?)\.( (?:Next run|My schedule|I’m working).*)?$/s);
+  return n ? { ...m, text: n[1] + (n[3] || ""), items: rows(n[2]) } : m;
+}
+const noteTopic = (t) => String(t).split(":")[0];  // “You changed the schedule: …” three times: the latest is what holds
+function chatCard(m) {  // a few results as rows you can open, and the way to all of them
+  const head = m.kind === "results" ? `<div class="rhead"><b>${m.count} new</b>${m.checked ? `<span class="muted small">of ${m.checked} checked</span>` : ""}</div>` : "";
+  const rows = m.items.map((it) => `<${it.link ? `a href="${esc(it.link)}" target="_blank" rel="noopener"` : "div"} class="rrow"><span>${esc(it.title)}</span>${it.price ? `<span class="p">${esc(it.price)}</span>` : ""}</${it.link ? "a" : "div"}>`).join("");
+  const more = (m.count || 0) > m.items.length ? `<button class="rfoot linkbtn small" data-found>See all ${m.count} in Found</button>` : "";
+  return `<div class="rcard">${head}${rows}${more}</div>`;
+}  // older engines and saved skills say "Read 1 results"
 const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
 ICON.speakeroff = "M11 5L6 9H2v6h4l5 4z M23 9l-6 6 M17 9l6 6";  // the Call tab's speaker, turned off
 // a rule from the editor: “1,000” is one number, a list only for “is one of”, and an empty value is no rule at all
@@ -914,33 +932,45 @@ VIEWS.bot = {
     const answers = this.data.events.filter((e) => e.kind === "answered").map((e) => ({ ...e, m: e.text.match(/^You chose “(.*?)”: ([\s\S]*)$/) })).filter((e) => e.m);
     const choiceFor = (m, next) => CHOSEN[`${this.id}:${m.need}`] || (answers.find((a) => (a.need ? a.need === m.need
       : (m.text === a.m[2] || m.text.startsWith(a.m[2] + ". ")) && a.ts >= m.ts && (!next || a.ts < next.ts))) || { m: [] }).m[1];
-    let lastDay = "";
-    const msgs = [];  // "Checked 11 results…" six times in a row reads as one line with ×6
-    for (const m of this.data.messages) {
-      const last = msgs.at(-1);
-      if (last && m.role === "bot" && last.role === "bot" && m.text === last.text && !m.need && !(m.chips || []).length) last.times = (last.times || 1) + 1;
+    const msgs = [];  // "Nothing new" six times in a row reads as one line with ×6; settings notes in a row: only the latest
+    for (const m0 of this.data.messages) {
+      const m = upgradeMsg(m0), last = msgs.at(-1), k = chatKind(m);
+      if (last && m.role === "bot" && last.role === "bot" && m.text === last.text && !m.need && !(m.chips || []).length) { last.times = (last.times || 1) + 1; last.ts = m.ts; }
+      else if (last && k === "note" && chatKind(last) === "note" && noteTopic(m.text) === noteTopic(last.text)) msgs[msgs.length - 1] = { ...m };
       else msgs.push({ ...m });
     }
     const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;  // you scrolled up to read: stay there
+    let prev = null;
     box.innerHTML = msgs.map((m, idx) => {
-      const d = new Date(m.ts * 1000).toDateString();
-      const day = d !== lastDay ? `<div class="m sys">${d === new Date().toDateString() ? "Today" : d} ${hhmm(m.ts)}</div>` : "";
-      lastDay = d;
-      if (m.role === "you") return `${day}<div class="m you"><div class="body">${esc(m.text)}</div></div>`;
-      if (m.role === "note") return `${day}<div class="m sys">${esc(m.text)}</div>`;
+      const k = chatKind(m), d = new Date(m.ts * 1000).toDateString();
+      // a day, or a long quiet spell, gets a time line; the bot's next message right after its last shares one avatar
+      const gap = !prev || d !== new Date(prev.ts * 1000).toDateString() ? `<div class="m sys when">${d === new Date().toDateString() ? "Today" : d === new Date(Date.now() - 864e5).toDateString() ? "Yesterday" : d} · ${hhmm(m.ts)}</div>`
+        : m.ts - prev.ts > 45 * 60 ? `<div class="m sys when">${hhmm(m.ts)}</div>` : "";
+      const cont = !gap && prev && prev.role === "bot" && m.role === "bot" && chatKind(prev) !== "status" && k !== "status";
+      prev = m;
+      if (m.role === "you") return `${gap}<div class="m you"><div class="body">${esc(m.text)}</div></div>`;
+      if (k === "note") return `${gap}<div class="m sys note">${esc(m.text)}</div>`;
       if (m.role === "peer") { const sb = S.bots.find((x) => x.id === m.sender_id) || { look: {}, status: "idle" };
-        return `${day}<div class="m peer">${botCritter(sb, 26)}<div class="body"><span class="small" style="color:var(--coral-t);font-weight:600">${esc(m.sender)}</span><span>${esc(m.text)}</span></div></div>`; }
+        return `${gap}<div class="m peer">${botCritter(sb, 26)}<div class="body"><span class="small who">${esc(m.sender)}</span><span>${esc(m.text)}</span></div></div>`; }
+      const times = m.times ? ` <span class="badge">×${m.times}</span>` : "";
+      if (k === "status") return `${gap}<div class="m status"><i class="sdot ${/^Learned/.test(m.text) ? "ok" : /^Stopped|couldn’t|stopped|didn’t/i.test(m.text) ? "bad" : ""}"></i><span>${esc(one(m.text))}${times}</span><time>${hhmm(m.ts)}</time></div>`;
       const need = m.need ? open.find((n) => n.id === m.need) : null;
       const picked = m.need && choiceFor(m, msgs.slice(idx + 1).find((x) => x.text === m.text));
       const card = need ? `<div class="card hot needcard" style="padding:12px 14px"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${esc(need.title)}</b>${need.body ? `<span class="small muted">${esc(need.body)}</span>` : ""}
         <div class="row wrap">${(need.options || []).map((o, i) => `<button class="btn s ${i === 0 ? "p" : ""}${picked === o ? " chosen" : ""}" data-need="${need.id}" data-bot="${this.id}" data-o="${esc(o)}"${picked ? " disabled" : ""}>${esc(o)}</button>`).join("")}</div>
         ${picked ? `<span class="small muted">You chose “${esc(picked)}”…</span>` : ""}</div>`
-        : picked ? `<span class="logl">● You chose “${esc(picked)}”</span>` : "";
-      const done = (m.done || []).filter(Boolean).map((x) => `<span class="logl">● ${esc(one(x))}</span>`).join("");
-      const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="logl">● done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
-      const said = need ? "" : `<span>${esc(one(m.text))}${m.times ? ` <span class="badge">×${m.times}</span>` : ""}</span>`;  // an open question's card says it already
-      return `${day}<div class="m">${botCritter(b, 26)}<div class="body">${said}${done}${chips}${card}</div></div>`;
+        : picked ? `<span class="done">${icon("check", 13)}You chose “${esc(picked)}”</span>` : "";
+      const done = (m.done || []).filter(Boolean).filter((x) => !/^already a rule/.test(x));
+      const did = done.length ? `<span class="done">${icon("check", 13)}${done.map((x) => esc(one(x))).join(" · ")}</span>` : "";  // what really happened, proof under the words
+      const chips = (m.chips || []).length ? `<div class="row wrap">${m.chips_used ? `<span class="done">${icon("check", 13)}Done</span>` : m.chips.map((c, i) => `<button class="btn s p" data-chip="${m.id}" data-ci="${i}">${esc(c.label)}</button>`).join("")}</div>` : "";
+      const items = (m.items || []).length ? chatCard(m) : "";
+      const text = k === "results" && items ? "" : one(m.text);
+      const long = text.length > 520 || (text.match(/\n/g) || []).length > 7;
+      const said = need || !text ? "" : `<span class="${long ? "clamp" : ""}">${esc(text)}${times}</span>${long ? `<button class="linkbtn small" data-more>Show all</button>` : ""}`;  // an open question's card says it already
+      return `${gap}<div class="m${cont ? " cont" : ""}">${botCritter(b, 26)}<div class="body">${said}${items}${did}${chips}${card}</div></div>`;
     }).join("") || `<div class="m sys">Say hi, or give it a job.</div>`;
+    $$("[data-more]", box).forEach((x) => (x.onclick = () => { x.previousElementSibling.classList.remove("clamp"); x.remove(); }));
+    $$("[data-found]", box).forEach((x) => (x.onclick = () => this.go("results")));
     if (this.typing) box.insertAdjacentHTML("beforeend", `<div class="m">${botCritter(b, 26)}<div class="body typing" aria-label="${esc(b.name)} is typing"><i></i><i></i><i></i></div></div>`);
     $$("[data-need]", box).forEach((x) => (x.onclick = () => answerNeed(+x.dataset.bot, +x.dataset.need, x.dataset.o)));
     $$("[data-chip]", box).forEach((x) => (x.onclick = async () => {
