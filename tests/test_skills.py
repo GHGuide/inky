@@ -75,6 +75,20 @@ class GotoModel(ForgetfulModel):
         return super().ask_json(role, system, user, bot_id, **kw)
 
 
+class DoubtfulModel(ScriptedModel):
+    """Says the first results it's shown don't fit; the learner asks once per page, then reads if the model insists."""
+
+    def __init__(self):
+        super().__init__()
+        self.asked = []
+
+    def ask_json(self, role, system, user, bot_id=None, **kw):
+        if system == skills.FIT_SYSTEM:
+            self.asked.append(user)
+            return {"fits": len(self.asked) > 1, "why": "children's bikes"}, {}
+        return super().ask_json(role, system, user, bot_id, **kw)
+
+
 class NoModel:
     def ask_json(self, *a, **k):
         raise AssertionError("replay must not call a model")
@@ -149,6 +163,18 @@ class SkillsTest(unittest.TestCase):
         finally:
             comp.close()
         self.assertEqual([(s["action"], s["text"]) for s in skill["steps"]][:2], [("click", "Click Close cookies"), ("fill", "Type Bari")])
+
+    def test_results_that_dont_fit_are_questioned_once_per_page(self):
+        self.layout(1)
+        comp = Computer(4, tempfile.mkdtemp(), look={"speed": "turbo"})
+        model = DoubtfulModel()
+        ctx = Ctx(comp, model)
+        try:
+            skill = skills.learn(ctx, "Flats in Bari under 150k", self.base + "/")
+        finally:
+            comp.close()
+        self.assertEqual(len(model.asked), 1)  # one no, then it read the same page when the model insisted
+        self.assertTrue(any(s["action"] == "extract" for s in skill["steps"]))
 
     def test_renamed_button_is_repaired_when_sure(self):
         skill, _ = self.learned()

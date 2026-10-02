@@ -290,6 +290,25 @@ def read_results(ctx, goal, page):
     return None, []
 
 
+FIT_SYSTEM = """Are these results the kind of thing the goal is about (the right sort of item, from the right category)?
+Ignore prices, limits and how many match a topic: Inky applies the user's rules itself later. Say no only when they are clearly
+a different kind of thing (for example children's bikes when the goal is e-bikes, houses when it is bikes).
+Reply with ONE JSON object: {"fits": true|false, "why": "<at most 8 words>"}"""
+
+
+def fits(ctx, goal, rows):
+    """One look by the model while learning: do the rows it is about to save fit the job? -> (True, "") or (False, why).
+    Any trouble asking counts as yes: this check never stops learning by itself."""
+    sample = "\n".join("- " + " · ".join(str(r.get(k))[:80] for k in ("title", "price") if r.get(k)) for r in rows[:8])
+    try:
+        d, _ = ctx.llm.ask_json("learn", FIT_SYSTEM, f"GOAL: {goal}\nJOB: {ctx.bot.get('job') or ''}\nRESULTS:\n{sample}", bot_id=ctx.bot["id"])
+    except Exception as e:
+        if type(e).__name__ in ("ModelStopped", "Stopped"):
+            raise
+        return True, ""
+    return (d.get("fits") is not False), str(d.get("why") or "")[:80]
+
+
 def named(rows):
     """Real results have names: most rows need a title (or at least a price). Rows of only links are a wrong list."""
     if len(rows) < 3:
@@ -303,7 +322,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, pushed = bool(FINDING.search(goal or "")), {}, 0, False
+    watch, looked, idle, pushed, doubted = bool(FINDING.search(goal or "")), {}, 0, False, set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -320,12 +339,16 @@ def learn(ctx, goal, start_url, max_steps=24):
         # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
         on_home = home_page(page["url"]) and not front
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet
-        if watch and not extract and looked.get(page["url"], 0) < 2 and not on_home:
+        if watch and not extract and looked.get(page["url"], 0) < 2 and not on_home and page["url"] not in doubted:
             looked[page["url"]] = looked.get(page["url"], 0) + 1  # a page that already lists priced results: read them now, no need to go on clicking
             lists = comp.call("lists")  # (looked at twice: some shops fill in their list a moment after the page loads)
             if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
                 spec, rows = read_results(ctx, goal, page)
-                if rows:
+                ok, why = fits(ctx, goal, rows) if rows else (False, "")
+                if rows and not ok:
+                    doubted.add(page["url"])
+                    history.append(f"the results on this page don’t fit the goal ({why}): search for it or open the category that fits")
+                if rows and ok:
                     extract = spec
                     steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
                     ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
@@ -419,6 +442,12 @@ def learn(ctx, goal, start_url, max_steps=24):
             if rows and on_home and (len(rows) < 6 or not next_link(page)):  # a home page's tiles or endless feed; a paged list there is a catalogue
                 rows = []
                 history.append("these are the shop's categories or featured items, not results: open the right category or search first")
+            if rows and page["url"] not in doubted:  # asked once per page; if it reads here again after a no, it may
+                ok, why = fits(ctx, goal, rows)
+                if not ok:
+                    doubted.add(page["url"])
+                    history.append(f"the results on this page don’t fit the goal ({why}): search for it or open the category that fits")
+                    continue
             if not rows:  # reading nothing is never a learned step: say so to the model and go on looking
                 empty += 1
                 history.append("there are no results to read on this page yet; search or open the list first")
