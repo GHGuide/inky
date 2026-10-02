@@ -287,6 +287,8 @@ class LLM:
                 messages = messages[:-1] + [{**messages[-1], "content": messages[-1]["content"] + " /no_think"}]  # skip thinking
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+            if provider == "ollama" and not temperature:
+                body["seed"] = 7  # with temperature 0, a fixed seed makes a local model answer the same way each time
             if provider == "openrouter":
                 body["usage"] = {"include": True}
                 body["max_tokens"] = max(max_tokens, 6000)  # reasoning models think before they answer
@@ -343,6 +345,7 @@ class LLM:
         self.store.set_setting("provider_errors", errs)
 
     def ask_json(self, role, system, user, bot_id=None, retries=1, **kw):
+        kw.setdefault("temperature", 0 if role in ("learn", "repair") else 0.2)  # learning a site: the same page gets the same answer
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         last = None
         for _ in range(retries + 1):

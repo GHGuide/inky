@@ -322,7 +322,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, pushed, doubted = bool(FINDING.search(goal or "")), {}, 0, False, set()
+    watch, looked, idle, doubted = bool(FINDING.search(goal or "")), {}, 0, set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -339,7 +339,7 @@ def learn(ctx, goal, start_url, max_steps=24):
         # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
         on_home = home_page(page["url"]) and not front
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet
-        if watch and not extract and looked.get(page["url"], 0) < 2 and not on_home and page["url"] not in doubted:
+        if watch and not extract and looked.get(page["url"], 0) < 2 and not (on_home and unsent) and page["url"] not in doubted:
             looked[page["url"]] = looked.get(page["url"], 0) + 1  # a page that already lists priced results: read them now, no need to go on clicking
             lists = comp.call("lists")  # (looked at twice: some shops fill in their list a moment after the page loads)
             if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
@@ -363,10 +363,10 @@ def learn(ctx, goal, start_url, max_steps=24):
 
         def settle_for_page():  # about to give up: if the page already lists real results, those are the job
             nonlocal extract, finished
-            if not watch or extract or on_home:
+            if not watch or extract or (on_home and page["url"] in doubted):
                 return False
             spec, rows = read_results(ctx, goal, comp.call("elements"))
-            if not rows or len(rows) < 6:
+            if not rows or len(rows) < 6 or (on_home and not fits(ctx, goal, rows)[0]):
                 return False
             extract = spec
             steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
@@ -422,13 +422,9 @@ def learn(ctx, goal, start_url, max_steps=24):
                     raise
                 except Exception:
                     pass
-        if act in ("extract", "done") and on_home and not extract and not pushed:
-            pushed = True  # asked once to open the category or search; if it insists on reading here, only a paged list counts
-            history.append("this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
-            continue
-        if act == "done" and not extract and FINDING.search(goal or "") and not on_home:  # a watch job that never read anything: read the results here, if there are any
+        if act == "done" and not extract and FINDING.search(goal or "") and not (on_home and page["url"] in doubted):  # a watch job that never read anything: read the results here, if there are any
             spec, rows = read_results(ctx, goal, page)
-            if rows:
+            if rows and (not on_home or fits(ctx, goal, rows)[0]):
                 extract = spec
                 steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
                 ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
@@ -439,10 +435,10 @@ def learn(ctx, goal, start_url, max_steps=24):
             if extract:
                 break
             spec, rows = read_results(ctx, goal, page)
-            if rows and on_home and (len(rows) < 6 or not next_link(page)):  # a home page's tiles or endless feed; a paged list there is a catalogue
+            if rows and on_home and (len(rows) < 6 or page["url"] in doubted):  # a home page's few tiles, or a feed already judged not to fit
                 rows = []
                 history.append("these are the shop's categories or featured items, not results: open the right category or search first")
-            if rows and page["url"] not in doubted:  # asked once per page; if it reads here again after a no, it may
+            if rows and page["url"] not in doubted:  # asked once per page; off the home page, if it reads here again after a no, it may
                 ok, why = fits(ctx, goal, rows)
                 if not ok:
                     doubted.add(page["url"])
@@ -469,8 +465,8 @@ def learn(ctx, goal, start_url, max_steps=24):
             continue
         idx = d.get("index")
         el = next((e for e in page["elements"] if e["i"] == idx), None) if idx is not None else None
-        if act == "goto" and el is not None and el.get("role") in ("link", "button") and not re.match(r"https?://|www\.", str(d.get("value") or ""), re.I):
-            act = d["action"] = "click"  # “goto Books” with the link's number: it means click that link
+        if act == "goto" and el is not None and el.get("role") in ("link", "button"):
+            act = d["action"] = "click"  # “goto” with a link's number: click the real link (an address it typed may be made up)
             d["step"] = (d.get("step") or "").replace("Go to", "Click", 1) or f"Click {el['name']}"
         if act == "goto":  # the model sometimes "goes to" a word it meant to type
             url = web_address(d.get("value"), page["url"])
