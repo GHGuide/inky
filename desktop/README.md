@@ -46,3 +46,11 @@ For a quick local build use `npx tauri build --debug --bundles app`.
 - **Native side:** the web UI tells the native side what changed (`tray`, `notify`, `bar`, `open_needs`, `autostart`, `app_info`, `open_url`). Only the local engine page may call these (`capabilities/default.json`).
 
 Builds are ad-hoc signed on macOS and unsigned on Windows, so both warn the first time. [The main README](../README.md#download) says what to click.
+
+## Signing and notarizing (later)
+
+Releases are ad-hoc signed on macOS (`signingIdentity: "-"`, no hardened runtime). That's enough for macOS to offer **Open Anyway** instead of calling the app "damaged". To notarize with a Developer ID certificate:
+
+- turn the hardened runtime on and give the app an entitlements file with `com.apple.security.cs.disable-library-validation` and `com.apple.security.cs.allow-unsigned-executable-memory`: the engine is a PyInstaller program that unpacks Python and its libraries when it starts, and the hardened runtime refuses to load them otherwise;
+- add the `APPLE_*` secrets that `tauri-action` reads (certificate, password, signing identity, API key, issuer, team id);
+- time the engine's start inside the signed app (`Contents/MacOS/inky-engine --port 0 --home "$(mktemp -d)" --no-open`). It should be a few seconds. If it isn't, sample it (`/usr/bin/sample <pid> 2`) before anything else: a 30-second start once turned out to be a name lookup that macOS holds for new apps.
