@@ -386,7 +386,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     extract, empty, typed, finished = None, 0, {}, False
     said = f"{goal or ''} {ctx.bot.get('job') or ''}"  # the goal is the model's words for your job: “Find …” may come back as “Identify …”
     watch = bool(FINDING.search(goal or "") or (FINDING.search(said) and not DOING.search(said)))
-    looked, idle, doubted, hinted = {}, 0, set(), set()
+    looked, idle, doubted, hinted, dead = {}, 0, set(), set(), set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -575,6 +575,9 @@ def learn(ctx, goal, start_url, max_steps=24):
             # finding things never needs selling, posting an ad, or an account
             history.append(f"“{el.get('name')}” is for selling or your account, not for finding: search or open the category instead")
             continue
+        if act == "fill" and norm(d.get("value")) in dead:  # the search it undid: typing it again only finds nothing again
+            history.append(f"searching for “{d.get('value')}” found nothing before: read the list on this page instead (extract)")
+            continue
         if watch and act in ("fill", "select") and el and FILTER_FIELD.search(f"{el.get('name')} {el.get('placeholder')} {d.get('step') or ''}") \
                 and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", f"{el.get('name')} {el.get('placeholder')}", re.I) \
                 and not said_number(d.get("value"), f"{goal} {' '.join(r['text'] for r in ctx.bot.get('rules', []))}"):
@@ -598,6 +601,7 @@ def learn(ctx, goal, start_url, max_steps=24):
                 continue
             if listed and page_after["url"] != page["url"] and not wait_for_lists(comp):  # the search emptied a page that listed results
                 box = steps.pop()
+                dead.add(norm(box.get("value")))
                 typed.pop(((box.get("target") or {}).get("role"), (box.get("target") or {}).get("name")), None)
                 history.append(f"searching for “{box.get('value')}” found nothing, and the page before already listed results: read those, or search for something simpler")
                 page = comp.call("open", page["url"])
