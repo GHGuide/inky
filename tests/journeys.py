@@ -5,6 +5,8 @@ minutes, use the network and a local model. Run them before a release:
     python -m tests.journeys chat share      # only these
     INKY_FIVE="E-bike Hunter" INKY_JOURNEY_KEEP=1 python -m tests.journeys five   # one of the five bots, keeping its folder
     INKY_JOURNEY_MODEL=qwen3:8b python -m tests.journeys
+    INKY_JOURNEY_DIR=/tmp/scratch INKY_JOURNEY_PORT=9201 python -m tests.journeys learning   # where its engine lives
+    INKY_LEARN="quotes.toscrape.com" python -m tests.journeys learning   # one practice site only
 
 Each engine gets its own scratch home and port; nothing touches ~/.inky. "Do" journeys only ever send to the local test site."""
 import json
@@ -30,9 +32,9 @@ class Engine:
 
     def __init__(self):
         with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
+            s.bind(("127.0.0.1", int(os.environ.get("INKY_JOURNEY_PORT") or 0)))
             self.port = s.getsockname()[1]
-        self.home = tempfile.mkdtemp(prefix="inky-journey-")
+        self.home = tempfile.mkdtemp(prefix="inky-journey-", dir=os.environ.get("INKY_JOURNEY_DIR") or None)
         self.url = f"http://127.0.0.1:{self.port}"
         env = {k: v for k, v in os.environ.items() if k not in SECRETS} | {"INKY_KEYS": "file", "INKY_HEADLESS": "1", "PYTHONPATH": str(ROOT)}
         self.proc = subprocess.Popen([sys.executable, "-m", "inky", "--port", str(self.port), "--home", self.home, "--host", "127.0.0.1", "--no-open"],
@@ -487,6 +489,91 @@ def j_five():
             site.shutdown()
 
 
+LEARNING = [  # public practice sites, visited politely: one learn and two runs each (a few page loads)
+    {"site": "books.toscrape.com", "say": "Find books under £20 on books.toscrape.com", "url": "https://books.toscrape.com/", "priced": True},
+    {"site": "quotes.toscrape.com", "say": "Collect the quotes on quotes.toscrape.com", "url": "https://quotes.toscrape.com/"},
+    {"site": "scrapethissite forms", "say": "Find hockey teams with more than 40 wins", "url": "https://www.scrapethissite.com/pages/forms/"},
+    {"site": "webscraper.io static", "say": "Find laptops under $500", "url": "https://webscraper.io/test-sites/e-commerce/static", "priced": True},
+    {"site": "webscraper.io allinone", "say": "Find laptops under $500", "url": "https://webscraper.io/test-sites/e-commerce/allinone", "priced": True},
+    {"site": "news.ycombinator.com", "say": "Tell me new Hacker News stories about AI", "url": "https://news.ycombinator.com/"},
+    {"site": "local test site", "say": "Find flats in Bari under 150000 euro", "url": "LOCAL/", "priced": True},
+]
+GENERIC_TITLE = r"^(details?|dettagli|view|more|read more|\(about\)|untitled|)$"
+
+
+def j_learning():
+    """Learn each practice site from a sentence, then run it twice: AI calls, what it read, and whether runs stay free."""
+    import re
+    from tests import site_server
+    port = int(os.environ.get("INKY_LOCAL_SITE_PORT") or 8766)
+    site = site_server.start(port) if not _up(f"http://127.0.0.1:{port}/") else None
+    urllib.request.urlopen(f"http://127.0.0.1:{port}/__layout?v=1").read()
+    E = Engine()
+    rows, all_ok = [], True
+    only = [x.strip() for x in os.environ.get("INKY_LEARN", "").split(",") if x.strip()]  # e.g. INKY_LEARN="quotes.toscrape.com"
+    try:
+        E.use()
+        for spec in [x for x in LEARNING if not only or x["site"] in only]:
+            t0 = time.time()
+            d = E.api("POST", "/api/bots/draft", {"job": spec["say"]})["draft"]
+            body = {**d, "start_url": spec["url"].replace("LOCAL", f"http://127.0.0.1:{port}"), "more_sites": [], "every_minutes": 0,
+                    "filters": [{**f, "text": f.get("text") or f"{f['field']} {f['op']} {f['value']}"} for f in d.get("filters") or []]}
+            bid = E.api("POST", "/api/bots", body)["bot"]["id"]
+            E.api("POST", f"/api/bots/{bid}/learn", {})
+            learn_secs = E.idle(bid, 1500)
+            v = E.bot(bid)
+            learned = next((r for r in v["runs"] if r.get("kind") == "learn"), {})
+            check = next((r for r in v["runs"] if r.get("kind") == "replay"), {})
+            runs = []
+            for _ in range(2 if v["skills"] else 0):
+                E.api("POST", f"/api/bots/{bid}/run", {"wait": True}, timeout=600)
+                runs.append(E.bot(bid)["runs"][0])
+            stored = E.api("GET", f"/api/bots/{bid}/results?all=1").get("results", [])
+            kept = E.api("GET", f"/api/bots/{bid}/results").get("results", [])
+            titles = [str(r.get("title") or r.get("name") or "") for r in stored]
+            generic = sum(1 for t in titles if re.match(GENERIC_TITLE, t.strip(), re.I))
+            priced = sum(1 for r in stored if skills_num(r.get("price")) is not None)
+            bad = []
+            if not v["skills"]:
+                bad.append(f"not learned: {learned.get('note') or [n['title'] for n in v['needs']]}")
+            if (learned.get("ai_calls") or 0) > 12:
+                bad.append(f"{learned.get('ai_calls')} AI calls to learn")
+            if v["skills"] and not stored:
+                bad.append("read nothing")
+            twice = len(stored) - len({(t, r.get("link") or r.get("text")) for t, r in zip(titles, stored)})  # the same result stored twice
+            if generic or twice:
+                bad.append(f"{generic} generic titles, {twice} stored twice")
+            if spec.get("priced") and priced < len(stored):
+                bad.append(f"{len(stored) - priced} without a price")
+            if any(r.get("ai_calls") for r in runs + [check]):
+                bad.append(f"runs used {[r.get('ai_calls') for r in [check] + runs]} AI calls")
+            if any(r.get("status") != "ok" for r in runs):
+                bad.append(f"runs {[r.get('status') for r in runs]} {runs[-1].get('note') or ''}"[:120])
+            if any(r.get("new") for r in runs):
+                bad.append(f"runs after learning found {[r.get('new') for r in runs]} new")
+            ok = not bad
+            all_ok = all_ok and ok
+            sample = next((r for r in kept or stored), {})
+            steps = [st.get("text") for s in v["skills"] for st in s["steps"]]
+            rules = "; ".join(str(f.get("text") or f.get("field")) for f in v["bot"].get("filters") or []) or "none"
+            rows.append(f"| {spec['site']} | “{spec['say']}” (rules: {rules}) | {'yes' if v['skills'] else 'no'} | {learned.get('ai_calls')} | {len(stored)} read, {len(kept)} pass "
+                        f"| {short(str(sample.get('title') or '-'), 40)} {sample.get('price') or ''} | {generic} generic, {priced}/{len(stored)} priced "
+                        f"| {[r.get('ai_calls') for r in [check] + runs]} | {[r.get('new') for r in [check] + runs]} | {learn_secs} s + {[r.get('seconds') for r in runs]} s "
+                        f"| {'; '.join(steps)[:160]} | {'ok' if ok else 'BAD: ' + '; '.join(bad)} |")
+            print("   ", rows[-1], f"({round(time.time() - t0)} s)", flush=True)
+        head = ("| Site | Job | Learned | AI calls to learn | Results | e.g. | Titles, prices | AI calls: check, run 1, run 2 | New: check, run 1, run 2 "
+                "| Time: learn (with its check) + runs | Steps | Verdict |\n|" + "---|" * 12)
+        return all_ok, "\n" + head + "\n" + "\n".join(rows)
+    finally:
+        E.close()
+        if site:
+            site.shutdown()
+
+
+def short(s, n):
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
 def skills_num(v):
     from inky.skills import parse_num
     return parse_num(v)
@@ -501,7 +588,7 @@ def _up(url):
 
 
 JOURNEYS = {"newuser": j_new_user, "books": j_watch_books, "find": j_find_sites, "real": j_real_sites, "do": j_do_and_change, "chat": j_chat,
-            "batch": j_batch, "handled": j_handled, "stop": j_stop, "share": j_share, "five": j_five}
+            "batch": j_batch, "handled": j_handled, "stop": j_stop, "share": j_share, "five": j_five, "learning": j_learning}
 
 if __name__ == "__main__":
     names = sys.argv[1:] or list(JOURNEYS)

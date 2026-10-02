@@ -39,7 +39,8 @@ class SecurityTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(self.url + "/api/bots")
         self.assertEqual(e.exception.code, 401)
-        req = urllib.request.Request(self.url + "/api/bots", headers={"X-Inky-Token": self.E.token[:-1] + "x"})
+        wrong = self.E.token[:-1] + ("y" if self.E.token.endswith("x") else "x")  # one in 64 tokens already ends in x
+        req = urllib.request.Request(self.url + "/api/bots", headers={"X-Inky-Token": wrong})
         with self.assertRaises(urllib.error.HTTPError):
             urllib.request.urlopen(req)
 

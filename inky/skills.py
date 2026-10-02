@@ -104,6 +104,9 @@ def parse_num(v):
         return None
 
 
+FREE = re.compile(r"\b(free|gratis|gratuit[oae]?|kostenlos|umsonst|darmo|бесплатно)\b", re.I)
+
+
 def has_word(s, w):
     """w in s as a word or the start of one: “remote” finds “Remote (EU)”, “bike” finds “bikes”, but “ai” doesn't find “rain”."""
     w = norm(str(w))
@@ -118,11 +121,13 @@ def keep(item, f):
     op, want = f.get("op"), f.get("value")
     if f.get("field") == "text" and "text" not in item:  # anything shown in the result: what was read of it
         item = {**item, "text": " ".join(str(x) for k, x in item.items() if isinstance(x, str) and k not in ("link", "image"))}
-    if f.get("field") not in item:  # the site has no such field: can't judge, so keep (unchecked() reports it)
-        return True
+    if f.get("field") not in item or (f.get("field") == "text" and op in ("<", "<=", ">", ">=")):  # no such field, or a number in all its
+        return True  # words (“more than 40 wins” would compare the year): can't judge, so keep, and unchecked() says so
     v = item.get(f.get("field"))
     if op in ("<", "<=", ">", ">="):
         a, b = parse_num(v), parse_num(want)
+        if a is None and FREE.search(str(v or "")):  # “Free” costs nothing: it passes “under £20”
+            a = 0.0
         if a is None or b is None:
             return False
         return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
@@ -153,7 +158,8 @@ def apply_filters(items, filters):
 def unchecked(items, filters):
     """Rules this site's results can't be checked against (their field isn't extracted)."""
     fields = {k for it in items[:20] for k in it}
-    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or [] if items and f.get("field") not in fields | {"text"}]
+    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or []
+            if items and (f.get("field") not in fields | {"text"} or (f.get("field") == "text" and f.get("op") in ("<", "<=", ">", ">=")))]
 
 
 def item_key(it):
@@ -185,7 +191,7 @@ Reply with ONE JSON object: {"index": <element number or null>, "confidence": <0
 Use null and low confidence when no element clearly does the same thing. A different action with a similar word is NOT a match."""
 
 
-NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)\b", re.I)
+NEXT = re.compile(r"^\s*(next|next page|›|»|→|>|more results|show more|load more|older|siguiente|suivant|weiter|nächste|avanti|successiva|următor|urmatoarea|înainte|далее|следующая|вперед|następna|dalej|próxima|seguinte|volgende|nästa)(?!\w)", re.I)  # (?!\w), not \b: a lone “›” has no word to end
 
 
 def said_number(v, text):
@@ -215,7 +221,11 @@ def next_link(page):
         name = (e.get("name") or "").strip()
         if name and len(name) < 40 and NEXT.match(name) and (e.get("role") == "link" and e.get("href") or e.get("role") == "button" and not home):
             return e
-    return None
+    nums = {}
+    for e in page.get("elements") or []:  # only page numbers (1 2 3 …): page 2 is next
+        if e.get("role") == "link" and re.search(r"page|pagina|seite|offset|start=|[?&](p|pg|pn|o)=\d|/p/\d", e.get("href") or "", re.I):
+            nums.setdefault((e.get("name") or "").strip(), e)
+    return nums["2"] if "2" in nums and "3" in nums else None
 
 
 def error_page(page):
@@ -241,6 +251,28 @@ ACCOUNT = re.compile(r"plaats(en)?\s+(een\s+)?(zoekertje|advertentie)|maak\s+(ee
                      r"\blog\s?in\b|\binloggen\b|\bsign\s?(in|up)\b|\bregist(er|reren|rieren)\b|/login|/identity/|/account|AdWizard", re.I)
 
 
+def category_link(page, job):
+    """A link on the page named like what the job is about (“Laptops” for “find laptops under $500”), to another page."""
+    for e in page.get("elements") or []:
+        name = norm(e.get("name"))
+        if e.get("role") == "link" and 3 < len(name) < 30 and not re.match(r"#|javascript:|$", e.get("href") or "") and \
+                urljoin(page["url"], e["href"]).rstrip("/") != page["url"].rstrip("/") and has_word(norm(job), name[:-1] if name.endswith("s") else name):
+            return e
+    return None
+
+
+def opens_a_result(comp, page, el):
+    """Is this link one of the results the page already lists (a story, a product), not a way to more of them?"""
+    href = urljoin(page["url"], el.get("href") or "")
+    for c in comp.call("lists"):
+        if c["count"] < 6 or not c["fields"].get("link") or menu_list(c.get("rows") or []):
+            continue
+        rows = comp.call("extract", {"item": c["item"], "fields": {"title": c["fields"].get("title", ""), "link": c["fields"]["link"]}})
+        if sum(len(str(r.get("title") or "")) for r in rows) >= 20 * len(rows) and any(r.get("link") == href for r in rows):  # names, not category words
+            return True
+    return False
+
+
 def home_page(url):
     u = urlparse(url or "")
     return not u.path.strip("/") and not u.query
@@ -248,18 +280,32 @@ def home_page(url):
 
 SUBMIT = re.compile(r"\b(search|find|go|submit|cerca|trova|buscar|rechercher|suchen|szukaj|caută|cauta|найти|поиск|zoeken|sök|ok)\b", re.I)
 DOING = re.compile(r"\b(send|submit|contact|book|apply|post|order|reserve|sign up|register|message|reply|enquire|inquire|request)\b", re.I)
-FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?)\b", re.I)
-PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal. Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
+FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?|"
+                     r"identify|collect|gather|extract|scrape)\b", re.I)
+PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal: the kind of things it is about, not whether each one matches a topic,
+price or limit in it (Inky applies those itself). Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
+
+
+def wait_for_lists(comp, tries=4):
+    """The page's lists of results; some sites fill them in a moment after the page loads."""
+    lists = comp.call("lists")
+    for _ in range(tries):
+        if lists:
+            break
+        time.sleep(1)
+        lists = comp.call("lists")
+    return lists
 
 
 def read_results(ctx, goal, page):
     """The results on this page: Inky finds the lists itself (repeated items with links), the model only picks one.
     Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
     comp = ctx.computer
-    lists = comp.call("lists")
+    lists = wait_for_lists(comp)
     if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
         lists = [c for c in lists if c["count"] >= 6]
     lists = [c for c in lists if not menu_list(c.get("rows") or [])]  # "Elektrische fietsen 743": a category menu with counts
+    lists = [c for c in lists if all(r.get("title") or r.get("price") for r in c.get("rows") or [])] or lists  # rows with no name (votes, user links): another list
     if any(f.get("field") == "price" for f in ctx.bot.get("filters") or []) and any(c.get("priced") for c in lists):
         lists = [c for c in lists if c.get("priced")]  # the job has a price limit: a list without prices can't be checked against it
     if lists:
@@ -339,7 +385,9 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, doubted = bool(FINDING.search(goal or "")), {}, 0, set()
+    said = f"{goal or ''} {ctx.bot.get('job') or ''}"  # the goal is the model's words for your job: “Find …” may come back as “Identify …”
+    watch = bool(FINDING.search(goal or "") or (FINDING.search(said) and not DOING.search(said)))
+    looked, idle, doubted, hinted, dead = {}, 0, set(), set(), set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -353,6 +401,16 @@ def learn(ctx, goal, start_url, max_steps=24):
             raise NeedsHelp("blocked", f"{urlparse(page['url']).netloc.removeprefix('www.')} doesn’t let bots in",
                             f"It showed “{short(page.get('title') or (page.get('heads') or ['Access denied'])[0], 60)}”, so I skipped it. Nothing for you to do.")
         u = urlparse(page["url"])
+        if page.get("status") in (404, 410):  # an address that leads nowhere: nothing to learn, and no model needed to see it
+            raise NeedsHelp("learn_failed", "That page doesn’t exist",
+                            f"{u.netloc} says “{short(page.get('title') or 'Not found', 60)}” for {page['url'][:120]}. Check the address, or start on the site’s home page.", ["Try again"])
+        if (page.get("status") or 0) >= 500:
+            raise NeedsHelp("error", f"{u.netloc.removeprefix('www.')} isn’t working right now", f"It answered with an error ({page['status']}).", ["Try again"])
+        if not steps and page.get("pw") and len(page.get("elements") or []) < 40 and \
+                sum(e.get("role") == "textbox" for e in page["elements"]) <= 1 and not comp.call("lists"):  # a sign-in wall: a name, a password, nothing else
+            raise NeedsHelp("sign_in", f"{u.netloc.removeprefix('www.')} wants you to sign in first",
+                            "Bots never see or type your passwords. Sign in yourself on its computer and it keeps the session, then it learns the site.",
+                            ["Open its computer", "Later"])
         # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
         on_home = home_page(page["url"]) and not front
         unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet
@@ -393,9 +451,10 @@ def learn(ctx, goal, start_url, max_steps=24):
                 steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
             finished = True
             return True
-        if idle > 10 and settle_for_page():
+        looping = idle > 3 and len(history) >= 3 and len(set(history[-3:])) == 1  # the same mistake three times running
+        if (idle > 10 or looping) and settle_for_page():
             break
-        if idle > 10:  # ten replies without a new step: it's going round in circles
+        if idle > 10 or looping:  # ten replies without a new step: it's going round in circles
             raise NeedsHelp("learn_failed", "Learning got stuck on this site",
                             f"The model tried for a while on {u.netloc} without getting further. Show it once, or try a smarter model.",
                             ["Show me once", "Try a smarter model", "Try again"])
@@ -439,7 +498,7 @@ def learn(ctx, goal, start_url, max_steps=24):
                     raise
                 except Exception:
                     pass
-        if act == "done" and not extract and FINDING.search(goal or "") and page["url"] not in doubted:  # a watch job that never read anything: read the results here, if they fit
+        if act == "done" and not extract and watch and page["url"] not in doubted:  # a watch job that never read anything: read the results here, if they fit
             spec, rows = read_results(ctx, goal, page)
             if rows and fits(ctx, goal, rows)[0]:
                 extract = spec
@@ -452,6 +511,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             if extract:
                 break
             spec, rows = read_results(ctx, goal, page)
+            cat = category_link(page, f"{goal} {ctx.bot.get('job') or ''}") if rows and len(rows) < 6 and page["url"] not in hinted else None
+            if cat:  # a few featured items next to a link to exactly what the job is about: that link first
+                hinted.add(page["url"])
+                history.append(f"these few look like featured items; “{cat['name']}” on this page is what the job is about: open it")
+                continue
             if rows and on_home and (len(rows) < 6 or page["url"] in doubted):  # a home page's few tiles, or a feed already judged not to fit
                 rows = []
                 history.append("these are the shop's categories or featured items, not results: open the right category or search first")
@@ -500,10 +564,20 @@ def learn(ctx, goal, start_url, max_steps=24):
         elif el is None:
             history.append(f"element {idx} does not exist")
             continue
+        if act == "click" and el.get("role") == "link" and not re.match(r"#|javascript:|$", el.get("href") or "") and \
+                urljoin(page["url"], el["href"]).split("#")[0].rstrip("/") == page["url"].split("#")[0].rstrip("/"):
+            history.append("you are already on that page: pick an element on it")  # “Computers” on the Computers page
+            continue
+        if watch and not extract and act == "click" and el.get("role") == "link" and el.get("href") and opens_a_result(comp, page, el):
+            history.append(f"“{short(el['name'], 40)}” opens one of the results this page lists: read the list instead (extract)")
+            continue
         if watch and act in ("click", "goto") and el and not DOING.search(goal or "") and \
                 ACCOUNT.search(f"{el.get('name') or ''} {el.get('href') or ''} {d.get('step') or ''}"):
             # finding things never needs selling, posting an ad, or an account
             history.append(f"“{el.get('name')}” is for selling or your account, not for finding: search or open the category instead")
+            continue
+        if act == "fill" and norm(d.get("value")) in dead:  # the search it undid: typing it again only finds nothing again
+            history.append(f"searching for “{d.get('value')}” found nothing before: read the list on this page instead (extract)")
             continue
         if watch and act in ("fill", "select") and el and FILTER_FIELD.search(f"{el.get('name')} {el.get('placeholder')} {d.get('step') or ''}") \
                 and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", f"{el.get('name')} {el.get('placeholder')}", re.I) \
@@ -519,10 +593,18 @@ def learn(ctx, goal, start_url, max_steps=24):
         if el and classify(step["action"], el, page)[0] == "irreversible":
             step["sends"] = True  # this is the step that sends or submits: a job that never has one never does anything
         ctx.gate(step, el, page)
+        listed = watch and act in ("click", "press") and steps and steps[-1]["action"] == "fill" and comp.call("lists")  # sending a search
         try:
             page_after = _do(comp, step, idx, el, len(steps) + 1)
             if act == "goto" and error_page(page_after):  # an address the model made up: back, and click links instead
                 history.append(f"{d.get('value')} doesn’t exist (an error page); click a link on the page instead of guessing addresses")
+                page = comp.call("open", page["url"])
+                continue
+            if listed and page_after["url"] != page["url"] and not wait_for_lists(comp):  # the search emptied a page that listed results
+                box = steps.pop()
+                dead.add(norm(box.get("value")))
+                typed.pop(((box.get("target") or {}).get("role"), (box.get("target") or {}).get("name")), None)
+                history.append(f"searching for “{box.get('value')}” found nothing, and the page before already listed results: read those, or search for something simpler")
                 page = comp.call("open", page["url"])
                 continue
         except (NeedsHelp, Stopped):
@@ -649,7 +731,7 @@ def replay(ctx, skill, repair_role="repair"):
     fence(ctx, skill["start_url"])
     page = comp.call("open", skill["start_url"])
     fence(ctx, page.get("url"))
-    items, repairs, pages = [], [], 0
+    items, repairs, pages, seen = [], [], 0, set()
     steps = skill["steps"]
     extract_at = next((i for i, s in enumerate(steps) if s["action"] == "extract"), None)
     i = 0
@@ -665,15 +747,24 @@ def replay(ctx, skill, repair_role="repair"):
                             f"It showed “{short(page.get('title') or 'Access denied', 60)}”.", step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])
+            for _ in range(5):  # a list that comes a moment after the page
+                if rows:
+                    break
+                time.sleep(1)
+                rows = comp.call("extract", step["spec"])
             linked = [r for r in rows if r.get("link")]
             if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
                 rows = linked
+            rows = [r for r in rows if not ((item_key(r), r.get("title")) in seen or seen.add((item_key(r), r.get("title"))))]  # each once: “Load more” shows the earlier ones again
             items += rows
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
             nxt = steps[i + 1] if i + 1 < len(steps) and steps[i + 1].get("next_page") else None
             if nxt and pages < skill.get("max_pages", 3):
-                idx, _ = locate(nxt["target"], comp.call("elements")["elements"])
+                target = nxt["target"]
+                if (target.get("name") or "").isdigit():  # numbered pages: after page 2 comes the link “3”
+                    target = {**target, "name": str(int(target["name"]) + pages - 1), "text": str(int(target["name"]) + pages - 1)}
+                idx, _ = locate(target, comp.call("elements")["elements"])
                 if idx is not None:
                     page = _do(comp, nxt, idx, None, i + 2)
                     continue  # read the next page with the same extract step
@@ -752,6 +843,14 @@ def replay(ctx, skill, repair_role="repair"):
                         f"It found {len(items)} items, but none had a name or price. The site’s page has probably changed.",
                         ["Show me once", "Try again", "Skip this run"], url=start_url_of(skill))
     items = [r for r in items if r.get("title") or r.get("price") or r.get("name")]  # nameless rows are never results
+    names = {}
+    for r in items:
+        if r.get("link"):
+            names.setdefault(r["link"], set()).add(r.get("title"))
+    shared = sum(1 for r in items if len(names.get(r.get("link"), ())) > 1)
+    if shared and shared >= 0.2 * sum(1 for r in items if r.get("link")):  # many results share a link (a tag, an author): it is none of theirs
+        items = [{k: v for k, v in r.items() if k != "link"} for r in items]
+    items = list({item_key(r): r for r in items}.values())  # the same result twice (an ad copy of it) is one result
     return {"items": items, "repairs": repairs, "pages": pages}
 
 

@@ -32,6 +32,15 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - `run_skill` is now `run_bot`. The old name still works.
 - Daily and weekly checks run at a time of day (07:30 unless you say “every evening” or “at 9”), so Run now in between never moves tomorrow's check. Settings offers the same choices as New bot (6 hours and weekly too).
 
+### Learning
+- Tested on 42 kinds of pages and 7 practice sites; 24 of those page kinds were handled wrongly before ([report](docs/learning-report.md)). Now:
+  - Results keep their own names (no “View” titles, no quotes merged by their tags).
+  - Prices: the price you'd pay on a sale, “Free”, and prices in tables are read right.
+  - Pages: page numbers, a lone “›” and “Load more” lists are read past the first page, and lists that appear a moment late aren't missed.
+  - Sites learned right: ASP.NET search pages, link-less tables, category pages named only by an aria-label, and Hacker News.
+  - Fewer AI calls wasted: a 404 start page costs no AI calls, and a sign-in wall stops before anything is typed.
+  - Learning ends after the same mistake three times instead of going round.
+
 ### Security
 - A bot file you open gets the same preview, checks and fresh start as a shared agent. It arrives without sign-ins, memory, results, chat or approvals, stays on the sites it lists, and can't allow paying. Only a move between your own paired computers keeps those.
 - Bots open web pages only: never a file on your computer, and never Inky's own page, even if a site redirects there. Shared bots that try fail the check before you get them.

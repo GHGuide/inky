@@ -61,7 +61,10 @@ INDEX_JS = r"""() => {
     return parts.join(' > ');
   };
   const labelOf = (el) => {
-    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+    const al = el.getAttribute('aria-label'), seen = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? '' : (el.innerText || '').trim().replace(/\s+/g, ' ');
+    // a label that says what kind of link it is (“Navigation subcategory”), not what it says (“Laptops”): what it says
+    if (al && seen.length <= 40 && /\p{L}{3}/u.test(seen) && !al.toLowerCase().includes(seen.replace(/(\.\.\.|…)$/, '').toLowerCase())) return seen;
+    if (al) return al;
     if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) return l.innerText.trim(); }
     const wrap = el.closest('label'); if (wrap) return wrap.innerText.trim();
     return '';
@@ -79,8 +82,13 @@ INDEX_JS = r"""() => {
   const formOf = (el) => {  // what pressing it would send: a POST form, a sign-in (it has a password box)
     const f = el.form || el.closest('form'); if (!f) return null;
     const ty = (el.getAttribute('type') || '').toLowerCase();
-    return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!f.querySelector('input[type=password]'),
-             personal: !!f.querySelector('textarea, input[type=email], input[type=tel]'),  // a message, an email, a phone number
+    // one form around the whole page (ASP.NET): only the controls beside this one count, not a newsletter or sign-in box elsewhere
+    let near = f;
+    if (f.querySelector('input[name=__VIEWSTATE], input[name="javax.faces.ViewState"], main, nav'))  // a contact form's own <header> doesn't count
+      for (let g = el.parentElement; g && g !== f; g = g.parentElement)
+        if ([...g.querySelectorAll('input:not([type=hidden]), textarea, select, button')].some((x) => x !== el)) { near = g; break; }
+    return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!near.querySelector('input[type=password]'),
+             personal: !!near.querySelector('textarea, input[type=email], input[type=tel]'),  // a message, an email, a phone number
              submits: el.tagName === 'BUTTON' ? (ty || 'submit') === 'submit' : el.tagName === 'INPUT' && ['submit', 'image'].includes(ty) };
   };
   let i = 0;
@@ -112,7 +120,8 @@ EXTRACT_JS = r"""(spec) => {
     const row = {};
     for (const [k, v] of Object.entries(spec.fields || {})) {
       const [css, attr] = v.split('@');
-      const el = css ? it.querySelector(css) : it;
+      // a price next to a struck-out one ("<del>€1.500</del> €1.199") is the one that's still true
+      const el = !css ? it : k === 'price' ? [...it.querySelectorAll(css)].find((e) => !e.closest('del,s,strike')) || it.querySelector(css) : it.querySelector(css);
       row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
       if (k === 'text' && row[k]) row[k] = row[k].slice(0, 400);
       if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
@@ -146,9 +155,12 @@ LISTS_JS = r"""() => {
   };
   const step = (n, k) => n.tagName.toLowerCase() + cls(n).slice(0, k).map((c) => '.' + CSS.escape(c)).join('');
   const relK = (item, el, k) => { const parts = []; for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(step(n, k)); return parts.join(' > '); };
+  const nth = (n) => { const sib = [...n.parentElement.children].filter((c) => c.tagName === n.tagName);  // the 3rd <td> of a row has no class to tell it apart
+    return step(n, 1) + (sib.length > 1 ? `:nth-of-type(${sib.indexOf(n) + 1})` : ''); };
+  const relN = (item, el) => { const parts = []; for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(nth(n)); return parts.join(' > '); };
   let peers = [];  // the other results, so a selector is picked that works for most of them, not just the first
   const rel = (item, el) => {  // a selector inside one result: the most specific one that still finds this field in most results
-    const cands = [relK(item, el, 2), relK(item, el, 1), step(el, 1), relK(item, el, 0), step(el, 0)].filter((c, i, a) => c && a.indexOf(c) === i && item.querySelector(c) === el);
+    const cands = [relK(item, el, 2), relK(item, el, 1), step(el, 1), relK(item, el, 0), step(el, 0), relN(item, el)].filter((c, i, a) => c && a.indexOf(c) === i && item.querySelector(c) === el);
     if (!cands.length) return el.tagName.toLowerCase();
     const cover = (c) => peers.filter((it) => { try { return it.querySelector(c); } catch (e) { return false; } }).length;
     let best = cands[0], most = cover(best);
@@ -165,7 +177,8 @@ LISTS_JS = r"""() => {
       const shown = els.filter((e) => { const r = e.getBoundingClientRect(); return r.width > 20 && r.height > 8; });
       const linked = shown.filter((e) => e.matches('a[href]') || e.querySelector('a[href]'));
       const text = shown.reduce((n, e) => n + Math.min((e.innerText || '').trim().length, 300), 0) / Math.max(1, shown.length);
-      if (shown.length < 3 || linked.length < shown.length * 0.6 || text < 12) continue;
+      const table = shown.length >= 3 && shown[0].tagName === 'TR' && shown.every((e) => e.children.length >= 3);  // a table's rows are results, links or not
+      if (shown.length < 3 || (linked.length < shown.length * 0.6 && !table) || text < 12) continue;
       const priced = shown.filter((e) => PRICE.test(e.innerText || '')).length / shown.length;
       const imaged = shown.filter((e) => e.querySelector('img')).length / shown.length;
       groups.push({ parent, s, els: shown, score: shown.length * Math.log(5 + text) * (1 + priced * 2) * (1 + imaged * 0.5), priced, text });
@@ -184,18 +197,32 @@ LISTS_JS = r"""() => {
     // the result's own link goes somewhere different in every result; "more jobs in Worldwide" or a category link repeats
     const differs = (l) => { if (l === first) return peers.length; const c = rel(first, l);
       return new Set(peers.map((it) => { try { const x = it.querySelector(c); return x && x.getAttribute('href'); } catch (e) { return null; } }).filter(Boolean)).size; };
-    const ranked = links.map((l, i) => ({ l, i, u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
-      .sort((x, y) => y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
+    // one of a set of links in each result (its tags) isn't the result's own; the same link twice (picture and name) still is
+    const once = (l) => l === first || new Set([...first.querySelectorAll(relK(first, l, 2))].map((x) => x.getAttribute('href'))).size === 1 ? 1 : 0;
+    const ranked = links.map((l, i) => ({ l, i, o: once(l), u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
+      .sort((x, y) => y.o - x.o || y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
     const a = ranked.length ? ranked[0].l : null;
-    const atext = a ? (a.innerText || '').trim() : '', ttl = a ? (a.getAttribute('title') || '').trim() : '';
-    const sole = head && a && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
+    // a link the results share (a quote's tags, its author) is no one result's own: it neither names one nor tells them apart
+    const sameFor = (l) => { const c = rel(first, l), by = {};  // results with this link are one and the same result
+      for (const it of peers) { let x = null; try { x = it.querySelector(c); } catch (e) {} const h = x && x.getAttribute('href');
+        if (h) (by[h] = by[h] || new Set()).add((it.innerText || '').trim()); }
+      const odd = Object.values(by).filter((t) => t.size > 1).length;  // one sponsored copy of a result is no reason to doubt the rest
+      return odd <= Math.floor(0.1 * Object.keys(by).length); };
+    const own = a && (a === first || (ranked[0].o && sameFor(a)));
+    const atext = own ? (a.innerText || '').trim() : '', ttl = own ? (a.getAttribute('title') || '').trim() : '';
+    const sole = head && own && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
+    const named = head && (own || !head.closest('a[href]')) ? head : null;
+    const ownText = (e) => [...e.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join(' ').trim();
+    const said = [...first.querySelectorAll('*')].find((e) => { const t = ownText(e);  // no heading: the first words that name it (not a price, not “View”)
+      return t.length >= 10 && !PRICE.test(t) && !GENERIC.test(t) && !e.closest('a[href],del,s,strike'); });
     if (ttl && atext && ttl.toLowerCase().startsWith(atext.replace(/(\.\.\.|…)$/, '').trim().toLowerCase().slice(0, 12)))
       fields.title = (a === first ? '' : rel(first, a)) + '@title';  // a cut-off name whose full name is in its title
     else if (sole) fields.title = rel(first, head);
-    else if (a && a !== first && atext.length >= 3 && !(head && GENERIC.test(atext))) fields.title = rel(first, a);  // “Dettagli” names nothing: its heading does
-    else if (head) fields.title = rel(first, head);
+    else if (own && a !== first && atext.length >= 3 && !GENERIC.test(atext)) fields.title = rel(first, a);  // “Dettagli” names nothing: its heading does
+    else if (named) fields.title = rel(first, named);
+    else if (said) fields.title = rel(first, said);
     else if (a) fields.title = a === first ? '' : rel(first, a);
-    if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
+    if (own) fields.link = (a === first ? '' : rel(first, a)) + '@href';
     // the price: not a discount badge ("€424 korting", "-20%"), not a struck-out old price; the sale/current one when there are two
     const OFF = /korting|discount|rabatt|réduction|sconto|descuento|reducere|bespaar|save|you save|\boff\b|%|was\b|before|vorher|avant|prima/i;
     const OLDW = 'old|was|compare|regular|strike|before|original|list-?price';  // whole words in class names: a random "kOLdPq" isn't one
@@ -205,9 +232,10 @@ LISTS_JS = r"""() => {
       const leaves = [...it.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
       // a price split over a few tiny elements ("1.450," and "00") counts as one
       const small = [...it.querySelectorAll('*')].filter((e) => e.children.length && e.children.length <= 3 && (e.innerText || '').trim().length < 20 && [...e.children].every((c) => !c.children.length));
-      const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
+      const P = it.tagName === 'TR' ? CUR : PRICE;  // in a table a bare 0.55 is a figure (a win rate), not a price: there it needs its currency
+      const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return P.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
       return prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
-        || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
+        || leaves.find((e) => P.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
     };
     const withPrice = [first, ...peers].find((it) => priceIn(it));  // the first result can be an ad with no price ("Bieden")
     if (withPrice) fields.price = rel(withPrice, priceIn(withPrice));
@@ -366,15 +394,16 @@ class Computer:
     # ---- actions
     def _go(self, page, url):
         """Every navigation a bot makes: only web pages, never Inky itself, even when a site redirects there."""
-        page.goto(safe_url(url), wait_until="domcontentloaded", timeout=45000)
+        resp = page.goto(safe_url(url), wait_until="domcontentloaded", timeout=45000)
         if is_inky(page.url) or page.url.startswith("file:"):
             page.goto("about:blank")
             raise ValueError("That site sent the bot to this computer's own Inky, so it stopped.")
+        return resp
 
     def _open(self, url):
-        self._go(self.page, url)
+        resp = self._go(self.page, url)
         self._settle()
-        return self._elements()
+        return {**self._elements(), "status": resp.status if resp else None}  # 404: the address is wrong
 
     def _elements(self):
         return self.page.evaluate(INDEX_JS)
