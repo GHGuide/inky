@@ -23,7 +23,7 @@ For **each** of the five, all of these hold:
 
 1. **Draft** — the name, job, schedule and rules match the sentence; no made-up rules; numbers only from the sentence (£20, €1500). *(J)*
 2. **Sites** — a site named in the sentence is used as-is; otherwise at least 3 real, reachable sites are suggested and "Check all" learns them one after another with one progress line. *(J)*
-3. **Learn** — learning finishes without asking you, in at most 12 AI calls per site, and the saved skill reads the right list (titles, and prices when the site shows them). An empty or nameless read is never saved. *(J)*
+3. **Learn** — learning finishes without asking you, in at most 12 AI calls per site, and what it saves reads the right list (titles, and prices when the site shows them), never a home page's featured items. An empty or nameless read is never saved. A suggested site that turns out not to fit gives up by itself within 16 AI calls, says so in one line, and the other sites carry on. *(J)*
 4. **Repeat for free** — the first check after learning uses 0 AI calls and returns the same items. *(J)*
 5. **Correct results** — every item on Found is a real item from that site, with a working link; rules are applied (nothing over £20 / €1500, only AI stories). Spot-check 5 items by opening them. *(M)*
 6. **Autonomous** — with the app left alone, the schedule fires on time ("tomorrow at 08:00", "in 52 min") and a later run marks **only truly new** items as new. *(J for timing, M for overnight)*

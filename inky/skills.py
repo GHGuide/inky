@@ -382,10 +382,26 @@ def learn(ctx, goal, start_url, max_steps=24):
             print(json.dumps({"url": page["url"], "reply": d, "told": history[-1:], "steps": len(steps)}, ensure_ascii=False), file=sys.stderr, flush=True)
         if act in ("done", "next_page") or (act == "extract" and extract):
             finished = True
-        if act in ("extract", "done") and on_home and not extract and (unsent or not pushed):
-            pushed = True  # asked once to open the category or search; if it insists on reading here, it may (books.toscrape.com's home is its catalogue)
-            history.append("you typed into the search box but didn’t search yet: press Enter (action press, value Enter) or click the search button first" if unsent else
-                           "this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
+        if act in ("extract", "done") and not extract and unsent and steps[-1]["action"] == "fill":  # typed the search, never sent it: send it
+            box = steps[-1]["target"]
+            bi, _ = locate(box, page["elements"])
+            if bi is not None:
+                el = next(e for e in page["elements"] if e["i"] == bi)
+                step = {"action": "press", "target": box, "value": "Enter", "text": "Press Enter to search", "next_page": False, "optional": False}
+                ctx.gate(step, el, page)
+                try:
+                    page = _do(comp, step, bi, el, len(steps) + 1)
+                    steps.append(step)
+                    ctx.emit("learn", step["text"], step=len(steps), target=box.get("name"))
+                    idle = 0
+                    continue
+                except (NeedsHelp, Stopped):
+                    raise
+                except Exception:
+                    pass
+        if act in ("extract", "done") and on_home and not extract and not pushed:
+            pushed = True  # asked once to open the category or search; if it insists on reading here, only a paged list counts
+            history.append("this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
             continue
         if act == "done" and not extract and FINDING.search(goal or "") and not on_home:  # a watch job that never read anything: read the results here, if there are any
             spec, rows = read_results(ctx, goal, page)

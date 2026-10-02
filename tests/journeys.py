@@ -411,8 +411,11 @@ def j_five():
             else:
                 E.idle(bid, 3600)
                 v = E.bot(bid)
-                learns = [r for r in v["runs"] if r.get("kind") == "learn"]
+                learns = [r for r in v["runs"] if r.get("kind") == "learn" and r.get("status") == "ok"]
                 ai = max([r.get("ai_calls") or 0 for r in learns] or [0])
+                gave_up = [r for r in v["runs"] if r.get("kind") == "learn" and r.get("status") != "ok"]
+                if any((r.get("ai_calls") or 0) > 16 for r in gave_up):
+                    bad.append(f"spent {max(r.get('ai_calls') or 0 for r in gave_up)} AI calls on a site it then gave up")
                 found = E.api("GET", f"/api/bots/{bid}/results").get("results", [])
                 named = [r for r in found if r.get("title") or r.get("name")]
                 if not v["skills"]:

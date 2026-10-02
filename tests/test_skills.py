@@ -47,6 +47,21 @@ class ScriptedModel:
         return {"action": "done"}, {}
 
 
+class ForgetfulModel(ScriptedModel):
+    """Types the town, then wants to read the results without ever pressing Search."""
+
+    def ask_json(self, role, system, user, bot_id=None, **kw):
+        if system in (skills.PICK_LIST_SYSTEM, skills.EXTRACT_SYSTEM, skills.REPAIR_SYSTEM):
+            return super().ask_json(role, system, user, bot_id, **kw)
+        self.calls += 1
+        steps = user.split("STEPS SO FAR:")[1].split("EXTRACTED:")[0]
+        if "Accetta" in user and "Close cookies" not in steps:
+            return {"action": "click", "index": idx(user, "Accetta"), "step": "Close cookies"}, {}
+        if "Type Bari" not in steps:
+            return {"action": "fill", "index": idx(user, "Comune"), "value": "Bari", "step": "Type Bari"}, {}
+        return ({"action": "extract"} if "EXTRACTED: yes" not in user else {"action": "done"}), {}
+
+
 class NoModel:
     def ask_json(self, *a, **k):
         raise AssertionError("replay must not call a model")
@@ -101,6 +116,17 @@ class SkillsTest(unittest.TestCase):
         self.assertGreaterEqual(out["pages"], 2)
         self.assertTrue(all(skills.parse_num(i["price"]) <= 150000 for i in out["items"]))
         self.assertEqual(out["repairs"], [])
+
+    def test_a_search_typed_but_never_sent_is_sent_for_it(self):
+        self.layout(1)
+        comp = Computer(2, tempfile.mkdtemp(), look={"speed": "turbo"})  # its own browser: the shared one's cookie banner stays for the other tests
+        try:
+            skill = skills.learn(Ctx(comp, ForgetfulModel()), "Flats in Bari", self.base + "/")
+        finally:
+            comp.close()
+        texts = [s["text"] for s in skill["steps"]]
+        self.assertEqual(texts[1:4], ["Type Bari", "Press Enter to search", texts[3]])
+        self.assertTrue(texts[3].startswith("Read "))  # the results page, not the home page
 
     def test_renamed_button_is_repaired_when_sure(self):
         skill, _ = self.learned()
