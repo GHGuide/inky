@@ -447,6 +447,9 @@ class Ctx:
             return
         preview = self.computer.call("extract", {"item": "form", "fields": {"text": "textarea@value"}}) if el else []
         body = f"{why}. On {page.get('url', '')}."
+        job = f"{self.bot.get('job') or ''} {self.bot.get('goal') or ''}"
+        if not skills.DOING.search(job):  # a finding job: sending anything wasn't asked for (a page may have tried to steer it)
+            body += " Its job is only to find things, so this isn’t part of it: Deny unless you meant it."
         typed = next((r["text"] for r in preview if r.get("text")), None)
         if typed:
             body += f" Message: “{typed[:280]}”"

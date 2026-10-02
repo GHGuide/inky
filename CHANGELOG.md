@@ -18,6 +18,7 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - A shared bot's colour can only be a colour, so it can't hide the warnings in the preview.
 - A form with a password box always stops for you to sign in, whatever its button says. Pressing Enter or a button in a contact, sign-up or order form asks first, even when the button only says “Continue”.
 - A “never” rule also checks the page a step is on (“never contact the agency” stops the Send on the agency's contact page). Pausing while a bot waits for your yes holds after the yes.
+- Learning treats text on a page as what the site says, never as instructions. If a finding bot still wants to send something, its question says that isn't part of its job.
 - Requests to the engine have a size limit and a time limit; a broken request gets a clear error instead of an open connection.
 - Inky reads a `.env` file only from its own folder (`~/.inky/.env`), not from whatever folder it was started in.
 
