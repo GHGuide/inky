@@ -67,8 +67,7 @@ const icon = (n, s = 17, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0
 const STATUS = { working: ["working", "#2F9E5B"], learning: ["learning", "#E86F51"], paused: ["paused", "#8E8A83"], needs_you: ["needs you", "#E86F51"],
   idle: ["idle", "#C9C5BD"], moved: ["on another computer", "#3B5BDB"], takeover: ["you have control", "#B5482A"], showing: ["showing it once", "#B5482A"] };
 function botMeta(b) {
-  const [t, c] = STATUS[b.status] || [b.status, "#C9C5BD"];
-  let meta = t;
+  let [t, c] = STATUS[b.status] || [b.status, "#C9C5BD"], meta = t;
   if (b.status === "working" || b.status === "learning") meta = b.site ? `${b.status === "learning" ? "learning" : "checking"} ${b.site}${b.sites_to_go > 1 ? ` · ${b.sites_to_go - 1} more after` : ""}` : t;  // the site, not the model's step: "Click to reveal" reads like an order
   else if (b.status === "idle" && b.held) meta = "paused · runs when you ask";
   else if (b.status === "idle" && b.next_run) {
@@ -76,8 +75,9 @@ function botMeta(b) {
     meta = `next run ${days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, { weekday: "long" })} at ${d.toTimeString().slice(0, 5)}`;
   }
   else if (b.status === "idle" && !b.skills.length) meta = "hasn’t learned yet";
-  else if (b.status === "moved") meta = b.needs ? `needs you · on ${b.remote || "another computer"}` : `on ${b.remote || "another computer"}`;
-  return { meta, color: b.status === "moved" && b.needs ? STATUS.needs_you[1] : c, hot: b.status === "needs_you" || (b.status === "moved" && b.needs > 0) };
+  else if (b.status === "moved") meta = b.offline ? `${b.remote || "its computer"} isn’t answering` : b.needs ? `needs you · on ${b.remote || "another computer"}` : `on ${b.remote || "another computer"}`;
+  if (b.offline) c = "var(--faint)";
+  return { meta, color: b.status === "moved" && b.needs && !b.offline ? STATUS.needs_you[1] : c, hot: b.status === "needs_you" || (b.status === "moved" && b.needs > 0) };
 }
 const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? new Date(ts * 1000).toTimeString().slice(0, 5) : new Date(ts * 1000).toLocaleDateString(undefined, { weekday: "short" }); };
 const hhmm = (ts) => new Date(ts * 1000).toTimeString().slice(0, 5);
@@ -172,7 +172,7 @@ setInterval(() => $$("[data-since]").forEach((x) => (x.textContent = `${Math.max
 document.addEventListener("click", async (e) => {  // the sidebar's Stop: cut off what the models are doing now
   if (!e.target.closest("#stopmodel")) return;
   const r = await post("/api/models/stop", {}).catch((err) => ({ error: err.message }));
-  toast(r.error || (r.stopped ? "Stopped the model. The runs it was thinking for stopped too." : "Nothing was thinking."));
+  toast(r.error || (r.stopped ? `Stopped the model.${r.runs ? ` The run${r.runs > 1 ? "s" : ""} it was thinking for stopped too.` : ""}` : "Nothing was thinking."));
   refreshSoon();
 });
 function listen() {
@@ -239,7 +239,7 @@ function showUpdate(v) {
 async function testNotify() {
   const title = "Inky", body = "This is how your bots will tell you about new things.";
   if (APP) { invoke("notify", { title, body, hash: "#/bots" }); return toast("Sent. If nothing showed up, allow notifications for Inky in your system settings."); }
-  if (!("Notification" in window)) return toast("This browser can't show notifications. Use the Inky app, or Telegram in More → Phone.");
+  if (!("Notification" in window)) return toast("This browser can't show notifications. Use the Inky app, or Telegram (Settings → Hear from your bots on your phone).");
   const ok = Notification.permission === "granted" || (await Notification.requestPermission()) === "granted";
   if (!ok) return toast("Notifications are blocked for this page. Allow them in the browser's site settings.");
   new Notification(title, { body });
@@ -439,8 +439,11 @@ function cmdItems(q) {
   act("Models and keys", "", "models", () => (location.hash = "#/models"));
   act("Connectors · Claude Code, Codex", "", "plug", () => (location.hash = "#/connectors"));
   act("Library · agents other people made", "", "store", () => (location.hash = "#/library"));
-  if (!at) S.bots.forEach(send(text ? "OR SEND TO" : "BOTS"));  // below the actions: a bot gets your text only when you pick it
-  if (text && !at) {  // “open needs”, “models”: the page you named comes first, before making a bot of it
+  // what you typed is a bot's name (“flat”, “Book Bargains”): it comes first and just opens; its name is never sent to it
+  const low = text.toLowerCase(), named = text && !at ? S.bots.filter((b) => low.split(/\s+/).every((w) => b.name.toLowerCase().split(/\s+/).some((n) => n.startsWith(w)))) : [];
+  if (named.length) items.unshift(...named.map((b) => ({ sec: "GO TO", label: esc(b.name), lead: botCritter(b, 26), k: botMeta(b).meta, run: () => (location.hash = `#/bot/${b.id}/computer`) })));
+  if (!at) S.bots.filter((b) => !named.includes(b)).forEach(send(text ? "OR SEND TO" : "BOTS"));  // below the actions: a bot gets your text only when you pick it
+  if (text && !at && !named.length) {  // “open needs”, “models”: the page you named comes first, before making a bot of it
     const words = text.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
     const hit = (it) => it.sec === "ACTIONS" && !it.make && words.length && words.every((w) => it.label.replace(/<[^>]+>/g, "").toLowerCase().includes(w));
     const hits = items.filter(hit);
@@ -448,10 +451,10 @@ function cmdItems(q) {
   }
   return items;
 }
-async function pauseAll() {
-  const busy = S.bots.filter((b) => ["working", "learning"].includes(b.status));
-  for (const b of busy) await post(`/api/bots/${b.id}/control`, { cmd: "pause" });
-  toast(busy.length ? `Paused ${busy.length === 1 ? busy[0].name : `${busy.length} bots`}` : "Nothing was running"); refreshSoon();
+async function pauseAll() {  // every bot: a run stops where it is, a waiting one holds after your answer, and no schedule runs until you resume
+  const all = S.bots.filter((b) => !b.held && b.status !== "paused" && b.status !== "moved");
+  const done = (await Promise.all(all.map((b) => post(`/api/bots/${b.id}/control`, { cmd: "pause" }).then(() => b, () => null)))).filter(Boolean);
+  toast(done.length ? `Paused ${done.length === 1 ? done[0].name : `all ${done.length} bots`}. None runs until you resume it.` : "Every bot is already paused."); refreshSoon();
 }
 async function stopScreens() {
   const on = S.bots.filter((b) => b.mode === "screen" && ["working", "learning", "paused"].includes(b.status));

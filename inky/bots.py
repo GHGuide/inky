@@ -104,7 +104,7 @@ AFFIRM = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok(ay)?|please( do)?|do it|go a
 
 
 def is_question(t):
-    t = (t or "").strip().lower()
+    t = re.sub(r"^[^\w¿¡]+|[^\w?]+$", "", (t or "").strip().lower())  # “📚 any cheap ones? 😍”: emoji around a question
     while FILLER.match(t) and FILLER.sub("", t, 1) != t:
         t = FILLER.sub("", t, 1)
     return t.endswith("?") or bool(re.match(r"^(what|how|did|do|does|when|why|which|who|where|is|are|was|were|can|could|have|has)\b", t))
@@ -163,7 +163,7 @@ def quick_command(text):
         return {"type": "resume"}
     if re.fullmatch(r"(stop|stop it|stop now|stop that)", low):
         return {"type": "stop"}
-    if re.search(r"\b(only (run|check|look)s? when i ask|don'?t (run|check) on (its|your) own|stop (running|checking) on (its|your) own|no schedule|manually)\b", low):
+    if re.search(r"\b(only (run|check|look)s? when i ask|only when i (ask|say)|only when asked|don'?t (run|check) on (its|your) own|stop (running|checking) on (its|your) own|no schedule|manually)\b", low):
         return {"type": "schedule", "every_minutes": 0}
     m = re.fullmatch(r"(?:(?:check|run|look|search)(?: it)? )?(every .{1,30}|hourly|daily|weekly|twice a day|each (?:morning|day|hour|week))", low)
     if m and minutes(m.group(1)):
@@ -171,6 +171,8 @@ def quick_command(text):
     m = re.fullmatch(r"(?:please )?remember(?: that)? (.{3,200})", t, re.I)
     if m:
         return {"type": "remember", "text": you_form(m.group(1).strip())}
+    if re.fullmatch(r"(forget|remove|delete|drop|undo|scrap) (that|this|the|my|the last|your last) (new )?rule", low):
+        return {"type": "remove_rule", "last": True}
     m = re.fullmatch(r"(?:please )?forget(?: that| about)? (.{2,200})", t, re.I)
     if m and not re.fullmatch(r"(it|that|this)", m.group(1).strip(), re.I):
         return {"type": "forget", "text": m.group(1).strip()}
@@ -208,6 +210,8 @@ def command_reply(a, out):
         return f"Done: I’ll check every {every_words(m)}{' at ' + str(out).rsplit(' at ', 1)[1] if ' at ' in str(out) else ''}." if m else "Done: I’ll only run when you ask."
     if t == "add_rule":
         return f"Done: from now on I only keep results with {a['text']}."
+    if t == "remove_rule":
+        return f"Done: I removed the rule “{str(out).removeprefix('removed rule: ')}”."
     return {"run": "Running now.", "pause": "Paused." if out == "paused" else "Paused my schedule: I won’t run until you say resume.",
             "resume": "Carrying on.", "stop": "Stopped.", "remember": f"I’ll remember: {a.get('text')}.",
             "forget": f"Forgotten: {str(out).removeprefix('forgot: ')}.", "speed": f"Speed: {a.get('value')}."}.get(t, "Done.")
@@ -226,8 +230,8 @@ def stated(f, job):
         if isinstance(v, bool) or str(v).lower() in ("true", "false"):
             return False
         if n is not None:  # a number, or a number written as text: it has to be one you wrote (and 0 is never a limit)
-            if n == 0 or not re.search(rf"(?<![\d.]){re.escape(str(int(n)) if float(n).is_integer() else str(n))}(?![\d])", job.replace(",", "").replace(" ", "")) \
-                    and not re.search(rf"\b{int(n) // 1000}\s*k\b", low):
+            said = {skills.parse_num(x) for x in re.findall(r"\d[\d.,]*\d|\d", job)}  # “€150.000”, “1,000”, “£15” read like prices
+            if n == 0 or n not in said and not re.search(rf"\b{int(n) // 1000}\s*k\b", low):
                 return False
         elif not all(w in low for w in re.findall(r"[^\W\d_]{3,}", str(v).lower())):
             return False
@@ -532,17 +536,26 @@ class Engine:
                 "look": {**DEFAULT_LOOK, **(b.get("look") or {})},  # older bots get every part of a look
                 "persona": persona_mod.normalize(b.get("persona"), (b.get("look") or {}).get("kind", "octopus")),
                 "status": status, "step": run.step if live else "", "step_n": run.n if live else 0, "site": getattr(run, "site", "") if live else "",
-                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), "sites_to_go": len(b.get("site_queue") or []) + (1 if b.get("site_batch") else 0), **self._found(b["id"]),
+                "skills": [s["name"] for s in sk], "needs": len(needs), "next_run": nxt, "held": bool(b.get("held")), "retries": len(b.get("retries") or []), "sites_to_go": len(b.get("site_queue") or []) + (1 if b.get("site_batch") else 0),
+                **(self._found(b["id"]) if b.get("status") != "moved" else {"found": 0, "fresh": 0, "top": []}),  # what it finds now lives on its server
                 "need_kind": ("decision" if needs[0].get("kind") == "decision" else "problem") if needs else None,
                 "unlocked": growth.unlocked(len(growth.ok_runs(self.store.find("runs", bot_id=b["id"], status="ok", limit=600)))),
                 "ai_calls": run.ai_calls if run else 0, "takeover": bool(run and run.takeover),
                 "run_kind": run.kind if run and run.thread and run.thread.is_alive() else None,
                 "skill_id": run.skill_id if run else None, "shown": len(getattr(run, "show", None) or []) if run else 0,
-                "remote_id": b.get("remote_id")}
+                "remote_id": b.get("remote_id"),
+                "offline": b.get("status") == "moved" and str(b.get("computer") or "").isdigit() and int(b["computer"]) in getattr(self, "offline", {})}
+
+    def kept(self, bid, limit=2000, b=None):
+        """What it found that passes your rules as they are now: they may have changed since its last run."""
+        b = b or self.store.get("bots", bid)
+        hidden = ("id", "bot_id", "status", "key", "ts", "passed", "new", "run", "skill")
+        return [r for r in self.store.find("results", bot_id=bid, limit=limit)
+                if skills.apply_filters([{k: v for k, v in r.items() if k not in hidden}], b.get("filters"))]
 
     def _found(self, bid):
         """What it found, in a line: how many pass its rules, how many are new, the newest two."""
-        rows = [r for r in self.store.find("results", bot_id=bid, limit=400) if r.get("passed") is not False]
+        rows = self.kept(bid, 400)
         top = [{"title": str(r.get("title") or r.get("name") or "")[:80], "price": str(r.get("price") or "")[:24]} for r in rows if r.get("title") or r.get("name")][:2]
         return {"found": len(rows), "fresh": sum(1 for r in rows if r.get("new")), "top": top}
 
@@ -567,8 +580,16 @@ class Engine:
         d["every_minutes"] = minutes(d.get("every_minutes"))
         if d.get("start_url") and not skills.web_address(d["start_url"], ""):
             d["start_url"] = None
+        typed = re.search(r"https?://[^\s,]+|\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|[\w-]+(?:\.[\w-]+)*\.[a-z]{2,})(?::\d+)?(?:/[^\s,]*)?", job, re.I)
+        raw = typed.group(0).rstrip(".,);") if typed else ""
+        typed = skills.web_address(raw, "") if raw else None
+        host = lambda u: (urlparse(u or "").hostname or "").removeprefix("www.")
+        if typed and not (re.match(r"https?://|localhost\b|\d", raw, re.I) or host(typed) == host(skills.web_address(d.get("start_url") or "", ""))):
+            typed = None  # “Node.js” is a word, not an address, unless the model read it as that site too
         known = next((u for n, u in KNOWN_SITES.items() if re.search(rf"\b{n}\b", job, re.I)), None)
-        if known:  # you named it, just not by its address
+        if typed:  # the address you wrote, as you wrote it (http for your own machines), over the model's version of it
+            d["start_url"] = typed
+        elif known:  # you named it, just not by its address
             d["start_url"] = known
         elif d.get("start_url"):  # a site you didn't name is the model's guess: one suggestion among the ones found, not where it starts
             site = skills.site_of(urlparse(skills.web_address(d["start_url"], "")).hostname)
@@ -941,12 +962,14 @@ class Engine:
             if f:
                 word = {"<": "under", "<=": "at most", ">": "over", ">=": "at least"}[f["op"]]
                 val = int(f["value"]) if float(f["value"]).is_integer() else f["value"]
-                cmd = {"type": "add_rule", "text": f"{f['field']} {word} {val}", "kind": "filter", "filter": f}
+                cur = (re.search(r"[£€$]", text) or [""])[0]  # “under £15” stays in pounds
+                cmd = {"type": "add_rule", "text": f"{f['field']} {word} {cur}{val}", "kind": "filter", "filter": f}
             if cmd:  # plain commands never depend on how good the model is
                 try:
                     out = self.apply_action(bid, cmd)
-                except Guard:
-                    return self._say(bid, "Nothing is running right now." if cmd["type"] == "stop" else "Nothing to change.")
+                except Guard as g:
+                    return self._say(bid, "Nothing is running right now." if cmd["type"] == "stop" else
+                                     "I already remember that." if "already remembered" in str(g) else "Nothing to change.")
                 except Exception as e:
                     return self._say(bid, f"I couldn’t: {e}")
                 r = self._say(bid, command_reply(cmd, out))
@@ -955,14 +978,14 @@ class Engine:
         fields = sorted({k for r in results for k in r if k not in ("id", "bot_id", "status", "key", "ts", "run", "skill", "new")})
         sk = self.store.find("skills", bot_id=bid)
         hist = [m for m in reversed(self.store.find("messages", bot_id=bid, limit=12))]
-        saved = sum(1 for r in self.store.find("results", bot_id=bid, limit=2000) if r.get("passed") is not False)
+        saved = len(self.kept(bid, b=b))  # under your rules as they are now
         status = self.bot_view(b)["status"] + (f" · {run.step}" if run and run.step else "") + \
             ("" if saved else ". You have NO results yet: never say you found anything." + ("" if sk else " You haven’t learned a site yet."))
         last = next((r for r in self.store.find("runs", bot_id=bid, limit=5) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
         if last:
             status += (f". Last run {datetime.fromtimestamp(last['ts']).strftime('%a %H:%M')}: {last.get('items', 0)} results, "
                        f"{last.get('matched', 0)} pass the rules, {last.get('new', 0)} new, {nres(last.get('ai_calls', 0), 'AI call')}. "
-                       f"Results saved so far: {sum(1 for r in self.store.find('results', bot_id=bid, limit=2000) if r.get('passed') is not False)}")
+                       f"Results that pass your rules now: {saved}")
         sys = CHAT_SYSTEM.format(name=b["name"], job=b.get("job", ""), tone=b.get("look", {}).get("tone", "cheerful"),
                                  fields=", ".join(fields) or "none yet", rules="; ".join(r["text"] for r in b.get("rules", [])),
                                  memory="; ".join(m["text"] for m in b.get("memory", [])) or "nothing yet",
@@ -986,7 +1009,9 @@ class Engine:
             if not t.strip():  # a reasoning model can spend its whole budget thinking: ask once more
                 t, _ = self.llm.chat("chat", msgs + [{"role": "user", "content": "Reply now with the JSON object only."}], bot_id=bid, max_tokens=900)
             d = try_json(t)
-            if d is None:  # invalid JSON: say so once and ask again
+            if d is None and t.strip() and not re.search(r'^\s*(```|\{)|"reply"\s*:', t):  # plain words, no JSON at all: that's its reply
+                d = {"reply": t.strip()[:4000], "actions": []}
+            if d is None:  # broken JSON: say so once and ask again
                 t2, _ = self.llm.chat("chat", msgs + [{"role": "assistant", "content": t},
                                                       {"role": "user", "content": "That wasn’t valid JSON. Send the same answer as ONE valid JSON object."}],
                                       bot_id=bid, max_tokens=900)
@@ -1059,7 +1084,7 @@ class Engine:
             reply = "I haven’t changed anything."
         elif chips:
             reply = f"{reply} Want me to?" if promise and not reply.rstrip().endswith("?") else reply
-        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender),
+        self.store.message(bid, "bot", reply, actions=[a.get("type") for a in d.get("actions") or []], done=done, team=bool(sender), to_peer=bool(sender),
                            **({"chips": chips, "offers": kept} if chips else {}))
         self.bus.publish("messages", bot=bid)
         return {"reply": reply, "actions": d.get("actions") or [], "done": done}
@@ -1094,9 +1119,10 @@ class Engine:
             if said is not None and (said.lower().startswith("new rule:") or not REMOVING.search(said)):
                 raise Guard("you didn’t ask me to remove a rule", offer=True)
             rules = b.get("rules", [])
-            i = best_match(a.get("text"), rules, key=lambda r: r["text"])
+            mine = [j for j, r in enumerate(rules) if r.get("text") not in DEFAULT_RULE_TEXTS]
+            i = (mine[-1] if mine else None) if a.get("last") else best_match(a.get("text"), rules, key=lambda r: r["text"])  # “forget that rule”: the newest of yours
             if i is None:
-                raise ValueError(f"no rule like “{a.get('text')}”")
+                raise ValueError("you have no rules of your own yet" if a.get("last") else f"no rule like “{a.get('text')}”")
             gone = rules[i]["text"]
             self.store.update("bots", bid, rules=rules[:i] + rules[i + 1:], filters=[f for f in b.get("filters", []) if f.get("text", "") != gone])
             return f"removed rule: {gone}"
@@ -1134,7 +1160,7 @@ class Engine:
                 s["at"] = (a.get("at") if re.fullmatch(r"\d{2}:\d{2}", str(a.get("at") or "")) else None) or time_of_day(said) or s.get("at") or "07:30"
             self.store.update("bots", bid, schedule=s)
             m = minutes(s.get("every_minutes"))
-            return (f"schedule: every {every_words(m)}" + (f" at {s['at']}" if m >= 1440 else "")) if m else "schedule: only when you say"
+            return (f"I’ll check every {every_words(m)}" + (f" at {s['at']}" if m >= 1440 else "")) if m else "I’ll only run when you ask"
         if t in ("pause", "resume", "stop"):
             running = self.busy(bid)
             if t == "stop" and not running:
@@ -1146,8 +1172,15 @@ class Engine:
             self.update_bot(bid, {"look": {"speed": v}})
             return f"speed: {v}"
         if t == "delegate":
+            srv = a.get("server")
+            if not (self.mcp.known(srv) or self.mcp.builtin and self.mcp.builtin.has(srv)):
+                other = next((o for o in self.store.find("bots") if o["id"] != bid and o["name"].lower() == str(srv or "").lower()), None)
+                if other:  # the model handed a job to another bot as if it were a connector: that's asking the bot
+                    args = a.get("args") or {}
+                    return self.apply_action(bid, {"type": "ask_bot", "bot": other["name"], "text": args.get("prompt") or args.get("description") or a.get("label") or ""})
+                raise ValueError(f"there’s no connector called {srv}")
             threading.Thread(target=self.delegate, args=(bid, a), daemon=True).start()
-            return f"handing to {a.get('server')}"
+            return f"handing to {srv}"
         if t == "ask_bot":
             target = self.find_bot(a.get("bot"), bid)  # fail now if it's unknown or itself
             threading.Thread(target=self._ask_quietly, args=(bid, target["name"], a.get("text") or ""), daemon=True).start()
@@ -1176,7 +1209,7 @@ class Engine:
                 self.mcp.connect(server)
             except Exception as e:
                 return self._say(bid, f"I couldn’t reach {who}: {plain_error(e)}. Connectors → {who} → Connect.")
-        kept = skills.apply_filters([r for r in self.store.find("results", bot_id=bid, limit=2000)], b.get("filters"))  # your rules as they are now
+        kept = self.kept(bid, b=b)  # your rules as they are now
         found = [{k: r.get(k) for k in ("title", "price", "link") if r.get(k)} for r in kept][:20]
         prompt = (f"{task}\n\nContext: you're helping {b['name']}, an Inky bot whose job is: {b.get('job') or b.get('goal')}."
                   + (f" What it has found so far (JSON):\n{json.dumps(found, ensure_ascii=False)}" if found else " It hasn't found anything yet."))
@@ -1249,7 +1282,7 @@ class Engine:
         if not (price or count):
             return None
         b = self.store.get("bots", bid)
-        rows = [r for r in self.store.find("results", bot_id=bid, limit=2000) if r.get("passed") is not False]
+        rows = self.kept(bid, b=b)
         if not rows:
             return "I haven’t found anything yet." + ("" if self.store.find("skills", bot_id=bid) else " I haven’t learned my site yet." if b.get("start_url")
                                                      else " Tell me a site and I’ll learn it.")
@@ -1309,15 +1342,16 @@ class Engine:
             pages = f" over {r['pages']} pages" if (r.get("pages") or 0) > 1 else ""
             reads = r.get("items") is not None and r.get("matched") is not None
             ai = r.get("ai_calls") or 0
-            s = (f"{when}, I ran “{r.get('skill') or 'my check'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} pass your rules, "
+            passed = "passed your rules then" if lead else "pass your rules"  # your rules changed since: that count was under the old ones
+            s = (f"{when}, I ran “{r.get('skill') or 'my check'}”: read {nres(r.get('items') or 0)}{pages}, {r.get('matched') or 0} {passed}, "
                  f"{r.get('new') or 0} new" if reads else f"{when}, I ran “{r.get('skill') or 'my check'}”") + \
                 (f", with {ai} AI call{'s' if ai != 1 else ''} to fix a step." if ai else ", no AI needed.")
-            fresh = [x for x in self.store.find("results", bot_id=bid, limit=200) if x.get("new") and x.get("passed") is not False][:3]
+            fresh = [x for x in self.kept(bid, 200, b=b) if x.get("new")][:3]
             if fresh:
                 s += " Newest: " + "; ".join(f"{x.get('title') or x.get('name') or 'untitled'} {x.get('price') or ''}".strip() for x in fresh) + "."
         else:
             s = f"{when}, my run {'stopped' if r.get('status') == 'stopped' else 'needed you' if r.get('status') == 'needs_you' else 'failed'}" + \
-                (f": {r['note']}." if r.get("note") else ".")
+                (f": {plain_error(r['note']).rstrip('.')}." if r.get("note") else ".")
         if not s.startswith(lead):
             s = lead + s
         if busy:
@@ -1402,7 +1436,7 @@ class Engine:
 
     def _start(self, bid, run, target):
         if self.busy(bid):
-            raise RuntimeError("it’s already working")
+            raise RuntimeError("It’s already working. Wait for it to finish, or press Stop.")
         self.runs[bid] = run
         run.thread = threading.Thread(target=target, daemon=True, name=f"run-{bid}")
         run.thread.start()
@@ -1962,7 +1996,7 @@ class Engine:
         feed = []
         for bid, b in bots.items():
             for m in self.store.find("messages", bot_id=bid, limit=200):
-                if m["role"] == "bot" and m.get("team"):  # its answer to a bot shows once, as the copy that reached the asker
+                if m["role"] == "bot" and (m.get("to_peer") or m.get("team") and "done" in m):  # its answer to a bot shows once, as the copy that reached the asker
                     continue
                 if m["role"] == "peer":
                     kind = "peer"

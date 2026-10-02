@@ -28,6 +28,7 @@ const ideasHtml = () => `<div class="ideas" role="group" aria-label="Ready-made 
 const FIELD_WORDS = { price: "Price", title: "Name", text: "Mentions" };  // what a rule checks, in plain words
 const fieldOptions = (cur) => [...new Set([...Object.keys(FIELD_WORDS), cur].filter(Boolean))]
   .map((k) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(FIELD_WORDS[k] || k)}</option>`).join("");
+const poss = (n) => `${n}${/s$/i.test(n) ? "’" : "’s"}`;  // “Book Bargains’ computer”, “Flat Hunter’s computer”
 const ruleWords = (f) => {  // a rule in words: “Mentions “remote””, “Price at most 400”
   const v = Array.isArray(f.value) ? f.value.join(", ") : f.value;
   if (f.field === "text" && f.op === "contains") return `Mentions “${v}”`;
@@ -61,8 +62,11 @@ VIEWS.setup = {
     let n = extra || FLOW[k - 1]; this.el = el; this.n = n;
     if (!extra && location.hash.split("?")[0] !== `#/setup/${k}`) history.replaceState(null, "", `#/setup/${k}`);
     let dir = "fwd"; try { dir = sessionStorage.getItem("wizDir") || "fwd"; sessionStorage.removeItem("wizDir"); } catch (e) {}
-    const [st, models, comps] = await Promise.all([get("/api/setup"), get("/api/models"), n === 6 ? get("/api/computers").catch(() => ({ computers: [] })) : null]);
-    this.st = st; this.label = Object.fromEntries(models.providers.map((p) => [p.name, p.label]));
+    const load = () => Promise.all([get("/api/setup"), get("/api/models")]);
+    if (n === 1 && !this.st) load().catch(() => {});  // Welcome shows none of it: draw now, never a blank page
+    const [st, models] = n === 1 ? [this.st || {}, { providers: [], roles: {} }] : await load();
+    const comps = n === 6 ? await get("/api/computers").catch(() => ({ computers: [] })) : null;
+    if (n !== 1) { this.st = st; this.label = Object.fromEntries(models.providers.map((p) => [p.name, p.label])); }
     const pills = STEPS.map((t, i) => `<li class="${i + 1 < k ? "done" : i + 1 === k ? "on" : ""}"${i + 1 === k ? ' aria-current="step"' : ""}><i>${i + 1 < k ? "✓" : i + 1}</i><span>${t}</span></li>`).join("");
     const nav = (back, next, label = "Continue") => `<div class="wfoot between">
       ${back ? `<a href="#/setup/${back}" class="muted" data-back>Back</a>` : `<span class="mono small muted">open source · MIT · no account needed</span>`}
@@ -125,7 +129,7 @@ VIEWS.setup = {
     if (n === 6) {
       const servers = (comps ? comps.computers : []).filter((c) => c.kind === "remote");
       body = `<h1>You’re ready</h1><div class="row" style="justify-content:center">${critter("octopus", "#E86F51", "none", 72)}</div>
-      <p class="lede" style="text-align:center">${models.roles.learn ? `Your bots think with <b>${esc(models.roles.learn.model)}</b>.` : "No model yet: add one in More → Models when you’re ready."} Your phone, another computer or your own screen can be added later in More.</p>
+      <p class="lede" style="text-align:center">${models.roles.learn ? `Your bots think with <b>${esc(models.roles.learn.model)}</b>.` : "No model yet: add one in Models and keys when you’re ready."} Your phone, another computer or your own screen can be added later in More.</p>
       <div class="composer" style="width:100%"><label class="l" for="job">What should your first bot do?</label><textarea id="job" rows="2" placeholder="e.g. Every morning, find used e-bikes under €1,000 on marktplaats.nl"></textarea>
         <div class="between"><span class="small muted">Plain words are fine. No site? It finds them for you.</span><button class="btn p" id="start">Start</button></div></div>
       <p class="small muted" style="margin:6px 0 0">Or start from one of these:</p>${ideasHtml()}
@@ -133,7 +137,7 @@ VIEWS.setup = {
       foot = nav(2, "#/bots", "Go to your bots");
     }
     if (extra) foot = `<div class="wfoot between"><a href="#/settings" class="muted">Back to Settings</a><a class="btn p" href="#/settings" id="wnext" style="min-height:44px">Done</a></div>`;
-    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${extra ? "" : pills}</ol><span class="wcount small">${extra ? "" : `Step ${k} of ${STEPS.length} · ${STEPS[k - 1]}`}</span><a href="#/bots" id="skipall" class="small muted"${n === 6 ? ' style="visibility:hidden"' : ""}>Skip setup</a></header>
+    el.innerHTML = `<div class="wiz"><header><span class="row">${critter("octopus", "#E86F51", "none", 26)}<b class="wmark">inky</b></span><ol class="wsteps">${extra ? "" : pills}</ol><span class="wcount small">${extra ? "" : `Step ${k} of ${STEPS.length} · ${STEPS[k - 1]}`}</span><a href="#/bots" id="skipall" class="small muted"${n === 6 || extra ? ' style="visibility:hidden"' : ""}>Skip setup</a></header>
       <div class="wbody"><div class="wcard"><div class="wstep ${dir}">${body}</div>${foot}</div></div></div>`;
     const finish = async () => { await post("/api/settings", { setup_done: true }); S.setupDone = true; };  // no tour on top: making the first bot shows the way
     $("#skipall").onclick = async (e) => { e.preventDefault(); await finish(); location.hash = "#/bots"; };
@@ -399,11 +403,11 @@ VIEWS.bots = {
       const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status);
       const said = b.status === "moved" ? m.meta : (STATUS[b.status] || [b.status.replace("_", " ")])[0];  // the line under it says this already
       const mid = b.status === "needs_you" || (b.status === "moved" && b.needs) ? `<div class="card" style="padding:12px 14px;gap:4px;border-color:var(--coral-line)"><span class="small" style="color:var(--coral-t);font-weight:600">Needs you</span><b>${b.needs} waiting</b></div>`
-        : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer"><span class="live">LIVE</span></div>`
+        : live ? `<div class="thumb"><img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(poss(b.name))} computer"><span class="live">LIVE</span></div>`
           : b.found && b.top && b.top.length ? `<div class="card panel cfound"><span class="small" style="font-weight:600">${nWord(b.found, "thing")} found${b.fresh ? ` · <span style="color:var(--coral-t)">${b.fresh} new</span>` : ""}</span>${b.top.map((t) => `<span class="small clip1">${esc(t.title)}${t.price ? ` <b>${esc(t.price)}</b>` : ""}</span>`).join("")}</div>`
           : `<div class="thumb idle">${esc(b.remote_id ? `runs on ${b.remote || "your server"}` : !b.skills.length ? "hasn’t learned yet" : m.meta !== said ? m.meta : b.status === "idle" ? "runs when you ask" : "")}</div>`;
       return `<a class="botcard${m.hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><span class="row">${botCritter(b, 44)}<span class="col" style="gap:2px"><b>${esc(b.name)}</b><span class="small muted">${esc(clip(b.summary || b.job || "", 70))}</span></span></span>
-        ${mid}<span class="between mono small muted"><span style="color:${m.color}">${m.hot ? "" : `● ${esc(said)}`}</span><span>${b.status === "moved" ? "" : b.skills.length ? "" : "not learned yet"}</span></span></a>`;
+        ${mid}<span class="between mono small muted"><span style="color:${m.color}">${m.hot ? "" : `● ${esc(said)}`}</span><span>${b.status === "moved" || b.skills.length || /learn/.test(said) ? "" : "not learned yet"}</span></span></a>`;
     }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`;
   },
   office() {  // the same bots, at their desks; the room follows the time of day
@@ -412,7 +416,7 @@ VIEWS.bots = {
     $("#cards").innerHTML = `<div class="office ${night ? "dim" : ""}" data-sky="${sky}"><div class="window" aria-hidden="true"><i class="sun"></i><i class="moon"></i><b></b><b></b><b></b></div>
       ${S.bots.map((b) => {
         const live = ["working", "learning", "paused", "takeover", "showing"].includes(b.status) && !b.remote;
-        const screen = live ? `<img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(b.name)}’s computer">` : `<span>${esc(clip(botMeta(b).meta, 26))}</span>`;
+        const screen = live ? `<img data-live="${b.id}" src="${screenUrl(b.id)}" alt="${esc(poss(b.name))} computer">` : `<span>${esc(clip(botMeta(b).meta, 26))}</span>`;
         return `<a class="desk${botMeta(b).hot ? " hot" : ""}" href="#/bot/${b.id}/computer"><div class="top">${botCritter(b, 70)}<div class="mon">${screen}</div></div><div class="table"></div><div class="plate"><b>${esc(b.name)}</b></div></a>`;
       }).join("") || `<p class="muted">No bots yet. Describe a job above.</p>`}</div>`;
   },
@@ -434,7 +438,7 @@ VIEWS.new = {
   async show(el, _, qs) {
     const job = qs.get("job") || "";
     this.el = el; this.req = (this.req || 0) + 1; this.edited = new Set(); this.filters = null; this.leaving = false; this.job0 = job.trim();
-    this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.gotMore = false; this.every = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
+    this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.gotMore = false; this.every = 0; this.answered = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
     el.innerHTML = `${mobileBar("New bot")}<div class="page narrow"><h1>New bot</h1><p class="lede">Describe the job. It drafts the bot, you check it, then it learns the site once while you watch.</p>
       <div class="composer" style="width:100%"><label class="vh" for="job">Job</label><textarea id="job" rows="3" placeholder="e.g. Every morning, find flats in Bari under €150k on casafacile.it">${esc(job)}</textarea>
       <div class="between"><span class="small muted">Include the site if you know it. No site? It finds them for you.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox">${job ? "" : `<p class="small muted" style="margin:14px 0 8px">Or start from one of these:</p>${ideasHtml()}`}</div></div>`;
@@ -508,10 +512,10 @@ VIEWS.new = {
         url.value = on ? rows[0].url : ""; url.setCustomValidity(""); this.allSites = this.allSites || on; draw(rows); const f = $("#siteall, #sitenone", sb); if (f) f.focus(); };
       if ($("#siteall", sb)) $("#siteall", sb).onclick = () => setAll(true);
       if ($("#sitenone", sb)) $("#sitenone", sb).onclick = () => setAll(false);
-      $("#sitesearch", sb).onsubmit = (e) => { e.preventDefault(); this.siteQuery = $("#siteq", sb).value.trim(); if (this.siteQuery) { this.searched = [this.siteQuery]; this.allSites = false; find([this.siteQuery]); } };
+      $("#sitesearch", sb).onsubmit = (e) => { e.preventDefault(); this.siteQuery = $("#siteq", sb).value.trim(); this.edited.add("sitequery"); if (this.siteQuery) { this.searched = [this.siteQuery]; this.allSites = false; find([this.siteQuery]); } };
     };
     const find = async (queries, more = false) => {
-      sb.innerHTML = `<span class="small muted">${more ? "Looking further…" : "Looking for sites for this job…"} It searches the web and asks its model, which can take half a minute.</span>`;
+      sb.innerHTML = `<span class="small muted">${more ? "Looking further…" : "Looking for sites for this job…"} It searches the web and asks its model, which can take a minute or two.</span>`;
       try {
         const r = await post("/api/sites", { queries, guess: d.guess || null, job: d.job || $("#job", this.el).value, more });
         if (my !== this.req || !sb.isConnected) return;
@@ -526,7 +530,10 @@ VIEWS.new = {
         draw(this.found, r.note || (named.length ? `It starts on ${named[0].host}, the site you named. Tick others to check them too.` : this.found.length ? "" : "No sites found. Try other words, or type an address above."));
       } catch (e) { if (sb.isConnected) draw(this.found || [], e.message); }
     };
-    if (this.found) return draw(this.found);
+    const forJob = JSON.stringify(d.search || [d.goal || d.job]);
+    if (this.found && this.foundFor === forJob) return draw(this.found);
+    if (this.found && !this.edited.has("sitequery")) { this.found = null; this.searched = null; this.siteQuery = (d.search || [])[0] || d.goal || d.job || ""; }  // your answer changed what it searches for: search again
+    this.foundFor = forJob;
     if (d.start_url && !d.guess && !this.edited.has("sites")) {  // you named the site: no need to search, but you can
       sb.innerHTML = `<div class="between"><span class="small">It starts on the site you named.</span><button class="btn s" type="button" id="sitefind">Find more sites like it</button></div>`;
       $("#sitefind", sb).onclick = () => { this.picked.add(siteUrl(url.value) || d.start_url); find(d.search && d.search.length ? d.search : [query]); };
@@ -546,7 +553,7 @@ VIEWS.new = {
 
       <div class="col" style="gap:6px"><span class="l" id="everyl">How often</span><span class="seg wrap" id="every" role="group" aria-labelledby="everyl">${EVERY.map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${+v === everyOf(d)}" class="${+v === everyOf(d) ? "on" : ""}">${t}</button>`).join("")}</span></div>
       <div><span class="l">Only keep results where…</span><div id="filters" class="col"></div><button class="btn s" id="addf" style="margin-top:6px">Add a rule</button></div>
-      ${(d.questions || []).length ? `<div class="card panel small wonders"><b>It wonders:</b>${d.questions.map((q, i) => `<div class="col" style="gap:6px"><label for="qa${i}">${esc(q)}</label>
+      ${(d.questions || []).length && this.answered < 2 ? `<div class="card panel small wonders"><b>It wonders:</b>${d.questions.map((q, i) => `<div class="col" style="gap:6px"><label for="qa${i}">${esc(q)}</label>
         <div class="row"><input class="f grow" id="qa${i}" data-q="${esc(q)}" placeholder="Your answer" autocomplete="off"><button class="btn s" data-qa="${i}">Answer</button></div></div>`).join("")}
         <span class="muted">Your answer goes into the job, and it drafts again. What you changed above stays.</span></div>` : ""}
       <details class="draftmore"><summary class="small">Details: what it does there, and what it may do</summary><div class="col" style="gap:12px;margin-top:10px">
@@ -575,6 +582,7 @@ VIEWS.new = {
         const a = inp.value.trim(); if (!a) return inp.focus();
         const job = $("#job", this.el);
         job.value = `${job.value.trim()}\n${inp.dataset.q} ${a}`;
+        this.answered++;
         this.draft();
       };
       b.onclick = answer;
@@ -983,7 +991,7 @@ VIEWS.bot = {
         <button class="btn s" id="tk"></button><button class="btn s" id="stop">Stop</button></span></div>
         <div class="row screenrow" style="align-items:flex-start;gap:14px"><div class="grow col" style="gap:8px;min-width:min(420px,100%)">
           <div class="screen" id="scr"><div class="bar"><span>Activities</span><span id="clock"></span><span>${esc(b.name.toLowerCase().replace(/\s+/g, "-"))}</span></div>
-          <img id="live" alt="${esc(b.name)}’s computer, live"><div class="idle hidden" id="idle">${botCritter(b, 64)}<b>Not running right now</b><span class="small" id="idlehow"></span></div>
+          <img id="live" alt="${esc(poss(b.name))} computer, live"><div class="idle hidden" id="idle">${botCritter(b, 64)}<b>Not running right now</b><span class="small" id="idlehow"></span></div>
           <span class="over hidden" id="over">You have control · ${esc(b.name)} is waiting</span></div>
           <div class="col hidden" id="typebar" style="gap:8px">
             <div class="row wrap"><label class="vh" for="gourl">Go to an address</label><input class="f" id="gourl" style="flex:1 1 200px" placeholder="Go to an address, like example.com"><button class="btn s" id="gobtn">Go</button></div>
@@ -1023,7 +1031,7 @@ VIEWS.bot = {
       : run && b.status === "needs_you" ? [`${name} is waiting for you`, "answer in the chat", "var(--coral)"]
       : run === "learn" ? [`${name} is learning`, `asks the AI once per step · ${calls}`, "var(--coral)"]
       : run ? [`${name} is driving`, `repeating what it learned · ${calls}`, "var(--coral)"]
-      : [`${name}’s computer`, "not running", "var(--line2)"];
+      : [`${poss(name)} computer`, "not running", "var(--line2)"];
     $("#drv").innerHTML = `<span class="dot" style="background:${dot}"></span><b>${what}</b><span class="muted">· ${how}</span>`;
     const tkb = $("#tk");
     tkb.textContent = tk ? "Hand back" : "Take over";
@@ -2073,8 +2081,8 @@ VIEWS.models = {
   },
   bindLive() {
     $$("[data-mstop]", this.el).forEach((b) => (b.onclick = async () => {
-      busy(b, true); await post("/api/models/stop", b.dataset.mstop ? { bot: +b.dataset.mstop } : {}).catch((e) => toast(e.message));
-      toast("Stopped. The run it was thinking for stopped too."); this.refresh();
+      busy(b, true); const r = await post("/api/models/stop", b.dataset.mstop ? { bot: +b.dataset.mstop } : {}).catch((e) => toast(e.message));
+      if (r) toast(r.runs ? "Stopped. The run it was thinking for stopped too." : "Stopped."); this.refresh();
     }));
     $$("[data-unload]", this.el).forEach((b) => (b.onclick = async () => {
       busy(b, true);
@@ -2534,7 +2542,7 @@ VIEWS.look = {
   },
   load(b) { this.bot = b; this.botId = b.id; this.draft = { ...b.look, name: b.name }; this.persona = { ...(b.persona || {}) }; this.saved = this.snap(); },
   snap() { return JSON.stringify([this.draft, this.persona]); },
-  dirty() { return this.snap() !== this.saved; },
+  dirty() { return this.saved !== undefined && this.snap() !== this.saved; },  // no bot loaded (none yet): nothing to lose
   preview() {
     const d = this.draft, b = this.bot, frame = d.frame === "bot" ? d.color : "#E86F51";
     const sample = { cheerful: `Found one! It passes all your rules. Want me to draft a message?`, calm: `One new result passes your rules. Shall I draft a message?`, direct: `1 new match. Draft message? Yes or no.` }[d.tone || "cheerful"];
@@ -2622,7 +2630,7 @@ VIEWS.settings = {
   async refresh() {
     const s = await get("/api/settings");
     const tog = (k, on, label) => `<div class="between tgl"><span>${label}</span><button class="toggle ${on ? "on" : ""}" data-t="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}"></button></div>`;
-    const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid #F0EEE9"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x === "mouse" ? `${icon("mouse", 14)}<span class="vh">mouse</span>` : x}</kbd>`).join("")}</span></div>`;
+    const kb = (t, k) => `<div class="between" style="padding:6px 0;border-top:1px solid var(--line)"><span>${t}</span><span class="row" style="gap:4px">${k.split(" ").map((x) => `<kbd>${x === "mouse" ? `${icon("mouse", 14)}<span class="vh">mouse</span>` : x}</kbd>`).join("")}</span></div>`;
     const field = (id, label, value, extra = "") => `<div class="between fld"><label for="${id}">${label}</label><span class="row sfw"><span class="small good" data-saved="${id}" aria-live="polite"></span><input class="f sf" id="${id}" value="${esc(value)}" ${extra}></span></div>`;
     const lan = (st) => (!st.lan ? "Only this computer can open Inky." : st.web_url ? `On your phone, open <b class="mono">${esc(st.web_url)}</b> and sign in with the pairing code <b class="mono">${esc(S.pair || "")}</b>.` : "On, but this computer isn’t on a Wi‑Fi network right now.");
     this.el.innerHTML = `${mobileBar("Settings")}<div class="page"><div><h1>Settings</h1><p class="lede">For the whole app. Each bot has its own settings on its page.</p></div>

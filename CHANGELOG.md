@@ -29,6 +29,16 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - “I’ll try again on my own soon” says when, and why it stopped.
 - Needs you moves to the next question after you answer, not onto its Approve button.
 - Calls to a bot on another computer keep their options (like how many results to show).
+- Every count and answer uses your rules as they are now, not as they were at the last run (Found, chat, the sidebar, hand-offs).
+- A draft keeps the address you typed (http for your own machines) and limits written like “€150.000”. Answering “It wonders” searches for sites again, and it asks two rounds of questions at most.
+- A site counts as “the site you named” only when you named it (“nintendo.com”, “on Amazon”), not when it's in a product's name.
+- Results are titled by their heading, not by a “Details” link. Learning a new site with an empty address says so instead of learning the old one again.
+- Chat: “only when I ask”, “forget that rule”, questions that end in an emoji, a hand-off to a bot rather than a connector, plain errors in “what did you do?”, a long plain-text answer kept as it is.
+- Pause all bots pauses every bot, not only the ones running. The command bar opens a bot you typed the name of instead of sending it its own name.
+- A moved bot whose computer is off says so, never shows results from before the move, and keeps its name on the other computer.
+- Team shows milestones and good nights.
+- Setup's first page appears at once; Docker's state is checked in the background. A key that couldn't be checked isn't kept; “Is it running?” is only said of servers on this computer.
+- Dark mode: code blocks, separators and “idle” are readable; the phone status bar follows the theme. Wording and small fixes across Settings, Models and the wizard.
 
 ## [0.1.0] - 2026-10-02
 

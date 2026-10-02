@@ -96,7 +96,7 @@ def import_bot(engine, bundle, move=False):
     names = {b["name"] for b in engine.store.find("bots")}
     name = (str(bundle["bot"].get("name") or "Imported bot").strip() or "Imported bot")[:40]
     base, n = name, 2
-    while name in names:  # importing the same file twice gives "Name 2", not two identical bots
+    while name in names and not move:  # importing the same file twice gives "Name 2"; a bot you move keeps its name
         name, n = f"{base[:36]} {n}", n + 1
     home = bundle["bot"].get("home") or {} if move else {}
     old = engine.store.get("bots", home.get("bot")) if home.get("engine") == engine_id(engine) and home.get("bot") else None

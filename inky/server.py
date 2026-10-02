@@ -187,6 +187,10 @@ def retry_now(E, h, q, body):
 @route("POST", r"/api/bots/(\d+)/learn")
 def learn(E, h, q, body, bid):
     b = bot_or_404(E, bid)
+    if "url" in body and not str(body["url"] or "").strip():  # a blank address box: say so, never quietly learn its first site again
+        raise HTTPError(400, "Type the address of the site to learn first.")
+    if "url" in body and not skills_mod.web_address(body["url"], ""):
+        raise HTTPError(400, "That isn’t a web address. It looks like example.com or https://…")
     E.learn(int(bid), body.get("goal") or b.get("goal"), body.get("url") or b.get("start_url"))
     return {"ok": True}
 
@@ -227,11 +231,9 @@ def show_done(E, h, q, body, bid):
 def results(E, h, q, body, bid):
     bot_or_404(E, bid)
     b = bot_or_404(E, bid)
-    rows = E.store.find("results", bot_id=int(bid), limit=int(q.get("limit", 300)))
-    hidden = ("id", "bot_id", "status", "key", "ts", "passed", "new", "run", "skill")
-    passes = lambda r: skills_mod.apply_filters([{k: v for k, v in r.items() if k not in hidden}], b.get("filters"))
-    if not q.get("all"):  # your rules as they are now (they may have changed since the run); near-misses stay for suggestions
-        rows = [r for r in rows if passes(r)]
+    lim = int(q.get("limit", 300)) if str(q.get("limit", "")).isdigit() else 300
+    # your rules as they are now (they may have changed since the run); ?all=1 keeps near-misses for suggestions
+    rows = E.store.find("results", bot_id=int(bid), limit=lim) if q.get("all") else E.kept(int(bid), lim, b=b)
     return {"results": [{k: v for k, v in r.items() if k not in ("bot_id", "status", "key", "passed")} for r in rows],
             "unchecked": skills_mod.unchecked(rows, b.get("filters"))}
 
@@ -443,6 +445,7 @@ def remote_needs(E, retry_down=False):
     if time.time() - REMOTE_NEEDS["at"] < 15:
         return REMOTE_NEEDS["rows"]
     down = REMOTE_NEEDS.setdefault("down", {})
+    E.offline = down  # the sidebar and Home say a moved bot's server is off, not "● on Home server" as if all were well
     moved = {}
     for b in E.store.find("bots"):
         if b.get("status") == "moved" and b.get("remote_id") and str(b.get("computer")).isdigit():
@@ -454,8 +457,11 @@ def remote_needs(E, retry_down=False):
             return []
         try:
             got = transfer.Remote(c["url"], c["token"]).req("GET", f"/api/needs?home={transfer.engine_id(E)}", timeout=4)["needs"]
-            down.pop(cid, None)
+            if down.pop(cid, None):
+                E.bus.publish("bots")  # it's back
         except httpx.HTTPError:
+            if cid not in down:
+                E.bus.publish("bots")  # it just went quiet
             down[cid] = time.time()
             return []
         except Exception:
@@ -548,12 +554,13 @@ def models_stop(E, h, q, body):
     """Stop the model: its calls are cut off, and the runs they were for stop too."""
     bid = body.get("bot")
     bots = {c.get("bot_id") for c in E.llm.live_calls() if bid is None or c.get("bot_id") == bid} - {None}
+    runs = sum(1 for b in bots if E.busy(int(b)))  # a chat answer has no run behind it: only say "the run stopped" when one did
     for b in bots:
         try:
             E.control(int(b), "stop")
         except Exception:
             pass
-    return {"stopped": E.llm.stop(int(bid) if bid is not None else None)}
+    return {"stopped": E.llm.stop(int(bid) if bid is not None else None), "runs": runs}
 
 
 @route("POST", "/api/models/unload")
@@ -666,6 +673,9 @@ def test_model(E, h, q, body):
         return {"ok": False, "reply": msg}
 
 
+PASTED = {}  # provider -> when its key was pasted, until it's checked
+
+
 @route("POST", "/api/models/connect")
 def connect_model(E, h, q, body):
     """After a key is pasted: pick a model the provider really has, test it, and use it everywhere."""
@@ -682,6 +692,11 @@ def connect_model(E, h, q, body):
         msg = llm_plain(e, label)
         if PROVIDERS[prov].get("local") and isinstance(e, httpx.HTTPStatusError) and e.response.status_code >= 500:
             msg = f"{model} didn’t answer ({label} error {e.response.status_code}). It may not be a chat model, or it needs a newer {label}. Pick another one."
+        unchecked = isinstance(e, (httpx.ConnectError, httpx.TimeoutException)) and not PROVIDERS[prov].get("local") \
+            and time.time() - PASTED.pop(prov, 0) < 300 and E.keys.stored(prov)
+        if unchecked:  # a key you just pasted that couldn't be checked: one clear outcome, never "saved" in green
+            E.keys.delete(prov)
+            msg = f"Couldn’t reach {label} to check the key, so it wasn’t saved. Check this computer’s internet connection and try again."
         if msg.startswith("That key was refused") and E.keys.stored(prov):  # a refused key is not kept, nor its warning
             E.keys.delete(prov)
             errs = E.store.setting("provider_errors", {}) or {}
@@ -755,6 +770,7 @@ def set_key(E, h, q, body):
             E.keys.set(prov, key)
         except (ValueError, RuntimeError) as e:
             raise HTTPError(400, str(e)[:1].upper() + str(e)[1:] + ".")
+        PASTED[prov] = time.time()  # checked next: if it can't be checked, it isn't kept
         errs = E.store.setting("provider_errors", {}) or {}
         if errs.pop(prov, None):
             E.store.set_setting("provider_errors", errs)
@@ -938,9 +954,10 @@ def find_sites(E, h, q, body):
         raise HTTPError(502, note or "No sites found. Try other words, or type an address.")
     said = str(body.get("job") or "").lower()
     rows = web + ai
-    for r in rows:  # a site your job names (“on Amazon” → amazon.de): it starts there
-        name = (r.get("site") or "").split(".")[0]
-        r["named"] = bool(len(name) > 2 and re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", said))
+    for r in rows:  # a site your job names (“on Amazon” → amazon.de, “nintendo.com”): it starts there. A product (“Nintendo Switch”) isn't a site
+        name = re.escape((r.get("site") or "").split(".")[0])
+        r["named"] = bool(len(name) > 2 and (re.search(rf"(?<![\w-]){name}\.[a-z]{{2,}}", said) or
+                                             re.search(rf"\b(on|at|from|via|using|through|op|su|auf|sur|en|na|w)\s+(the\s+)?{name}(?![\w-])", said)))
     rows.sort(key=lambda r: not r["named"])
     return {"sites": rows, "searched": qs, "note": note, "more": bool(body.get("more"))}
 
@@ -1460,6 +1477,7 @@ def serve(engine, host="127.0.0.1", port=8800):
     if not getattr(engine, "watching_needs", False):
         engine.watching_needs = True
         watch_remote_needs(engine)
+        threading.Thread(target=health.docker, daemon=True).start()  # known before setup or Computers asks
     return srv
 
 

@@ -171,6 +171,7 @@ LISTS_JS = r"""() => {
   }
   groups.sort((a, b) => b.score - a.score);
   const out = [];
+  const GENERIC = /^(dettagli|details?|more|more (info|details)|read more|learn more|view|view (details|more|offer|listing)|see (more|details)|scopri( di più)?|vedi|leggi( tutto)?|mehr|mehr erfahren|details ansehen|plus|en savoir plus|voir( plus)?|ver( más)?|más información|bekijk|meer info|info|open|apri|zobacz|więcej|→|›|»)$/i;
   for (const g of groups.slice(0, 12)) {
     const item = path(g.parent) + ' > ' + g.s;
     if (document.querySelectorAll(item).length < 3 || out.some((o) => o.item === item)) continue;
@@ -189,7 +190,7 @@ LISTS_JS = r"""() => {
     if (ttl && atext && ttl.toLowerCase().startsWith(atext.replace(/(\.\.\.|…)$/, '').trim().toLowerCase().slice(0, 12)))
       fields.title = (a === first ? '' : rel(first, a)) + '@title';  // a cut-off name whose full name is in its title
     else if (sole) fields.title = rel(first, head);
-    else if (a && a !== first && atext.length >= 3) fields.title = rel(first, a);
+    else if (a && a !== first && atext.length >= 3 && !(head && GENERIC.test(atext))) fields.title = rel(first, a);  // “Dettagli” names nothing: its heading does
     else if (head) fields.title = rel(first, head);
     else if (a) fields.title = a === first ? '' : rel(first, a);
     if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';

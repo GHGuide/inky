@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+import threading
 import time
 
 import httpx
@@ -13,9 +14,17 @@ _docker = {"at": 0, "v": None}
 
 
 def docker():
-    """Docker's state, remembered for 30 s: `docker info` takes a moment and pages ask often."""
-    if _docker["v"] is not None and time.time() - _docker["at"] < 30:
+    """Docker's state, remembered for 30 s: `docker info` takes a moment (seconds when busy) and pages ask often.
+    Once known, an old answer comes back at once while a new one is fetched behind it."""
+    if _docker["v"] is not None:
+        if time.time() - _docker["at"] >= 30 and not _docker.get("busy"):
+            _docker["busy"] = True
+            threading.Thread(target=_docker_now, daemon=True).start()
         return _docker["v"]
+    return _docker_now()
+
+
+def _docker_now():
     if not shutil.which("docker"):
         v = {"installed": False, "running": False}
     else:
@@ -24,7 +33,7 @@ def docker():
             v = {"installed": True, "running": r.returncode == 0, "version": r.stdout.strip()}
         except Exception:
             v = {"installed": True, "running": False}
-    _docker.update(at=time.time(), v=v)
+    _docker.update(at=time.time(), v=v, busy=False)
     return v
 
 

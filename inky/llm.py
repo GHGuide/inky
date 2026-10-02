@@ -75,8 +75,9 @@ def plain(e, label="The provider"):
         if code >= 500:
             return f"{label} had a problem answering ({code}). If it’s a local model, it may not be a chat model."
         return f"{label} answered {code}."
-    if isinstance(e, httpx.ConnectError):
-        return f"Couldn’t reach {label}. Is it running?"
+    if isinstance(e, httpx.ConnectError):  # a server on this computer may just be off; a cloud one is the internet
+        local = label in {p["label"] for p in PROVIDERS.values() if p.get("local")}
+        return f"Couldn’t reach {label}. " + ("Is it running?" if local else "Check this computer’s internet connection.")
     if isinstance(e, httpx.TimeoutException):
         return f"{label} took too long to answer."
     return str(e)[:200]
