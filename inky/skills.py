@@ -304,6 +304,7 @@ def learn(ctx, goal, start_url, max_steps=24):
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
     watch, looked, idle, pushed = bool(FINDING.search(goal or "")), {}, 0, False
+    front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
         if len(steps) >= max_steps:
@@ -316,9 +317,10 @@ def learn(ctx, goal, start_url, max_steps=24):
             raise NeedsHelp("blocked", f"{urlparse(page['url']).netloc.removeprefix('www.')} doesn’t let bots in",
                             f"It showed “{short(page.get('title') or (page.get('heads') or ['Access denied'])[0], 60)}”, so I skipped it. Nothing for you to do.")
         u = urlparse(page["url"])
-        # typed into the search box but not searched yet, on the home page: what's listed is its feed, not results
-        unsent = bool(steps) and steps[-1]["action"] in ("fill", "select") and home_page(page["url"])
-        if watch and not extract and looked.get(page["url"], 0) < 2 and not unsent and (steps or u.path.strip("/") or u.query):
+        # a shop's home page lists its feed and featured items, not results (a "front page" job is the exception)
+        on_home = home_page(page["url"]) and not front
+        unsent = bool(steps) and steps[-1]["action"] in ("fill", "select")  # typed a search, not sent yet
+        if watch and not extract and looked.get(page["url"], 0) < 2 and not on_home:
             looked[page["url"]] = looked.get(page["url"], 0) + 1  # a page that already lists priced results: read them now, no need to go on clicking
             lists = comp.call("lists")  # (looked at twice: some shops fill in their list a moment after the page loads)
             if lists and lists[0]["count"] >= 6 and lists[0].get("priced"):
@@ -338,7 +340,7 @@ def learn(ctx, goal, start_url, max_steps=24):
 
         def settle_for_page():  # about to give up: if the page already lists real results, those are the job
             nonlocal extract, finished
-            if not watch or extract or unsent:
+            if not watch or extract or on_home:
                 return False
             spec, rows = read_results(ctx, goal, comp.call("elements"))
             if not rows or len(rows) < 6:
@@ -380,10 +382,12 @@ def learn(ctx, goal, start_url, max_steps=24):
             print(json.dumps({"url": page["url"], "reply": d, "told": history[-1:], "steps": len(steps)}, ensure_ascii=False), file=sys.stderr, flush=True)
         if act in ("done", "next_page") or (act == "extract" and extract):
             finished = True
-        if act in ("extract", "done") and unsent and not extract:  # it typed the search but never sent it
-            history.append("you typed into the search box but didn’t search yet: press Enter (action press, value Enter) or click the search button first")
+        if act in ("extract", "done") and on_home and not extract and (unsent or not pushed):
+            pushed = True  # asked once to open the category or search; if it insists on reading here, it may (books.toscrape.com's home is its catalogue)
+            history.append("you typed into the search box but didn’t search yet: press Enter (action press, value Enter) or click the search button first" if unsent else
+                           "this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
             continue
-        if act == "done" and not extract and FINDING.search(goal or ""):  # a watch job that never read anything: read the results here, if there are any
+        if act == "done" and not extract and FINDING.search(goal or "") and not on_home:  # a watch job that never read anything: read the results here, if there are any
             spec, rows = read_results(ctx, goal, page)
             if rows:
                 extract = spec
@@ -392,16 +396,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             break
         if act == "done":
             break
-        if act == "extract" and not extract and not steps and home_page(page["url"]) and not pushed and \
-                not re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I):
-            pushed = True  # a shop's home page shows featured items: open the category or search first (asked once; if it insists, it reads)
-            history.append("this is the home page, which shows featured items: open the category that fits the goal, or search for it, then extract")
-            continue
         if act == "extract":
             if extract:
                 break
             spec, rows = read_results(ctx, goal, page)
-            if rows and home_page(page["url"]) and len(rows) < 6:  # a home page's few tiles are its categories or featured items
+            if rows and on_home and (len(rows) < 6 or not next_link(page)):  # a home page's tiles or endless feed; a paged list there is a catalogue
                 rows = []
                 history.append("these are the shop's categories or featured items, not results: open the right category or search first")
             if not rows:  # reading nothing is never a learned step: say so to the model and go on looking
