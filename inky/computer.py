@@ -172,7 +172,8 @@ LISTS_JS = r"""() => {
       const shown = els.filter((e) => { const r = e.getBoundingClientRect(); return r.width > 20 && r.height > 8; });
       const linked = shown.filter((e) => e.matches('a[href]') || e.querySelector('a[href]'));
       const text = shown.reduce((n, e) => n + Math.min((e.innerText || '').trim().length, 300), 0) / Math.max(1, shown.length);
-      if (shown.length < 3 || linked.length < shown.length * 0.6 || text < 12) continue;
+      const table = shown.length >= 3 && shown[0].tagName === 'TR' && shown.every((e) => e.children.length >= 3);  // a table's rows are results, links or not
+      if (shown.length < 3 || (linked.length < shown.length * 0.6 && !table) || text < 12) continue;
       const priced = shown.filter((e) => PRICE.test(e.innerText || '')).length / shown.length;
       const imaged = shown.filter((e) => e.querySelector('img')).length / shown.length;
       groups.push({ parent, s, els: shown, score: shown.length * Math.log(5 + text) * (1 + priced * 2) * (1 + imaged * 0.5), priced, text });

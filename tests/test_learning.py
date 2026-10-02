@@ -255,6 +255,10 @@ class LearningTest(unittest.TestCase):
         out, _ = self.replay(skill)  # each page's first tags all differ, but page 2 has the same ones again
         self.assertEqual(len({skills.item_key(i) for i in out["items"]}), 29)
 
+    def test_a_table_without_links(self):  # scrapethissite's hockey teams
+        _, _, out = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", n=24, priced=False)
+        self.assertEqual([i["title"] for i in out["items"]], [t["name"] for t in learn_site.TEAMS])
+
     # -------------------------------------------------------------- how pages behave
     def test_cookie_banner_over_the_page(self):
         comp = self.computer()
