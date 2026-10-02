@@ -85,7 +85,7 @@ else
     python3 -m venv "$SRC/.venv" >&2 || fail "Python can't make a venv" "Install it: sudo apt install -y python3-venv"
   fi
   PY="$SRC/.venv/bin/python"
-  "$PY" -m pip install -q --disable-pip-version-check playwright httpx >&2 || fail "couldn't install Inky's two libraries" "Check this server can reach pypi.org"
+  "$PY" -m pip install -q --disable-pip-version-check "playwright==1.63.0" "httpx==0.28.1" >&2 || fail "couldn't install Inky's two libraries" "Check this server can reach pypi.org"
   if [ "${INKY_SKIP_BROWSER:-0}" != 1 ]; then
     say "Getting the bots' browser (about 170 MB)…"
     if [ "$OS" = Linux ]; then
@@ -94,6 +94,7 @@ else
     PLAYWRIGHT_BROWSERS_PATH="$DATA/browsers" "$PY" -m playwright install chromium >&2 || fail "couldn't download the browser" "Check this server can reach playwright.azureedge.net"
   fi
   mkdir -p "$DATA"
+  rm -f "$DATA/engine.json"  # an engine.json left from an earlier run would end the wait below before this one listens
   ARGS="-m inky --host 0.0.0.0 --port $PORT --home $DATA --no-open --name $(hostname -s 2>/dev/null || echo server)"
   if [ "$SERVICE" = 0 ]; then
     (cd "$SRC" && PLAYWRIGHT_BROWSERS_PATH="$DATA/browsers" INKY_HEADLESS=1 nohup "$PY" $ARGS >"$DATA/engine.log" 2>&1 &)
@@ -138,9 +139,9 @@ EOF
       || say "Note: Inky stops when you log out until an admin runs: sudo loginctl enable-linger $(id -un)"
   fi
   CODE=""
-  for _ in $(seq 60); do  # the engine writes engine.json once it listens; the code comes from its token
+  for _ in $(seq 60); do  # the engine writes engine.json once it listens; the code is made from its token
     if [ -f "$DATA/engine.json" ] && [ -f "$DATA/api_token" ]; then
-      CODE=$(tr -cd 'A-Za-z0-9' <"$DATA/api_token" | tr 'a-z' 'A-Z' | cut -c1-6)
+      CODE=$(cd "$SRC" && "$PY" -c 'import sys; from inky.transfer import pair_code; print(pair_code(open(sys.argv[1]).read().strip()))' "$DATA/api_token")
       break
     fi
     sleep 1

@@ -1,29 +1,9 @@
-# Offline checks on every push: no keys, no spend. The Playwright UI check (app/static/check_ui.py) is skipped.
-name: offline checks
+# Checks on every push and pull request: no keys, no spend.
+name: checks
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: uv sync
-      # data-offline/ is git-ignored, and app/test_serve.py reads it: build it from fixtures first.
-      - name: offline build (fixtures, fixed rules, n8n dry run)
-        run: uv run python build.py --offline
-      - name: pipeline
-        run: uv run python test_pipeline.py
-      - name: app server
-        run: uv run python app/test_serve.py
-
   # Inky bots engine + UI server: unit tests (local fixture site, fake models, no keys) on all three OSes.
   inky:
     strategy:
@@ -38,6 +18,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
+      - name: versions agree
+        run: uv run python scripts/check_versions.py
       - name: browser
         shell: bash
         run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium

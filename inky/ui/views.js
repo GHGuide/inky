@@ -5,6 +5,15 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
 const EVERY = [[0, "Only when I ask"], [60, "Every hour"], [360, "Every 6 hours"], [1440, "Every day"], [10080, "Every week"]];
 const everyOf = (d) => { const m = +d.every_minutes || 0; return EVERY.reduce((a, [v]) => (Math.abs(v - m) < Math.abs(a - m) ? v : a), 0); };  // nearest choice
+const FIELD_WORDS = { price: "Price", title: "Name", text: "Mentions" };  // what a rule checks, in plain words
+const fieldOptions = (cur) => [...new Set([...Object.keys(FIELD_WORDS), cur].filter(Boolean))]
+  .map((k) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(FIELD_WORDS[k] || k)}</option>`).join("");
+const ruleWords = (f) => {  // a rule in words: “Mentions “remote””, “Price at most 400”
+  const v = Array.isArray(f.value) ? f.value.join(", ") : f.value;
+  if (f.field === "text" && f.op === "contains") return `Mentions “${v}”`;
+  if (f.field === "text" && f.op === "not_contains") return `Doesn’t mention “${v}”`;
+  return `${FIELD_WORDS[f.field] || f.field} ${OP_WORDS[f.op] || f.op} ${v}`;
+};
 const OP_WORDS = { "<=": "at most", "<": "under", ">=": "at least", ">": "over", "==": "is", "!=": "isn’t", contains: "contains", not_contains: "doesn’t contain", in: "is one of", not_in: "isn’t one of" };
 
 // ================================================================ setup wizard
@@ -41,7 +50,7 @@ VIEWS.setup = {
     const ok = (b) => `<i class="${b ? "ok" : "bad"}">${b ? "✓" : "!"}</i>`;
     let body = "", foot = "";
     if (n === 1) {
-      body = `<h1>Bots that do web chores for you</h1><p class="lede">Tell a bot what to find or do on the web. It does it, again whenever you like, and tells you what’s new. One quick step and you’re ready.</p>
+      body = `<h1>Bots that do web chores for you</h1><p class="lede">Tell a bot what to find or do on the web. It does it, again whenever you like, and tells you what’s new. Two quick steps and you’re ready.</p>
       <div class="row" style="justify-content:center;align-items:flex-end;gap:18px">${critter("octopus", "#E9A23B", "glasses", 60)}${critter("octopus", "#E86F51", "none", 104)}${critter("cat", "#7C6CF2", "none", 60)}${critter("blob", "#2BA59B", "headphones", 60)}</div>
       <div class="grid3">${[["monitor", "Works on its own", "Each bot has its own browser. Your screen stays yours."],
         ["activity", "Learns once, then it’s free", "It uses AI to learn a site once. After that it repeats with no AI."],
@@ -422,7 +431,7 @@ VIEWS.new = {
     if (!job) { toast("Describe the job first"); return $("#job", el).focus(); }
     const my = ++this.req, redraft = !!$("#create", box);
     busyBtn(btn, true, "Thinking…");
-    if (redraft) { busyBtn($("#create", box), true, "Redrafting…"); box.setAttribute("aria-busy", "true"); } else box.innerHTML = `<p class="muted">Thinking…</p>`;
+    if (redraft) { busyBtn($("#create", box), true, "Redrafting…"); box.setAttribute("aria-busy", "true"); } else box.innerHTML = `<p class="muted" role="status">Drafting your bot: a name, where to look, how often and your rules. This takes a few seconds.</p>`;
     let d, err;
     try { d = (await post("/api/bots/draft", { job })).draft; } catch (e) { err = e; }
     if (my !== this.req || !el.isConnected) return;
@@ -485,7 +494,12 @@ VIEWS.new = {
         const keep = new Map((more ? this.found || [] : []).map((x) => [x.site || x.host, x]));
         r.sites.forEach((x) => { if (!keep.has(x.site || x.host)) keep.set(x.site || x.host, x); });
         this.found = [...keep.values()];
-        draw(this.found, r.note || (this.found.length ? "" : "No sites found. Try other words, or type an address above."));
+        const named = this.found.filter((x) => x.named);
+        if (named.length && !this.picked.size && !this.edited.has("url")) {  // “on Amazon”: the site you named is where it starts
+          named.forEach((x) => this.picked.add(x.url));
+          url.value = named[0].url; url.setCustomValidity("");
+        }
+        draw(this.found, r.note || (named.length ? `It starts on ${named[0].host}, the site you named. Tick others to check them too.` : this.found.length ? "" : "No sites found. Try other words, or type an address above."));
       } catch (e) { if (sb.isConnected) draw(this.found || [], e.message); }
     };
     if (this.found) return draw(this.found);
@@ -505,13 +519,15 @@ VIEWS.new = {
       ${d.summary ? `<div class="card panel">${esc(d.summary)}</div>` : ""}
       <div class="col" style="gap:8px"><label class="l" for="url">Where it looks</label><input class="f" id="url" value="${esc(d.start_url || "")}" placeholder="a site’s address, or pick some below" inputmode="url" autocomplete="off" spellcheck="false">
         <div class="card panel sitebox" id="sitebox"></div></div>
-      <div><label class="l" for="goal">What to do there</label><input class="f" id="goal" value="${esc(d.goal || "")}"></div>
+
       <div class="col" style="gap:6px"><span class="l" id="everyl">How often</span><span class="seg wrap" id="every" role="group" aria-labelledby="everyl">${EVERY.map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${+v === everyOf(d)}" class="${+v === everyOf(d) ? "on" : ""}">${t}</button>`).join("")}</span></div>
       <div><span class="l">Only keep results where…</span><div id="filters" class="col"></div><button class="btn s" id="addf" style="margin-top:6px">Add a rule</button></div>
       ${(d.questions || []).length ? `<div class="card panel small wonders"><b>It wonders:</b>${d.questions.map((q, i) => `<div class="col" style="gap:6px"><label for="qa${i}">${esc(q)}</label>
         <div class="row"><input class="f grow" id="qa${i}" data-q="${esc(q)}" placeholder="Your answer" autocomplete="off"><button class="btn s" data-qa="${i}">Answer</button></div></div>`).join("")}
         <span class="muted">Your answer goes into the job, and it drafts again. What you changed above stays.</span></div>` : ""}
-      <div class="col"><span class="l">What it may do</span><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, delete, submit forms, sign up</span></div><div class="rule"><b>Never</b><span>Buy or pay · type your passwords</span></div></div>
+      <details class="draftmore"><summary class="small">Details: what it does there, and what it may do</summary><div class="col" style="gap:12px;margin-top:10px">
+      <div><label class="l" for="goal">What to do there</label><input class="f" id="goal" value="${esc(d.goal || "")}"></div>
+      <div class="col"><span class="l">What it may do</span><div class="rule"><b>On its own</b><span>Read, search, take notes</span></div><div class="rule ask"><b>Ask you first</b><span>Send, post, delete, submit forms, sign up</span></div><div class="rule"><b>Never</b><span>Buy or pay · type your passwords</span></div></div></div></details>
       <div class="between"><span class="small muted">It learns the site right after you create it.</span><button class="btn p" id="create"></button></div></div>`;
     $("#create", box).textContent = label();
     ["nm", "url", "goal"].forEach((id) => $("#" + id, box).addEventListener("input", () => { dirty.add(id); $("#" + id, box).setCustomValidity(""); }));
@@ -522,7 +538,7 @@ VIEWS.new = {
     $("#nm", box).addEventListener("input", () => { if (!$("#create", box).disabled) $("#create", box).textContent = label(); });
     const filters = (this.filters = (d.filters || []).map((f) => ({ ...f })));
     const drawF = () => {
-      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><input class="f" data-i="${i}" data-k="field" value="${esc(f.field)}" aria-label="Field" placeholder="price"><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
+      $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><select class="f" data-i="${i}" data-k="field" aria-label="What it checks">${fieldOptions(f.field)}</select><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
         <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">Nothing yet: it keeps everything it finds. Add one like “price at most 20”.</span>`;
       $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); const f = filters[x.dataset.i]; f[x.dataset.k] = x.dataset.k === "value" && /,/.test(x.value) ? x.value.split(",").map((s) => s.trim()) : x.value; }));
       $$("#filters [data-del]", box).forEach((x) => (x.onclick = () => { dirty.add("filters"); filters.splice(+x.dataset.del, 1); drawF(); }));
@@ -547,7 +563,7 @@ VIEWS.new = {
       if (start) url.value = start;
       const more = [...(this.picked || [])].filter((u) => u !== start);  // the other sites you ticked: learned one after another
       const body = { ...d, name: $("#nm", box).value.trim() || d.name, start_url: start, goal: $("#goal", box).value, every_minutes: every, more_sites: more,
-        filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: `${f.field} ${OP_WORDS[f.op] || f.op} ${f.value}` })) };
+        filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: ruleWords(f) })) };
       const btn = $("#create", box);
       busyBtn(btn, true, "Creating…");
       let b;
@@ -582,7 +598,7 @@ const EVENT_WORDS = { control: "you", handback: "handed back", answered: "you an
   learned: "learned", repair: "trying a fix", fixed: "fixed a step", problem: "problem", delegate: "handed off", moved: "moved", arrived: "arrived", created: "new bot", level: "milestone", team: "team" };
 const CONTROL_WORDS = { pause: "You paused it", resume: "You let it carry on", stop: "You stopped it", takeover: "You took over its computer", handback: "You handed back",
   speed: "You changed its speed", mode: "You changed where it works", "You handed its computer back": "You handed back" };
-const ruleText = (f) => f.text || `${f.field} ${f.op} ${f.value}`;
+const ruleText = (f) => f.text || ruleWords(f);
 const RULE_KINDS = { own: "On its own", ask: "Ask you first", never: "Never", filter: "Keep only" };
 const BUILT_IN_RULES = new Set(["Read, search, take notes", "Send, post, reply, delete, submit forms, sign up", "Buy or pay"]);  // bots.DEFAULT_RULES: every bot has them, they can't be removed
 const ruleBody = (r) => {  // "Never contact agencies" under a Never badge reads "contact agencies"
@@ -1579,7 +1595,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
       <div class="chk"><i class="ok">✓</i><span><b>Brings no one’s data</b><br><span class="small muted">No sign-ins, memory, results or chat. It starts fresh, in its own browser.</span></span></div></div>`
       : `<div class="chk"><i class="bad">!</i><span><b>This file didn’t pass Inky’s checks</b><br><span class="small">${c.problems.map(esc).join("<br>")}</span></span></div>`}
     <span class="small bad hidden" id="getmsg" role="status" style="background:none"></span>
-    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Cancel</button>${c.ok ? `<button class="btn p" id="getit">${have.length ? `Get ${have.length > 1 ? "another" : "a second"} copy` : `Get ${esc(L.title)}`}</button>` : ""}</div>`, () => {
+    <div class="row" style="justify-content:flex-end"><button class="btn" data-act="closeModal">Cancel</button>${c.ok ? `<button class="btn p" id="getit">${have.length ? `Get ${have.length > 1 ? "another" : "a second"} copy` : `Get ${esc(L.title)}`}</button>` : ""}</div>`, () => {
     if ($("#gethave")) $("#gethave").onclick = () => closeModal();
     if (!$("#getit")) return;
     $("#getit").onclick = async () => {

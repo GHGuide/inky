@@ -1,0 +1,79 @@
+# A version tag (git tag v0.1.0 && git push origin v0.1.0) builds the installers on all platforms and puts them in a
+# DRAFT GitHub release, with build provenance and SHA256SUMS. A person reads it and presses Publish.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write      # create the draft release and upload installers
+  id-token: write      # build provenance (attestations)
+  attestations: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest, ubuntu-22.04]  # Apple Silicon, Intel Macs, Windows, Linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "desktop/src-tauri -> target"
+      - name: linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+      - run: uv sync
+      - name: the tag matches the app's version
+        run: uv run python scripts/check_versions.py ${{ github.ref_name }}
+      - name: engine binary (PyInstaller, for this platform)
+        run: uv run python desktop/scripts/build-engine.py
+      - name: unit tests
+        if: runner.os == 'Linux'
+        run: uv run playwright install --with-deps chromium && uv run python -m unittest discover -s tests -t .
+      - run: npm ci
+        working-directory: desktop
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tauriScript: npx tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Inky ${{ github.ref_name }}
+          releaseBody: |
+            What's new: see CHANGELOG.md.
+            Installing: see "Download" in the README. The builds aren't notarized or signed by Apple or Microsoft yet, so macOS and Windows warn the first time; the README says what to click. Check a download against SHA256SUMS.txt, or with `gh attestation verify <file> -R GHGuide/inky`.
+          releaseDraft: true
+          prerelease: false
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/src-tauri/target/release/bundle/rpm/*.rpm
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: SHA256SUMS.txt for every installer in the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" -R "${{ github.repository }}" -D dist
+          cd dist && rm -f SHA256SUMS.txt && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+          gh release upload "${{ github.ref_name }}" SHA256SUMS.txt -R "${{ github.repository }}" --clobber

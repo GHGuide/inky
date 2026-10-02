@@ -1,14 +1,7 @@
 .env
 __pycache__/
 .venv/
-data/
-data-offline/
-data-validate/
-voice/models/
-data-lodz/
 .claude/
-teach/out.json
-data-film/
 .superpowers/
 
 # desktop app build outputs
@@ -18,3 +11,11 @@ desktop/src-tauri/target/
 desktop/node_modules/
 desktop/src-tauri/gen/
 dist-app/
+
+# old local data from the hackathon project (see the hackathon-archive tag)
+data/
+data-*/
+docs/video/
+voice/
+teach/
+app/

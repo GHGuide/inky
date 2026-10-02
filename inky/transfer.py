@@ -9,7 +9,10 @@ BUNDLE = 1
 
 
 def pair_code(token):
-    return "".join(c for c in token.upper() if c.isalnum())[:6]
+    """Six characters to type on another computer. Made from a hash, so the code shows nothing of the token itself."""
+    import hashlib
+    import base64
+    return base64.b32encode(hashlib.sha256(b"inky-pair:" + token.encode()).digest()).decode()[:6]
 
 
 def engine_id(engine):

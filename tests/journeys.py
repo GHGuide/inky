@@ -306,7 +306,7 @@ def j_new_user():
     try:
         with sync_playwright() as pw:
             br = pw.chromium.launch()
-            pg = br.new_page(viewport={"width": 1280, "height": 860})
+            pg = br.new_page(viewport={"width": 1280, "height": 860}, bypass_csp=True)  # its string waits need eval, which the app forbids
             pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto(E.url + "/")
             pg.wait_for_selector("#wnext", timeout=20000)

@@ -293,8 +293,8 @@ const VIEWS = Object.create(null);  // so #/constructor isn't a page
 const homeLink = `<a class="btn p" href="#/bots" style="align-self:flex-start">Go to your bots</a>`;
 const NOTFOUND = { show(el) { el.innerHTML = `${mobileBar("Not found")}<div class="page narrow"><h1>Page not found</h1><p class="lede">There’s no page at ${esc(location.hash)}.</p>${homeLink}</div>`; } };
 function mobileBar(title) {
-  return `<div class="mobilebar"><button class="iconbtn" onclick="openNav()" aria-label="Menu" aria-controls="nav" aria-expanded="false">${icon("menu")}</button><b>${esc(title || "Inky")}</b>
-  <span class="grow"></span><button class="iconbtn" onclick="openCmd()" aria-label="Ask a bot or describe a job">${icon("search")}</button><a class="btn s${S.needs ? " hot" : ""}" href="#/needs">${needsText()}</a></div>`;
+  return `<div class="mobilebar"><button class="iconbtn" data-act="openNav" aria-label="Menu" aria-controls="nav" aria-expanded="false">${icon("menu")}</button><b>${esc(title || "Inky")}</b>
+  <span class="grow"></span><button class="iconbtn" data-act="openCmd" aria-label="Ask a bot or describe a job">${icon("search")}</button><a class="btn s${S.needs ? " hot" : ""}" href="#/needs">${needsText()}</a></div>`;
 }
 let routedHash = null;
 const viewDirty = () => !!(S.view && typeof S.view.dirty === "function" && !S.view.leaving && S.view.dirty());
@@ -533,6 +533,12 @@ window.handleLink = async (link) => {  // inky:// links the desktop app hands ov
   if (u.host === "agent") return u.searchParams.get("d") ? getAgent(link) : toast("That share link is incomplete.");  // the agent is inside the link
   toast("Inky can’t open that link.");
 };
+document.addEventListener("click", (e) => {  // buttons drawn as HTML say what they do in data-act (no inline handlers: the page's security policy forbids them)
+  const b = e.target.closest("[data-act]");
+  const act = b && { openNav, openCmd: () => openCmd(), closeModal }[b.dataset.act];
+  if (act) { e.preventDefault(); act(); }
+});
+
 function closeModal() {
   const m = $("#modal");
   if (m.classList.contains("hidden")) return;

@@ -1,5 +1,6 @@
 """HTTP API + static UI. Every /api call needs the X-Inky-Token header (or ?t= for images and SSE),
 so other websites open in your browser can't drive your bots."""
+import hmac
 import json
 import os
 import platform
@@ -22,7 +23,11 @@ from inky.mcp import PRESETS
 
 UI = Path(__file__).parent / "ui"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
-         ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json"}
+         ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
+# The app's page loads only its own scripts and fonts. Pictures of what bots found come from the sites themselves (img-src),
+# and the desktop app talks to its shell over ipc:.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; "
+       "connect-src 'self' ipc: http://ipc.localhost; media-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 ROUTES = []
 
 
@@ -892,7 +897,13 @@ def find_sites(E, h, q, body):
         ai = sites.from_model(E.llm, str(body.get("job") or " ".join(qs)), have={r["site"] for r in web}, label=model)
     if not web and not ai:
         raise HTTPError(502, note or "No sites found. Try other words, or type an address.")
-    return {"sites": web + ai, "searched": qs, "note": note, "more": bool(body.get("more"))}
+    said = str(body.get("job") or "").lower()
+    rows = web + ai
+    for r in rows:  # a site your job names (“on Amazon” → amazon.de): it starts there
+        name = (r.get("site") or "").split(".")[0]
+        r["named"] = bool(len(name) > 2 and re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", said))
+    rows.sort(key=lambda r: not r["named"])
+    return {"sites": rows, "searched": qs, "note": note, "more": bool(body.get("more"))}
 
 
 @route("POST", r"/api/bots/(\d+)/share-link")
@@ -1135,13 +1146,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if ctype.startswith("text/html"):  # the app's page: its own scripts only, never inside another site's frame
+            self.send_header("Content-Security-Policy", CSP)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
     def _authed(self, q):
-        return self.headers.get("X-Inky-Token") == self.engine.token or q.get("t") == self.engine.token
+        t = self.headers.get("X-Inky-Token") or q.get("t") or ""
+        return hmac.compare_digest(t.encode(), self.engine.token.encode())
 
     def do_GET(self):
         self._handle("GET")

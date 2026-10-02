@@ -1,9 +1,0 @@
-{
-  "name": "inky-tecnocasa-homes",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "main": "main.js",
-  "scripts": {"start": "node main.js"},
-  "dependencies": {"apify": "^3.7.2"}
-}

@@ -97,3 +97,4 @@ input.f.sf{height:36px;width:auto;flex:1 1 120px;min-width:0;max-width:200px}
 #every.seg.wrap{flex-wrap:wrap;border-radius:16px}
 .mlive{gap:10px}
 .mlive .btn.hot{border-color:#F3C9BC;color:var(--coral-t)}
+.draftmore>summary{cursor:pointer;color:var(--muted);padding:4px 0;width:max-content}.draftmore>summary:hover{color:var(--ink)}

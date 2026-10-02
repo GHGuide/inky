@@ -1,13 +1,19 @@
 [project]
 name = "inky"
 version = "0.1.0"
-requires-python = ">=3.12,<3.13"
+description = "Bots that watch and work the web for you: they learn a site once with AI, then repeat with no AI, on your own computer."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Inky contributors" }]
+requires-python = ">=3.11"
 dependencies = [
-    "apify-client",
-    "httpx",
-    "python-dotenv",
-    "playwright",
+    "httpx==0.28.1",
+    "playwright==1.63.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/GHGuide/inky"
+Issues = "https://github.com/GHGuide/inky/issues"
 
 [dependency-groups]
 dev = [

@@ -27,7 +27,7 @@ class WizardTest(unittest.TestCase):
         cls.E.close()
 
     def page(self, w, h):
-        pg = self.browser.new_page(viewport={"width": w, "height": h})
+        pg = self.browser.new_page(viewport={"width": w, "height": h}, bypass_csp=True)
         self.errors = []
         pg.on("pageerror", lambda e: self.errors.append(str(e)))
         return pg
