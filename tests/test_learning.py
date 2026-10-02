@@ -339,5 +339,62 @@ class LearningTest(unittest.TestCase):
             self.assertEqual((e.exception.kind, model.total), ("fix_failed", 1))
 
 
+class EngineLearningTest(unittest.TestCase):
+    """The same, through the engine: what is stored, what is new, and when a repair is kept."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_engine import make_engine
+        cls.site = learn_site.start()
+        cls.base = f"http://127.0.0.1:{cls.site.server_port}"
+        cls.E = make_engine()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.E.close()
+        cls.site.shutdown()
+
+    def learned(self, path, goal, *steps):
+        from tests.test_engine import wait
+        E = self.E
+        E.llm.scripted = Plan(*steps)
+        bid = E.create_bot({"name": "Learner", "job": goal, "goal": goal, "start_url": self.base + path})["id"]
+        E.learn(bid, goal, self.base + path)
+        self.assertTrue(wait(lambda: not E.busy(bid), 120))
+        return bid
+
+    def run_once(self, bid, model=None):
+        if model:
+            self.E.llm.scripted = model
+        self.E.run(bid, wait=True)
+        return self.E.store.find("runs", bot_id=bid, limit=1)[0]
+
+    def test_quotes_are_stored_one_each_and_a_second_run_finds_none_new(self):
+        bid = self.learned("/quotes", "Find quotes about life")
+        check = self.E.store.find("runs", bot_id=bid, limit=1)[0]
+        stored = self.E.store.find("results", bot_id=bid, limit=100)
+        self.assertEqual((check["items"], check["new"], check["ai_calls"], len(stored)), (29, 29, 0, 29))
+        self.assertEqual(sorted(r["title"] for r in stored), sorted(q["text"] for q in learn_site.QUOTES))
+        again = self.run_once(bid, NoModel())
+        self.assertEqual((again["status"], again["items"], again["new"], again["ai_calls"]), ("ok", 29, 0, 0))
+
+    def test_a_repair_is_kept_only_when_it_finds_results(self):
+        bid = self.learned("/find", "Find e-bikes", step("fill", "textbox:Search", "e-bike", "Type e-bike"), step("click", "button:Search", label="Click Search"))
+        try:
+            urllib.request.urlopen(f"{self.base}/__layout?v=4").read()  # the button is gone; “Save search” only looks like one
+            run = self.run_once(bid, Plan(repair=("Save search", 0.9)))
+            sk = self.E.store.find("skills", bot_id=bid)[0]
+            self.assertEqual((run["status"], run["ai_calls"]), ("needs_you", 1))
+            self.assertEqual(sk["steps"][1]["target"]["name"], "Search")  # the old step stays
+            urllib.request.urlopen(f"{self.base}/__layout?v=2").read()  # renamed to “Go”: that fix finds results, so it's kept
+            run = self.run_once(bid, Plan(repair=("Go", 0.9)))
+            sk = self.E.store.find("skills", bot_id=bid)[0]
+            self.assertEqual((run["status"], run["ai_calls"], run["items"], sk["steps"][1]["target"]["name"]), ("ok", 1, 25, "Go"))
+            again = self.run_once(bid, NoModel())
+            self.assertEqual((again["status"], again["ai_calls"], again["new"]), ("ok", 0, 0))
+        finally:
+            urllib.request.urlopen(f"{self.base}/__layout?v=1").read()
+
+
 if __name__ == "__main__":
     unittest.main()
