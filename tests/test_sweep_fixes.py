@@ -26,6 +26,18 @@ class GateTest(unittest.TestCase):
                 self.ctx([], answer).gate(send, el, {"url": "x"})
         self.ctx([], "Approve").gate(send, el, {"url": "x"})
 
+    def test_never_rules_see_the_page_and_a_pause_holds_after_yes(self):
+        import threading
+        never = [{"kind": "never", "text": "never contact the agency"}]
+        page = {"url": "http://x/contact?id=1", "title": "Contatta", "heads": ["Contatta l’agenzia"]}
+        with self.assertRaises(skills.NeedsHelp) as e:  # its button only says "Invia": the page says what it's for
+            self.ctx(never, "Approve").gate({"action": "click", "text": "Click Invia"}, {"role": "button", "name": "Invia"}, page)
+        self.assertEqual(e.exception.kind, "blocked")
+        c = self.ctx([], "Approve")
+        c.run = SimpleNamespace(paused=threading.Event(), stop=True)  # you pressed Stop while it waited for your yes
+        with self.assertRaises(skills.Stopped):
+            c.gate({"action": "click", "text": "Click Invia"}, {"role": "button", "name": "Invia"}, {"url": "x"})
+
     def test_your_rules_are_enforced(self):
         rules = [{"kind": "ask", "text": "Ask me first before contacting any agency"}, {"kind": "never", "text": "Never book a viewing"}]
         with self.assertRaises(skills.NeedsHelp) as e:  # an ask rule turns an ordinary click into a question (here: denied)

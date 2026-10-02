@@ -255,8 +255,7 @@ async function importFile(text) {
       if (!id) return toast("Open a bot first, then open the file again.");
       await post(`/api/bots/${id[1]}/skills/import`, d); toast("Added"); return refreshSoon();
     }
-    const r = await post("/api/import", d);
-    await loadState(); location.hash = `#/bot/${r.bot.id}/computer?hatch=1`;
+    getAgent(null, d);  // the same checks and preview as a shared agent
   } catch (e) { toast(e.message); }
 }
 

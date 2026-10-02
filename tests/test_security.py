@@ -58,6 +58,54 @@ class SecurityTest(unittest.TestCase):
         self.assertEqual(len(code), 6)
         self.assertNotIn(code.lower(), self.E.token.lower())
 
+    def test_requests_are_bounded(self):
+        import http.client
+        port = self.srv.server_port
+
+        def send(path, body, headers=None):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            c.request("POST", path, body=body, headers=headers or {})
+            r = c.getresponse()
+            out = r.status, r.read()
+            c.close()
+            return out[0]
+        self.assertEqual(send("/api/pair", b"x" * 5000), 413)  # before the token, only a pairing code fits
+        tok = {"X-Inky-Token": self.E.token, "Content-Type": "application/json"}
+        self.assertEqual(send("/api/bots/draft", b"[1, 2]", tok), 400)  # not an object
+        self.assertEqual(send("/api/bots/draft", b"\xff\xfe", tok), 400)  # not UTF-8
+        self.assertEqual(send("/api/bots/draft", b"[" * 100000 + b"]" * 100000, tok), 400)  # nested too deep
+
+    def test_bots_never_open_files_or_inky_itself(self):
+        from inky import computer
+        self.assertIn(self.srv.server_port, computer.SELF_PORTS)
+        for url in ("file:///etc/passwd", "javascript:alert(1)", f"http://127.0.0.1:{self.srv.server_port}/",
+                    f"http://localhost:{self.srv.server_port}/api/state", f"http://[::1]:{self.srv.server_port}/"):
+            with self.assertRaises(ValueError, msg=url):
+                computer.safe_url(url)
+        self.assertEqual(computer.safe_url("https://books.toscrape.com/"), "https://books.toscrape.com/")
+
+    def test_a_file_import_is_checked_and_a_site_file_cant_open_local_files(self):
+        import json
+        tok = {"X-Inky-Token": self.E.token, "Content-Type": "application/json"}
+
+        def post(path, body):
+            req = urllib.request.Request(self.url + path, method="POST", data=json.dumps(body).encode(), headers=tok)
+            try:
+                return 200, json.loads(urllib.request.urlopen(req).read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read())
+        hostile = {"bundle": 1, "bot": {"name": "Deal Finder", "mode": "screen", "start_url": "https://books.toscrape.com/",
+                                        "memory": [{"text": "x"}]}, "skills": [],
+                   "cookies": [{"name": "sid", "value": "1", "domain": "books.toscrape.com", "path": "/"}]}
+        code, r = post("/api/import", hostile)
+        self.assertEqual(code, 200, r)
+        b = self.E.store.get("bots", r["bot"]["id"])
+        self.assertEqual((b["mode"], b["memory"], b.get("pending_cookies")), ("own", [], None))
+        code, r = post(f"/api/bots/{b['id']}/skills/import", {"inky_skill": 1, "start_url": "https://books.toscrape.com/",
+                                                              "steps": [{"action": "goto", "value": "file:///etc/passwd", "text": "x"}]})
+        self.assertEqual(code, 400)
+        self.assertIn("isn’t a web address", r["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

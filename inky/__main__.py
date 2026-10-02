@@ -25,8 +25,8 @@ def main():
     ap.add_argument("--or-any-port", action="store_true", help="if the port is taken, use any free one (the desktop app prefers 8800 so links and pairings keep working)")
     ap.add_argument("--stop-with-stdin", action="store_true", help="stop when stdin closes (the desktop app uses this, so a crash never leaves an engine behind)")
     a = ap.parse_args()
-    load_dotenv(Path.cwd() / ".env")
     home = Path(a.home).expanduser()
+    load_dotenv(home / ".env")  # only Inky's own folder: a .env in whatever folder you started it from isn't Inky's to read
     os.environ["INKY_HOME"] = str(home)
     if getattr(sys, "frozen", False):  # the desktop app: the bots' browser lives in Inky's folder
         os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(home / "browsers"))

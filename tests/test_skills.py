@@ -201,6 +201,18 @@ class SkillsTest(unittest.TestCase):
         self.assertEqual(classify("click", {"role": "button", "name": "Cerca"})[0], "ok")
         self.assertEqual(classify("click", {"role": "button", "name": "Add to cart"})[0], "pay")
         self.assertEqual(classify("fill", {"role": "password", "type": "password"})[0], "password")
+        # a form's own button: a sign-in whatever it says, a contact form even when it says "Continue", a search never
+        login = {"post": True, "password": True, "personal": False, "submits": True}
+        self.assertEqual(classify("click", {"role": "button", "name": "Accedi", "form": login})[0], "password")
+        self.assertEqual(classify("press", {"role": "textbox", "name": "Email", "form": {**login, "submits": False}})[0], "password")
+        contact = {"post": True, "password": False, "personal": True, "submits": True}
+        self.assertEqual(classify("click", {"role": "button", "name": "Continue", "form": contact})[0], "irreversible")
+        self.assertEqual(classify("press", {"role": "textbox", "name": "Message", "form": {**contact, "submits": False}})[0], "irreversible")
+        search = {"post": False, "password": False, "personal": False, "submits": True}
+        self.assertEqual(classify("press", {"role": "textbox", "name": "Search", "form": {**search, "submits": False}})[0], "ok")
+        self.assertEqual(classify("click", {"role": "button", "name": "Go", "form": {**search, "post": True}})[0], "ok")  # an ASP.NET page
+        self.assertEqual(classify("click", {"role": "button", "name": "Sign in"}, {"pw": True})[0], "password")
+        self.assertEqual(classify("click", {"role": "link", "name": "Log in"}, {"pw": False})[0], "ok")  # only going to the sign-in page
         self.assertEqual(skills.parse_num("€ 78.915"), 78915)
         self.assertEqual(skills.parse_num("1.234,5 m²"), 1234.5)
         items = [{"price": "€ 90.000"}, {"price": "€ 200.000"}]

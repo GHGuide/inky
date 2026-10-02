@@ -10,9 +10,25 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ### Changed
 - `run_skill` is now `run_bot`. The old name still works.
+- Daily and weekly checks run at a time of day (07:30 unless you say “every evening” or “at 9”), so Run now in between never moves tomorrow's check. Settings offers the same choices as New bot (6 hours and weekly too).
+
+### Security
+- A bot file you open gets the same preview, checks and fresh start as a shared agent. It arrives without sign-ins, memory, results, chat or approvals, stays on the sites it lists, and can't allow paying. Only a move between your own paired computers keeps those.
+- Bots open web pages only: never a file on your computer, and never Inky's own page, even if a site redirects there. Shared bots that try fail the check before you get them.
+- A shared bot's colour can only be a colour, so it can't hide the warnings in the preview.
+- A form with a password box always stops for you to sign in, whatever its button says. Pressing Enter or a button in a contact, sign-up or order form asks first, even when the button only says “Continue”.
+- A “never” rule also checks the page a step is on (“never contact the agency” stops the Send on the agency's contact page). Pausing while a bot waits for your yes holds after the yes.
+- Requests to the engine have a size limit and a time limit; a broken request gets a clear error instead of an open connection.
+- Inky reads a `.env` file only from its own folder (`~/.inky/.env`), not from whatever folder it was started in.
 
 ### Fixed
 - Inky's MCP server answers with a protocol version it speaks, a clear message for a missing argument or an unknown tool, and one plain sentence when Inky isn't running.
+- Chat answers “what's the cheapest?”, “the most expensive?” and “how many did you find?” from what the bot kept, never a guess. “Work on my screen” is done or honestly refused, never just claimed.
+- “Skip senior roles” no longer becomes a rule that keeps only senior roles.
+- The New bot rules editor reads “1,000” as one number and leaves out a rule with no value, instead of saving rules that hide everything.
+- “I’ll try again on my own soon” says when, and why it stopped.
+- Needs you moves to the next question after you answer, not onto its Approve button.
+- Calls to a bot on another computer keep their options (like how many results to show).
 
 ## [0.1.0] - 2026-10-02
 

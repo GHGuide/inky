@@ -42,6 +42,29 @@ class ComputerTest(unittest.TestCase):
         page = self.c.call("open", self.base + "/captcha")
         self.assertTrue(page["robot"])
 
+    def test_forms_say_what_they_send(self):
+        from inky.safety import classify
+        page = self.c.call("open", self.base + "/login")
+        btn = next(e for e in page["elements"] if e["name"] == "Accedi" and e["role"] == "button")
+        self.assertEqual(classify("click", btn, page)[0], "password")
+        page = self.c.call("open", self.base + "/contact?id=1")
+        box = next(e for e in page["elements"] if e["role"] == "textbox")
+        self.assertEqual(classify("press", box, page)[0], "irreversible")  # Enter in a contact form sends it
+
+    def test_never_opens_files_or_inky_itself(self):
+        from inky import computer
+        with self.assertRaises(ValueError):
+            self.c.call("open", "file:///etc/passwd")
+        computer.SELF_PORTS.add(self.site.server_port)  # pretend the test site is this computer's Inky
+        try:
+            with self.assertRaises(ValueError):
+                self.c.call("open", f"http://localhost:{self.site.server_port}/")
+            with self.assertRaises(ValueError):
+                self.c.call("act", "goto", None, self.base + "/")
+        finally:
+            computer.SELF_PORTS.discard(self.site.server_port)
+        self.assertFalse(self.c.call("open", self.base + "/").get("robot"))
+
 
 if __name__ == "__main__":
     unittest.main()

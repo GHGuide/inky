@@ -4,6 +4,9 @@ const LOOKS = { kinds: ["octopus", "cat", "blob"], colors: [["#E86F51", "Coral"]
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
 const EVERY = [[0, "Only when I ask"], [60, "Every hour"], [360, "Every 6 hours"], [1440, "Every day"], [10080, "Every week"]];
+// Settings offers what New bot offers, plus 15 minutes, plus whatever the chat set (“every 2 hours”) so it always shows as chosen
+const schedOptions = (m) => { const o = [[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [360, "Every 6 hours"], [1440, "Daily"], [10080, "Weekly"]]; m = +m || 0;
+  return o.some(([v]) => v === m) ? o : [...o, [m, m % 60 ? `Every ${m} min` : `Every ${m / 60} hours`]].sort((a, b) => a[0] - b[0]); };
 const everyOf = (d) => { const m = +d.every_minutes || 0; return EVERY.reduce((a, [v]) => (Math.abs(v - m) < Math.abs(a - m) ? v : a), 0); };  // nearest choice
 // Ready-made jobs: what people really set up most (price drops, restocks, rentals, jobs, second-hand deals, news), and a
 // practice site that always works. One click fills the box; the person edits the words.
@@ -348,9 +351,8 @@ VIEWS.bots = {
       e.target.value = "";
       let d;
       try { d = JSON.parse(await f.text()); } catch (err) { return toast("That file isn’t a bot file (it isn’t valid JSON)."); }
-      toast(`Importing ${f.name}…`);
-      try { const r = await post("/api/import", d); await loadState(); toast(`${r.bot.name} moved in`, r.bot); location.hash = `#/bot/${r.bot.id}/computer`; }
-      catch (err) { toast(err.message); }
+      if (d && d.inky_skill) return toast("That’s a site file. Open a bot, then Sites → Add from a file.");
+      getAgent(null, d);  // the same checks and preview as a shared agent
     };
     $$("[data-hv]").forEach((x) => (x.onclick = () => { try { localStorage.setItem("inkyHome", x.dataset.hv); } catch (e) {} this.refresh(); }));
     this.refresh();
@@ -562,7 +564,7 @@ VIEWS.new = {
     const drawF = () => {
       $("#filters", box).innerHTML = filters.map((f, i) => `<div class="frow"><select class="f" data-i="${i}" data-k="field" aria-label="What it checks">${fieldOptions(f.field)}</select><select class="f" data-i="${i}" data-k="op" aria-label="Test">${OPS.map((o) => `<option value="${esc(o)}"${o === f.op ? " selected" : ""}>${OP_WORDS[o]}</option>`).join("")}</select>
         <input class="f" data-i="${i}" data-k="value" value="${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}" aria-label="Value"><button class="iconbtn" data-del="${i}" aria-label="Remove rule">${icon("x", 14)}</button></div>`).join("") || `<span class="small muted">Nothing yet: it keeps everything it finds. Add one like “price at most 20”.</span>`;
-      $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); const f = filters[x.dataset.i]; f[x.dataset.k] = x.dataset.k === "value" && /,/.test(x.value) ? x.value.split(",").map((s) => s.trim()) : x.value; }));
+      $$("#filters [data-k]", box).forEach((x) => (x.oninput = () => { dirty.add("filters"); filters[x.dataset.i][x.dataset.k] = x.value; }));  // read as a rule on Create
       $$("#filters [data-del]", box).forEach((x) => (x.onclick = () => { dirty.add("filters"); filters.splice(+x.dataset.del, 1); drawF(); }));
     };
     drawF();
@@ -585,7 +587,7 @@ VIEWS.new = {
       if (start) url.value = start;
       const more = [...(this.picked || [])].filter((u) => u !== start);  // the other sites you ticked: learned one after another
       const body = { ...d, name: $("#nm", box).value.trim() || d.name, start_url: start, goal: $("#goal", box).value, every_minutes: every, more_sites: more,
-        filters: filters.map((f) => ({ ...f, value: isNaN(+f.value) || f.value === "" ? f.value : +f.value, text: ruleWords(f) })) };
+        filters: filters.map(asRule).filter(Boolean) };
       const btn = $("#create", box);
       busyBtn(btn, true, "Creating…");
       let b;
@@ -634,6 +636,14 @@ const offName = (m) => (String(m || "").match(/^(.+?) isn’t answering\. It may
 const one = (t) => String(t ?? "").replace(/\b1 results\b/g, "1 result");  // older engines and saved skills say "Read 1 results"
 const idleBot = (b) => !b.run_kind && !b.takeover && !["takeover", "showing"].includes(b.status);  // nothing running and nobody at its computer
 ICON.speakeroff = "M11 5L6 9H2v6h4l5 4z M23 9l-6 6 M17 9l6 6";  // the Call tab's speaker, turned off
+// a rule from the editor: “1,000” is one number, a list only for “is one of”, and an empty value is no rule at all
+function asRule(f) {
+  const raw = (Array.isArray(f.value) ? f.value.join(", ") : String(f.value ?? "")).trim();
+  if (!raw) return null;
+  const value = ["in", "not_in"].includes(f.op) ? raw.split(",").map((x) => x.trim()).filter(Boolean)
+    : ["<", "<=", ">", ">="].includes(f.op) ? (numOf(raw) ?? raw) : raw;
+  return { ...f, value, text: ruleWords({ ...f, value }) };
+}
 const DRAFTS = {};  // what you were typing to each bot, kept when you go to another page and back
 // ponytail: a copy of skills.parse_num()/keep(), so Results follow your rules the moment you change them; drop it if the results route re-checks rules itself
 function numOf(v) {
@@ -1137,7 +1147,7 @@ VIEWS.bot = {
     const b = this.data.bot, s = b.schedule || {};
     tb.innerHTML = `<div class="gridfit" data-tab="settings">
       <div class="card"><b>Name and look</b><div class="row wrap"><label class="vh" for="bname">Name</label><input class="f" id="bname" value="${esc(b.name)}" maxlength="40" style="flex:1 1 160px"><a class="btn s" href="#/look/${b.id}">Change its look</a></div></div>
-      <div class="card"><b>Schedule</b><span class="seg" id="every" role="group" aria-label="How often">${[[0, "When I ask"], [15, "Every 15 min"], [60, "Hourly"], [1440, "Daily"]].map(([v, t]) => `<button data-v="${v}">${t}</button>`).join("")}</span>
+      <div class="card"><b>Schedule</b><span class="seg wrap" id="every" role="group" aria-label="How often">${schedOptions(s.every_minutes).map(([v, t]) => `<button data-v="${v}">${t}</button>`).join("")}</span>
         <div class="between small"><label for="sum">Summary at</label><input class="f" type="time" id="sum" value="${esc(s.summary_at || "")}" style="width:130px;height:36px"></div>
         <div class="between small"><span>Quiet hours</span><span class="row" style="gap:6px"><input class="f" type="time" id="qf" aria-label="Quiet from" value="${esc(s.quiet_from || "")}" style="width:120px;height:36px"><span class="muted">to</span><input class="f" type="time" id="qt" aria-label="Quiet until" value="${esc(s.quiet_to || "")}" style="width:120px;height:36px"></span></div>
         <span class="small muted">Checks repeat with no AI, so checking often costs nothing extra.</span></div>
@@ -1573,8 +1583,9 @@ VIEWS.needs = {
         if (x.dataset.o === "Always for this step") toast(`It won’t ask for that step again. To take it back, open ${who} → More → Sites and press “ask again”.`, as);
         if (x.dataset.o === "Always for this automation") toast(`It won’t ask for that hand-off again. To take it back, open ${who} → Settings and remove the automation.`, as);
         await this.refresh();
-        const next = $("[data-need]", this.el) || $("h1", this.el);  // on to the next question, never onto a button that's off now
-        if (next && (!document.activeElement || document.activeElement === document.body)) { next.setAttribute("tabindex", next.tagName === "H1" ? "-1" : "0"); next.focus(); }
+        // on to the next question's card, never onto one of its buttons: a second Enter must not answer it
+        const next = ($("[data-need]:not(:disabled)", this.el) || {}).closest?.(".need")?.querySelector(".ntitle") || $("h1", this.el);
+        if (next && (!document.activeElement || document.activeElement === document.body)) { next.setAttribute("tabindex", "-1"); next.focus(); }
         return;
       }
       if (CHOSEN[k]) return;  // already answered from this window
@@ -1610,11 +1621,12 @@ VIEWS.activity = {
 };
 
 // ================================================================ the agent library
-async function getAgent(url) {  // a permission preview, then install (from the Library tab or an inky://install link)
+async function getAgent(url, bundle) {  // a permission preview, then install (Library tab, an inky://install link, or a bot file you opened)
   let p;
-  try { p = await post("/api/library/preview", { url }); } catch (e) { return toast(e.message); }
+  const src = bundle ? { bundle } : { url };
+  try { p = await post("/api/library/preview", src); } catch (e) { return toast(e.message); }
   const L = p.listing, c = p.check, look = L.look || {}, have = p.have || [];
-  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "site")}</span>${L.unverified ? `<span class="small" style="display:block;color:var(--coral-t)">Not from the library: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
+  modal(`<div class="row">${critter(look.kind, look.color, look.acc, 64, "happy")}<div><h2>${esc(L.title)}</h2><span class="small muted">${L.author ? `by ${esc(L.author)} · ` : ""}${plural(p.skills.length, "site")}</span>${L.unverified ? `<span class="small" style="display:block;color:var(--coral-t)">${bundle ? "A file, not from the library" : "Not from the library"}: nobody reviewed it. Read what it may do below.</span>` : ""}</div></div>
     <p class="small">${esc(L.summary || "")}</p>
     ${have.length ? `<div class="chk"><i class="ok">✓</i><span><b>You have it</b> · <a href="#/bot/${have[0]}/computer" id="gethave">Open</a><br><span class="small muted">Getting it again makes ${have.length > 1 ? "another" : "a second"} copy with its own computer.</span></span></div>` : ""}
     ${c.ok ? `<div class="col" style="gap:8px">
@@ -1633,7 +1645,7 @@ async function getAgent(url) {  // a permission preview, then install (from the 
         $("#getmsg").textContent = `You’ll have ${have.length + 1} copies. Each runs on its own.`; $("#getmsg").className = "small"; return;
       }
       busyBtn(b, true, "Getting…");
-      try { const r = await post("/api/library/install", { url }); closeModal(); await loadState(); location.hash = `#/bot/${r.id}/computer?hatch=1`; }
+      try { const r = await post("/api/library/install", src); closeModal(); await loadState(); location.hash = `#/bot/${r.id}/computer?hatch=1`; }
       catch (e) { busyBtn(b, false); $("#getmsg").textContent = `${e.message} Nothing was installed; you can try again.`; $("#getmsg").className = "small bad"; }
     };
   });

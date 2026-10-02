@@ -630,12 +630,15 @@ def site_of(host):
 def fence(ctx, url):
     """Agents from the library keep to the sites they list (allowed_domains). Your own bots have no fence."""
     allowed = (getattr(ctx, "bot", None) or {}).get("allowed_domains")
-    host = urlparse(url or "").hostname
-    if not allowed or not host:
+    if not allowed:
         return
-    if site_of(host) not in {site_of(d) for d in allowed}:
+    u = urlparse(url or "")
+    if not url or u.scheme in ("about", "chrome-error"):  # a blank or error page: nothing there to read
+        return
+    host = u.hostname
+    if u.scheme not in ("http", "https") or not host or site_of(host) not in {site_of(d) for d in allowed}:  # fails closed
         raise NeedsHelp("blocked", f"This agent only works on {', '.join(allowed)}",
-                        f"A step went to {host}. Agents from the library stay on the sites they list, so it stopped there.",
+                        f"A step went to {host or url[:60]}. Agents from the library stay on the sites they list, so it stopped there.",
                         ["OK"], url=url)
 
 
@@ -700,6 +703,8 @@ def replay(ctx, skill, repair_role="repair"):
                     (SUBMIT.search(step["target"].get("name") or "") or step["target"].get("type") == "submit"):
                 prev, _ = locate(steps[i - 1]["target"], page["elements"])  # a search button that's hidden now: Enter in its box still searches
                 if prev is not None:
+                    ctx.gate({"action": "press", "value": "Enter", "target": steps[i - 1]["target"], "text": f"Press Enter instead of “{step['target'].get('name')}”"},
+                             next((e for e in page["elements"] if e["i"] == prev), None), page)  # Enter can send a form too
                     before = page.get("url")
                     comp.call("act", "press", prev, "Enter", step_text=f"{i + 1} · Enter instead of “{step['target'].get('name')}”")
                     page = comp.call("elements")

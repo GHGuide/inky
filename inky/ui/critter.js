@@ -41,9 +41,13 @@
     crown: `<path d="M32 24 L40 4 L51 18 L60 0 L69 18 L80 4 L88 24 Z" fill="#F5C542" stroke="#1D1A17" stroke-width="2.5" stroke-linejoin="round"/><circle cx="60" cy="16" r="3.5" fill="#E86F51"/><circle cx="44" cy="18" r="2.5" fill="#3B5BDB"/><circle cx="76" cy="18" r="2.5" fill="#3B5BDB"/>`,
   };
   let n = 0;
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   window.critter = function (kind = "octopus", color = "#E86F51", acc = "none", size = 40, mood = "calm") {
-    const body = (BODY[kind] || BODY.octopus)().replace(/"C"/g, `"${color}"`);
-    return `<svg class="critter" data-kind="${BODY[kind] ? kind : "octopus"}" data-mood="${mood}" data-seed="${++n}" width="${size}" height="${size}" viewBox="0 0 120 120" aria-hidden="true">${body}${EXTRA[acc] || ""}</svg>`;
+    // a shared bot's look is data from someone else: only a real colour, kind and accessory ever reach the markup
+    if (!/^#[0-9a-f]{3,8}$/i.test(String(color))) color = "#E86F51";
+    if (!own(BODY, kind)) kind = "octopus";
+    const body = BODY[kind]().replace(/"C"/g, `"${color}"`);
+    return `<svg class="critter" data-kind="${kind}" data-mood="${/^\w+$/.test(mood) ? mood : "calm"}" data-seed="${++n}" width="${+size || 40}" height="${+size || 40}" viewBox="0 0 120 120" aria-hidden="true">${body}${own(EXTRA, acc) ? EXTRA[acc] : ""}</svg>`;
   };
   window.botCritter = (b, size) => {
     const l = b.look || {};

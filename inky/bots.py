@@ -117,6 +117,24 @@ ACTIONS = {"add_rule", "remove_rule", "remember", "forget", "learn", "run", "sch
 CHANGES = ACTIONS - {"remember", "learn", "ask_bot"}  # those two have their own checks; asking another bot changes nothing
 POLITE = re.compile(r"\s*(can|could|would|will) you\b(?!.*\b(better|faster|worth|good idea)\b)|.*\bplease\b", re.I)
 REMOVING = re.compile(r"\b(remove|delete|drop|no longer|get rid of|forget|scrap|cancel|undo|take (out|off|away))\b", re.I)
+NEGATIVE = re.compile(r"\b(skip|no|not|without|exclude|excluding|ignore|avoid|except|hide|drop|never|don'?t|doesn'?t|isn'?t|aren'?t|non)\b", re.I)
+FLIP = {"contains": "not_contains", "in": "not_in", "==": "!="}
+PRICE_Q = re.compile(r"\b(cheapest|lowest[- ]price[ds]?|least expensive|best price|most expensive|priciest|dearest|highest[- ]price[ds]?)\b", re.I)
+COUNT_Q = re.compile(r"^\s*(so |and |ok,? )?how many\b(?!.*\b(sites?|times|runs?|pages?|rules?|days?|hours?|minutes?|ai calls?|bots?)\b)", re.I)
+SCREEN_ASK = re.compile(r"\b(work|run|go|do (it|this|that)|use|switch|move|look)\b.{0,30}\b(on|to|onto|with|using) my (own )?screen\b|\buse my screen\b", re.I)
+OWN_ASK = re.compile(r"\b(work|run|go|switch|move|stay)\b.{0,30}\b(on|to) (your|its) own (computer|browser)\b|\boff my screen\b", re.I)
+
+
+def negated(text, value):
+    """“skip senior roles”: the rule says no to its word, whatever the model made of it."""
+    low = (text or "").lower()
+    for v in value if isinstance(value, list) else [value]:
+        i = low.find(str(v).lower())
+        if i > 0 and re.search(NEGATIVE.pattern + r"\s+(?:[\w'’-]+\s+){0,2}$", low[:i], re.I):
+            return True
+    return False
+
+
 LIMIT = re.compile(r"^\s*(?:only (?:keep |show )?(?:\w+ )?)?(\w+)\s+(under|below|less than|at most|over|above|more than|at least|<=|<|>=|>)"
                    r"\s*[£€$]?\s*(\d+(?:[.,]\d+)?)\s*[£€$]?\s*$", re.I)
 
@@ -149,7 +167,7 @@ def quick_command(text):
         return {"type": "schedule", "every_minutes": 0}
     m = re.fullmatch(r"(?:(?:check|run|look|search)(?: it)? )?(every .{1,30}|hourly|daily|weekly|twice a day|each (?:morning|day|hour|week))", low)
     if m and minutes(m.group(1)):
-        return {"type": "schedule", "every_minutes": minutes(m.group(1))}
+        return {"type": "schedule", "every_minutes": minutes(m.group(1)), **({"at": time_of_day(low)} if time_of_day(low) else {})}
     m = re.fullmatch(r"(?:please )?remember(?: that)? (.{3,200})", t, re.I)
     if m:
         return {"type": "remember", "text": you_form(m.group(1).strip())}
@@ -187,7 +205,7 @@ def command_reply(a, out):
     t = a["type"]
     if t == "schedule":
         m = minutes(a.get("every_minutes"))
-        return f"Done: I’ll check every {every_words(m)}." if m else "Done: I’ll only run when you ask."
+        return f"Done: I’ll check every {every_words(m)}{' at ' + str(out).rsplit(' at ', 1)[1] if ' at ' in str(out) else ''}." if m else "Done: I’ll only run when you ask."
     if t == "add_rule":
         return f"Done: from now on I only keep results with {a['text']}."
     return {"run": "Running now.", "pause": "Paused." if out == "paused" else "Paused my schedule: I won’t run until you say resume.",
@@ -253,6 +271,30 @@ def plain_error(e):
     if "did not return JSON" in t:
         return "The model’s answers didn’t make sense. Try again, show it once, or pick a smarter model in Models."
     return f"Something went wrong ({type(e).__name__}): {t.splitlines()[0][:200] if t else 'no details'}"
+
+
+def time_of_day(text):
+    """The time of day a daily check runs, if you said one: “every evening” 18:00, “each day at 9” 09:00. Else None."""
+    t = str(text or "").lower()
+    m = re.search(r"\bat (\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\b", t)
+    if m:
+        h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) if m.group(3) else int(m.group(1))
+        if h < 24 and int(m.group(2) or 0) < 60:
+            return f"{h:02d}:{int(m.group(2) or 0):02d}"
+    return "18:00" if re.search(r"evening|night", t) else "12:00" if re.search(r"noon|lunch|midday", t) else "07:30" if "morning" in t else None
+
+
+def due_at(s, last):
+    """When the next scheduled check is due: an interval after the last one; daily and weekly checks run at their time of
+    day (s["at"]), so a Run now in between never moves tomorrow's check."""
+    m = minutes((s or {}).get("every_minutes"))
+    base = (last or 0) + m * 60
+    if not last or m < 1440 or not re.fullmatch(r"\d{2}:\d{2}", str(s.get("at") or "")):
+        return base
+    h, mi = map(int, s["at"].split(":"))
+    early = base - 18 * 3600  # the slot nearest a full period after the last check
+    t = datetime.fromtimestamp(early).replace(hour=h, minute=mi, second=0, microsecond=0)
+    return t.timestamp() if t.timestamp() > early else t.timestamp() + 86400
 
 
 def minutes(v):
@@ -375,7 +417,10 @@ class Ctx:
         verdict, why = classify(step["action"], el, page)
         name = self.bot["name"]
         said = f"{step.get('text') or ''} {(el or {}).get('name') or ''}"
-        never = rule_hit(self.bot.get("rules", []), "never", said)
+        pg = page or {}
+        where = f"{said} {pg.get('title') or ''} {' '.join(pg.get('heads') or [])} {urlparse(pg.get('url') or '').path.replace('/', ' ')}"
+        # “never contact the agency”: for a step that can't be undone, the page it's on counts too, not only its button's words
+        never = rule_hit(self.bot.get("rules", []), "never", said) or (verdict in ("irreversible", "pay") and rule_hit(self.bot.get("rules", []), "never", where))
         if never and step["action"] != "goto":
             raise skills.NeedsHelp("blocked", f"{name} stopped before “{step.get('text')}”", f"Your rule says: {never['text']}.", ["OK"])
         ask = rule_hit(self.bot.get("rules", []), "ask", said)
@@ -406,6 +451,8 @@ class Ctx:
                               ["Approve", "Always for this step", "Deny"], run=self.run, step=step.get("text"))
         if decision not in ("Approve", "Always for this step"):  # only a clear yes goes ahead
             raise skills.NeedsHelp("denied", f"Stopped before it could {what}", "You said no, so nothing was sent.", [])
+        if getattr(self.run, "paused", None) is not None:
+            self.check()  # paused or stopped while it waited for you: that holds, even after a yes
         if decision == "Always for this step":
             step["approved_always"] = True
             self._remember_always(step)  # saved now: a later step failing must never make it ask you again
@@ -474,7 +521,7 @@ class Engine:
         sched = b.get("schedule") or {}
         nxt = None
         if sched.get("every_minutes") and sk and b.get("status") != "moved" and not b.get("held"):
-            nxt = max(time.time(), (b.get("last_run") or 0) + sched["every_minutes"] * 60)  # never ran: due now
+            nxt = max(time.time(), due_at(sched, b.get("last_run")))  # never ran: due now
             end = sched.get("quiet_to")
             if end and quiet(datetime.fromtimestamp(nxt).strftime("%H:%M"), sched.get("quiet_from"), end):
                 h, m = map(int, end.split(":"))  # quiet hours: the first run after they end
@@ -543,7 +590,9 @@ class Engine:
                "summary": d.get("summary") or "", "goal": d.get("goal") or d.get("job") or "", "start_url": d.get("start_url"),
                "look": look, "rules": rules, "filters": d.get("filters") or [], "memory": [], "automations": [],
                "schedule": {"every_minutes": minutes(d.get("every_minutes")), "summary_at": d.get("summary_at") or "08:00",  # the morning paper
-                            "quiet_from": "23:00", "quiet_to": "07:00"},
+                            "quiet_from": "23:00", "quiet_to": "07:00",
+                            **({"at": time_of_day(f"{d.get('job') or ''} {d.get('summary') or ''}") or "07:30"}  # just before the paper
+                               if minutes(d.get("every_minutes")) >= 1440 else {})},
                "mode": "own", "computer": "local", "created": time.time(),
                "site_queue": [u for u in (skills.web_address(x, "") for x in d.get("more_sites") or []) if u][:60],  # learned one after another
                "persona": persona_mod.normalize(d.get("persona"), look.get("kind", "octopus"))}
@@ -568,6 +617,8 @@ class Engine:
             patch["look"] = {**b.get("look", {}), **patch["look"]}
         if "schedule" in patch:
             patch["schedule"] = {**(b.get("schedule") or {}), **(patch["schedule"] or {})}
+            if minutes(patch["schedule"].get("every_minutes")) >= 1440 and not patch["schedule"].get("at"):
+                patch["schedule"]["at"] = "07:30"
             patch["schedule"]["every_minutes"] = minutes(patch["schedule"].get("every_minutes"))
         if patch.get("start_url"):
             patch["start_url"] = skills.web_address(patch["start_url"], "") or b.get("start_url")
@@ -768,9 +819,11 @@ class Engine:
                                 "do": "learn" if (h.kind == "fix_failed" and sk) or not sid else "run"})
                 later.append(at)
         self.store.update("bots", bid, fails=fails, retries=retries)
-        when = datetime.fromtimestamp(min(later)).strftime("%H:%M") if later else "soon"
+        later += [r["at"] for r in retries if r.get("at") and any(r.get("key") == f"skill:{sid}" or (r.get("url") in urls) for _ in [0])]  # already planned
+        when = f"at {datetime.fromtimestamp(min(later)).strftime('%H:%M')}" if later else "soon"
         what = ", ".join(host(u) for u in urls[:3]) + (f" and {len(urls) - 3} more" if len(urls) > 3 else "") if urls else "it"
-        text = f"{h.title} ({what}). I’ll try again on my own at {when}; nothing for you to do."
+        why = plain_error(h.body) if h.body and len(h.body) < 160 else ""
+        text = f"{h.title} ({what}){': ' + why.rstrip('.') if why else ''}. I’ll try again on my own {when}; nothing for you to do."
         self.store.message(bid, "bot", text, handled=True)
         self.store.event(bid, "handled", text)
         self.bus.publish("messages", bot=bid)
@@ -869,6 +922,11 @@ class Engine:
                 return self._say(bid, self.take_offer(bid, last["id"], 0, said_yes=True))
             if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
                 return self._say(bid, self.recap(bid))
+            fact = self.facts(bid, text)
+            if fact:  # “what's the cheapest?”, “how many did you find?”: from what it found, never a guess
+                return self._say(bid, fact)
+            if (SCREEN_ASK.search(text) or OWN_ASK.search(text)) and (not is_question(text) or POLITE.match(text)):
+                return self._say(bid, self._switch_screen(bid, bool(SCREEN_ASK.search(text))))
             h = handoff(text)
             if h:  # you named the agent: it goes to that one, with what this bot found
                 return self._handoff(bid, *h)
@@ -1020,6 +1078,8 @@ class Engine:
                 raise ValueError("the rule has no words")
             rules, filters = b.get("rules", []), b.get("filters", [])
             f = a.get("filter")
+            if f and f.get("op") in FLIP and negated(a["text"], f.get("value")):  # a small model reads “skip senior” as “contains senior”
+                f = {**f, "op": FLIP[f["op"]]}
             if f and f.get("op") in ("<", "<=", ">", ">="):  # “only under £15” replaces “under £20”: one limit per field and direction
                 way = f["op"][0]
                 old = [x for x in filters if x.get("field") == f.get("field") and str(x.get("op", ""))[:1] == way]
@@ -1070,9 +1130,11 @@ class Engine:
             s = {**b.get("schedule", {}), **{k: a[k] or None for k in ("summary_at", "quiet_from", "quiet_to") if a.get(k) is not None}}
             if a.get("every_minutes") is not None:
                 s["every_minutes"] = minutes(a["every_minutes"])  # 0 = only when you ask
+            if minutes(s.get("every_minutes")) >= 1440:  # daily and weekly checks run at a time of day
+                s["at"] = (a.get("at") if re.fullmatch(r"\d{2}:\d{2}", str(a.get("at") or "")) else None) or time_of_day(said) or s.get("at") or "07:30"
             self.store.update("bots", bid, schedule=s)
             m = minutes(s.get("every_minutes"))
-            return f"schedule: every {every_words(m)}" if m else "schedule: only when you say"
+            return (f"schedule: every {every_words(m)}" + (f" at {s['at']}" if m >= 1440 else "")) if m else "schedule: only when you say"
         if t in ("pause", "resume", "stop"):
             running = self.busy(bid)
             if t == "stop" and not running:
@@ -1180,6 +1242,43 @@ class Engine:
             return f"I couldn’t: {e}."
         self.bus.publish("messages", bot=bid)
         return {"run": "Running now.", "learning": "Learning it now."}.get(out, f"Done: {label.removeprefix('Yes, ')}.") if said_yes else out
+
+    def facts(self, bid, text):
+        """The cheapest, the dearest or how many: answered from the results it kept (as Found shows them), or None."""
+        price, count = PRICE_Q.search(text or ""), COUNT_Q.search(text or "")
+        if not (price or count):
+            return None
+        b = self.store.get("bots", bid)
+        rows = [r for r in self.store.find("results", bot_id=bid, limit=2000) if r.get("passed") is not False]
+        if not rows:
+            return "I haven’t found anything yet." + ("" if self.store.find("skills", bot_id=bid) else " I haven’t learned my site yet." if b.get("start_url")
+                                                     else " Tell me a site and I’ll learn it.")
+        rules = " that pass your rules" if b.get("filters") else ""
+        if count:
+            fresh = sum(1 for r in rows if r.get("new"))
+            last = next((r for r in self.store.find("runs", bot_id=bid, limit=10) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
+            read = f" My last check read {nres(last['items'])}." if last and last.get("items") and last["items"] != len(rows) else ""
+            return f"I’ve found {nres(len(rows), 'thing')}{rules}" + (f", {fresh} new." if fresh else ".") + read
+        priced = [(skills.parse_num(r.get("price")), r) for r in rows]
+        priced = [(p, r) for p, r in priced if p is not None]
+        if not priced:
+            return f"None of the {nres(len(rows), 'thing')} I found shows a price."
+        top = re.search(r"most|priciest|dearest|highest", price.group(0), re.I)
+        p, r = (max if top else min)(priced, key=lambda x: x[0])
+        name = r.get("title") or r.get("name") or "One"
+        return (f"The {'most expensive' if top else 'cheapest'} of the {nres(len(priced), 'thing')}{rules} is “{name}” at {r.get('price')}."
+                + (f" {r['link']}" if r.get("link") else ""))
+
+    def _switch_screen(self, bid, screen):
+        """“Work on my screen from now on”: done in code, so it's never claimed and not done."""
+        b = self.store.get("bots", bid)
+        if (b.get("mode") == "screen") == screen:
+            return "I already work on your screen." if screen else "I already work on my own computer."
+        try:
+            self.update_bot(bid, {"mode": "screen" if screen else "own"})
+        except ValueError:
+            return "I can’t use your screen yet: bots aren’t allowed on it. Turn on “Allow bots on my screen” in Settings, then ask me again."
+        return "Done: from now on I work in a window on your screen." if screen else "Done: from now on I work on my own computer, out of your way."
 
     def recap(self, bid):
         """What it did, from its own records: the last run, what's next, what waits for you."""
@@ -1797,7 +1896,7 @@ class Engine:
                 continue
             if quiet(hm, s.get("quiet_from"), s.get("quiet_to")):
                 continue
-            if now - (b.get("last_run") or 0) >= s["every_minutes"] * 60:
+            if now >= due_at(s, b.get("last_run")):
                 try:
                     self.run(b["id"], reason="schedule")
                 except Exception:

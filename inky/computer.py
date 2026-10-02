@@ -8,10 +8,38 @@ import queue
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
 OVERLAY = (Path(__file__).parent / "overlay.js").read_text(encoding="utf-8")
+SELF_PORTS = set()  # the engine's own port: its page carries the key to everything, so a bot's browser never opens it
+
+
+def is_inky(url):
+    """This computer's own Inky (any loopback name on the engine's port)."""
+    import ipaddress
+    u = urlsplit(str(url or ""))
+    host = (u.hostname or "").rstrip(".").lower()
+    try:
+        port = u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return False
+    try:
+        local = host == "localhost" or host.endswith(".localhost") or ipaddress.ip_address(host).is_loopback or host in ("0.0.0.0", "::")
+    except ValueError:
+        local = False
+    return local and port in SELF_PORTS
+
+
+def safe_url(url):
+    """Bots open web pages and nothing else: not files on this computer, and not Inky itself."""
+    u = urlsplit(str(url or "").strip())
+    if u.scheme.lower() not in ("http", "https") or not u.hostname:
+        raise ValueError(f"Bots only open web addresses (http or https), not “{str(url)[:80]}”.")
+    if is_inky(url):
+        raise ValueError("That address is Inky itself. Bots never open it.")
+    return url
 SPEED = {"slow": 0.9, "normal": 0.35, "turbo": 0.0}
 
 INDEX_JS = r"""() => {
@@ -46,6 +74,13 @@ INDEX_JS = r"""() => {
     if (t === 'input') return ty === 'checkbox' ? 'checkbox' : ty === 'radio' ? 'radio' : ty === 'password' ? 'password' : 'textbox';
     return 'generic';
   };
+  const formOf = (el) => {  // what pressing it would send: a POST form, a sign-in (it has a password box)
+    const f = el.form || el.closest('form'); if (!f) return null;
+    const ty = (el.getAttribute('type') || '').toLowerCase();
+    return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!f.querySelector('input[type=password]'),
+             personal: !!f.querySelector('textarea, input[type=email], input[type=tel]'),  // a message, an email, a phone number
+             submits: el.tagName === 'BUTTON' ? (ty || 'submit') === 'submit' : el.tagName === 'INPUT' && ['submit', 'image'].includes(ty) };
+  };
   let i = 0;
   for (const el of document.querySelectorAll(sel)) {
     if (el.closest('inky-overlay')) continue;
@@ -59,13 +94,14 @@ INDEX_JS = r"""() => {
       id: el.id || '', attr_name: el.getAttribute('name') || '', placeholder: el.getAttribute('placeholder') || '',
       href: el.getAttribute('href') || '', css: cssPath(el), value: el.tagName === 'SELECT' ? [...el.options].map(o => o.text).join('|') : '',
       x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
-      inview: r.bottom > 0 && r.top < innerHeight });
+      inview: r.bottom > 0 && r.top < innerHeight, form: formOf(el) });
     i++;
   }
   const heads = [...document.querySelectorAll('h1,h2,h3')].slice(0, 8).map(h => h.innerText.trim()).filter(Boolean);
   const robot = !!document.querySelector('.g-recaptcha,.h-captcha,iframe[src*="captcha"],iframe[title*="CAPTCHA" i],#challenge-form') ||
                 /are you a robot|not a robot|sei un robot|verify you are human/i.test(document.body ? document.body.innerText.slice(0, 3000) : '');
-  return { url: location.href, title: document.title, heads, text: (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 1500), elements: out, robot };
+  const pw = [...document.querySelectorAll('input[type=password]')].some(e => e.getBoundingClientRect().width > 1);
+  return { url: location.href, title: document.title, heads, pw, text: (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 1500), elements: out, robot };
 }"""
 
 EXTRACT_JS = r"""(spec) => {
@@ -325,8 +361,15 @@ class Computer:
             return None
 
     # ---- actions
+    def _go(self, page, url):
+        """Every navigation a bot makes: only web pages, never Inky itself, even when a site redirects there."""
+        page.goto(safe_url(url), wait_until="domcontentloaded", timeout=45000)
+        if is_inky(page.url) or page.url.startswith("file:"):
+            page.goto("about:blank")
+            raise ValueError("That site sent the bot to this computer's own Inky, so it stopped.")
+
     def _open(self, url):
-        self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        self._go(self.page, url)
         self._settle()
         return self._elements()
 
@@ -395,7 +438,7 @@ class Computer:
             elif action == "press":
                 (loc.press(value or "Enter") if loc is not None else page.keyboard.press(value or "Enter"))
             elif action == "goto":
-                page.goto(value, wait_until="domcontentloaded", timeout=45000)
+                self._go(page, value)
             elif action == "wait":
                 page.wait_for_timeout(int(float(value or 1) * 1000))
             else:
@@ -445,5 +488,5 @@ class Computer:
             page.mouse.wheel(0, y)
         elif kind == "goto":
             local = re.match(r"^(localhost|127\.|10\.|192\.168\.|\d+\.\d+\.\d+\.\d+)", text)  # your own machines rarely have https
-            page.goto(text if "://" in text else ("http://" if local else "https://") + text, wait_until="domcontentloaded", timeout=45000)
+            self._go(page, text if "://" in text else ("http://" if local else "https://") + text)
         return info

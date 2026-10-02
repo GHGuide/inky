@@ -19,6 +19,10 @@ def _has(words, text):
     return next((w for w in words if re.search(r"(?<![\w])" + re.escape(w) + r"(?![\w])", t)), None)
 
 
+LOGIN = ["log in", "login", "sign in", "signin", "accedi", "entra", "anmelden", "einloggen", "se connecter", "connexion", "inloggen",
+         "iniciar sesión", "entrar", "zaloguj", "zaloguj się", "continue with"]
+
+
 def classify(action, el, page=None):
     """-> (verdict, why). verdict: ok | irreversible | pay | password | robot"""
     if page and page.get("robot"):
@@ -27,14 +31,19 @@ def classify(action, el, page=None):
         return "ok", ""
     if action in ("fill", "type") and (el.get("role") == "password" or el.get("type") == "password"):
         return "password", "that is a password field"
-    if action in ("click", "press") and (el.get("role") in ("button", "link") or el.get("type") == "submit"):
-        label = el.get("name") or el.get("text") or ""
-        if el.get("text") and el.get("text") != label:
-            label = f"{label} {el['text']}"
-        w = _has(PAY, label)
-        if w:
-            return "pay", f"“{label}” would spend money"
-        w = _has(IRREVERSIBLE, label)
-        if w:
-            return "irreversible", f"“{label}” can’t be undone"
+    form = el.get("form") or {}
+    # pressing a form's button, or Enter in one of its boxes, sends that form
+    submits = action in ("click", "press") and (form.get("submits") or (action == "press" and el.get("role") in ("textbox", "password", "combobox")))
+    label = el.get("name") or el.get("text") or ""
+    if el.get("text") and el.get("text") != label:
+        label = f"{label} {el['text']}"
+    button = action in ("click", "press") and (el.get("role") in ("button", "link") or el.get("type") == "submit")
+    if button and _has(PAY, label):
+        return "pay", f"“{label}” would spend money"
+    if (submits and form.get("password")) or (button and el.get("role") == "button" and (page or {}).get("pw") and _has(LOGIN, label)):
+        return "password", "that signs in"  # whatever its button says (“Accedi”, “Continue”): only you sign in
+    if button and _has(IRREVERSIBLE, label):
+        return "irreversible", f"“{label}” can’t be undone"
+    if submits and form.get("post") and form.get("personal"):  # a contact, sign-up or order form; not a page-wide ASP.NET form
+        return "irreversible", f"“{label or 'that'}” sends a form"
     return "ok", ""

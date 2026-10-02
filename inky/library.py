@@ -62,8 +62,10 @@ def _strings(x, key=""):
 def check(b):
     """-> {ok, problems, domains, irreversible}. The same rules run here before posting and in CI on every pull request."""
     problems = []
-    if not isinstance(b, dict) or b.get("bundle") != transfer.BUNDLE or not isinstance(b.get("bot"), dict):
-        return {"ok": False, "problems": ["This isn’t an Inky bot file."], "domains": [], "irreversible": []}
+    try:
+        transfer.valid(b)
+    except ValueError as e:
+        return {"ok": False, "problems": [str(e)], "domains": [], "irreversible": []}
     if len(json.dumps(b)) > MAX_BYTES:
         problems.append("The file is too big for the library (over 500 KB).")
     bot = b["bot"]
@@ -77,22 +79,27 @@ def check(b):
                 problems.append(f"It contains what looks like {name}.")
         if SECRET_KEYS.match(key) and s.strip():
             problems.append(f"It has a “{key}” value.")
-    domains, irreversible = set(), []
-    if bot.get("start_url"):
-        domains.add(host_of(bot["start_url"]))
+    domains, irreversible, urls = set(), [], [bot.get("start_url")]
     for sk in b.get("skills") or []:
-        for u in (sk.get("start_url"), "https://" + sk["site"] if sk.get("site") else None):
-            if u:
-                domains.add(host_of(u))
+        urls.append(sk.get("start_url"))
+        if sk.get("site"):
+            domains.add(host_of("https://" + str(sk["site"])))
         for st in sk.get("steps") or []:
-            t = st.get("target") or {}
-            if st.get("action") == "goto" and st.get("value"):
-                domains.add(host_of(st["value"]))
+            t = st.get("target") if isinstance(st.get("target"), dict) else {}
+            if st.get("action") == "goto":
+                urls.append(st.get("value"))
             if st.get("action") in ("fill", "type") and st.get("value") and (t.get("type") == "password" or PASSWORD_FIELD.search(t.get("name") or "")):
                 problems.append(f"It types a password into “{t.get('name') or 'a password field'}”.")
             label = f"{st.get('text') or ''} {t.get('name') or ''}"
             if st.get("approved_always") or (st.get("action") in ("click", "press") and _has(IRREVERSIBLE + PAY, label)):
                 irreversible.append(f"{sk.get('name') or 'Skill'}: {st.get('text') or t.get('name')}")
+    for u in (str(x).strip() for x in urls if x):
+        if urlsplit(u).scheme.lower() not in ("http", "https") or not host_of(u):
+            problems.append(f"It opens “{u[:80]}”, which isn’t a web address.")  # file://, javascript: … reach your own computer
+        else:
+            domains.add(host_of(u))
+    if not isinstance(bot.get("look"), (dict, type(None))) or not transfer.COLOR.match(str((bot.get("look") or {}).get("color") or "#000")):
+        problems.append("Its colour isn’t a colour.")
     for a in bot.get("automations") or []:
         irreversible.append(f"Hands work to {a.get('server')}: {a.get('label') or a.get('tool')}")
     for d in domains:
@@ -101,13 +108,16 @@ def check(b):
     return {"ok": not problems, "problems": list(dict.fromkeys(problems)), "domains": sorted(d for d in domains if d), "irreversible": irreversible}
 
 
+LOOPBACK_NAMES = (".localtest.me", ".lvh.me", ".vcap.me", ".localho.st", ".lacolhost.com")  # public names that point at your own computer
+
+
 def private_host(host):
     """Only works on its maker's own computer or network: loopback, LAN, link-local, CGNAT/tailnet, .local and friends."""
     import ipaddress
     import socket
     h = (host or "").strip("[]").lower()
-    h = h if h.count(":") > 1 else h.split(":")[0]  # an IPv6 address keeps its colons
-    if h in ("localhost",) or h.endswith((".local", ".localhost", ".internal", ".lan", ".home", ".ts.net", ".home.arpa")) or "." not in h and ":" not in h:
+    h = (h if h.count(":") > 1 else h.split(":")[0]).rstrip(".")  # an IPv6 address keeps its colons; "localhost." is localhost
+    if h in ("localhost",) or h.endswith(LOOPBACK_NAMES) or h in tuple(x.lstrip(".") for x in LOOPBACK_NAMES) or h.endswith((".local", ".localhost", ".internal", ".lan", ".home", ".ts.net", ".home.arpa")) or "." not in h and ":" not in h:
         return True
     try:
         ip = ipaddress.ip_address(h)
@@ -215,24 +225,28 @@ def listing_for(b, url):
     return {**listing(b), "author": "", "unverified": True, "slug": "link-" + hashlib.sha1((url or "").encode()).hexdigest()[:10]}
 
 
-def install(E, b, source=None):
-    """Import a library agent. It keeps to the sites it lists, starts in its own browser, and asks before
-    anything it can't undo: approvals that came with the file are dropped."""
+def as_shared(b):
+    """A bot file someone gave you, as it would arrive: without the sign-ins, memory, results, chat and approvals it may carry."""
+    transfer.valid(b)
+    return {"bundle": transfer.BUNDLE, "bot": transfer.shareable(b["bot"]),
+            "skills": [{**{k: v for k, v in s.items() if k not in ("id", "bot_id", "status", "key", "ts")},
+                        "steps": [{k: v for k, v in st.items() if k != "approved_always"} for st in s.get("steps") or []]}
+                       for s in b.get("skills") or []]}
+
+
+def install(E, b, source=None, file=False):
+    """Import an agent from the library or a share link (source) or a file (file=True). It keeps to the sites it lists,
+    starts in its own browser, and asks before anything it can't undo: approvals that came with it are dropped."""
+    if file:
+        b = as_shared(b)
     c = check(b)
     if not c["ok"]:
         raise ValueError("This agent can’t be installed: " + " ".join(c["problems"]))
-    b = json.loads(json.dumps(b))
-    for sk in b.get("skills") or []:
-        for st in sk.get("steps") or []:
-            st.pop("approved_always", None)
-    bot = b["bot"]
-    for a in bot.get("automations") or []:
-        a.pop("approved_always", None)
-    bot["mode"] = "own"
     bid = transfer.import_bot(E, b)
-    lst = listing_for(b, source) if source else b.get("listing") or listing(b)
-    E.store.update("bots", bid, allowed_domains=c["domains"],
-                   library={"slug": lst["slug"], "version": lst.get("version", 1), "author": lst.get("author"), "source": source})
+    E.store.update("bots", bid, allowed_domains=c["domains"])
+    if not file:
+        lst = listing_for(b, source) if source else listing(b)
+        E.store.update("bots", bid, library={"slug": lst["slug"], "version": lst.get("version", 1), "author": lst.get("author"), "source": source})
     return bid
 
 

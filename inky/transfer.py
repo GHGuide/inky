@@ -1,11 +1,16 @@
 """Moving bots between engines (this computer ↔ your server). A bundle carries the bot, its skills,
 memory, results and browser sign-ins. Pairing: the other engine shows a 6-letter code; typing it here
 returns that engine's API token over the local network."""
+import json
+import re
 import time
 
 import httpx
 
 BUNDLE = 1
+SHARED = ("name", "job", "summary", "goal", "start_url", "look", "rules", "filters", "schedule", "automations", "persona")
+COLOR = re.compile(r"^#[0-9a-fA-F]{3,8}$")
+PAYING = re.compile(r"\b(buy|pay|purchase|checkout|order)", re.I)
 
 
 def pair_code(token):
@@ -21,6 +26,22 @@ def engine_id(engine):
     return hashlib.sha256(("inky-engine:" + engine.token).encode()).hexdigest()[:16]
 
 
+def shareable(bot):
+    """A bot as someone else may have it: what it does and how it looks. Never what it knows about you, what it found,
+    what you allowed it, or this computer's bookkeeping."""
+    from inky.bots import DEFAULT_RULES
+    out = {k: json.loads(json.dumps(bot[k])) for k in SHARED if k in bot}
+    look = out.get("look") if isinstance(out.get("look"), dict) else {}
+    out["look"] = {k: v for k, v in look.items() if isinstance(v, (str, int, float, bool)) and (k != "color" or COLOR.match(str(v)))}
+    rules = [r for r in out.get("rules") or [] if isinstance(r, dict) and isinstance(r.get("text"), str) and r.get("kind") in ("own", "ask", "never", "filter")]
+    rules = [r for r in rules if not (r["kind"] == "own" and PAYING.search(r["text"]))]  # a stranger can't allow paying
+    out["rules"] = [r for r in DEFAULT_RULES if r["kind"] != "own" and r not in rules] + rules
+    out["filters"] = [f for f in out.get("filters") or [] if isinstance(f, dict)]
+    out["automations"] = [{k: v for k, v in a.items() if k != "approved_always"} for a in out.get("automations") or [] if isinstance(a, dict)]
+    out["memory"], out["mode"] = [], "own"
+    return out
+
+
 def export_bot(engine, bid, private=False):
     """private=True (moving to your own server) carries sign-ins and chat; a shared file never does."""
     b = engine.store.get("bots", bid)
@@ -33,11 +54,9 @@ def export_bot(engine, bid, private=False):
     strip = ("id", "bot_id", "status", "key", "ts")
     clean = lambda r: {k: v for k, v in r.items() if k not in strip}
     # a shared file is a bot's skills, rules, look and personality; not what it knows about you or found for you
-    bot = clean(b) if private else {**{k: v for k, v in clean(b).items() if k not in ("pending_cookies", "remote_id", "computer", "home")}, "memory": []}
+    bot = clean(b) if private else shareable(b)
     if private:  # remember where it came from, so going back home reuses its old place instead of making a copy
         bot.setdefault("home", {"engine": engine_id(engine), "bot": bid})
-    else:  # a shared file never carries your approvals: whoever gets it is asked again
-        bot["automations"] = [{k: v for k, v in a.items() if k != "approved_always"} for a in bot.get("automations") or []]
     sks = [clean(s) for s in engine.store.find("skills", bot_id=bid, desc=False)]
     if not private:
         sks = [dict(s, steps=[{k: v for k, v in st.items() if k != "approved_always"} for st in s.get("steps") or []]) for s in sks]
@@ -51,21 +70,37 @@ def export_bot(engine, bid, private=False):
             "cookies": cookies}
 
 
-def import_bot(engine, bundle):
+def valid(bundle):
+    """A bot file Inky can read, checked before anything is saved."""
     if not isinstance(bundle, dict) or bundle.get("bundle") != BUNDLE or not isinstance(bundle.get("bot"), dict):
         if isinstance(bundle, dict) and bundle.get("inky_skill"):
-            raise ValueError("That’s a skill file. Open a bot, then Skills → Import, to add it there.")
+            raise ValueError("That’s a site file. Open a bot, then Sites → Add from a file, to add it there.")
         raise ValueError("That isn’t an Inky bot file.")
-    if not isinstance(bundle.get("skills", []), list):
-        raise ValueError("That bot file is damaged (its skills aren’t a list).")
+    sks = bundle.get("skills", [])
+    if not isinstance(sks, list) or not all(isinstance(s, dict) and isinstance(s.get("steps", []), list)
+                                            and all(isinstance(st, dict) for st in s.get("steps", [])) for s in sks):
+        raise ValueError("That bot file is damaged (its sites aren’t readable).")
+    for k in ("results", "messages", "runs", "events", "cookies"):
+        if not isinstance(bundle.get(k) or [], list) or not all(isinstance(x, dict) for x in bundle.get(k) or []):
+            raise ValueError(f"That bot file is damaged (its {k} aren’t readable).")
+
+
+def import_bot(engine, bundle, move=False):
+    """move=True only for a move between your own paired computers: it keeps its sign-ins, chat, history and approvals.
+    Anything else is someone else's bot: it arrives as shareable() makes it, asks you again, and starts in its own browser."""
+    valid(bundle)
+    if not move:
+        bundle = {"bundle": BUNDLE, "bot": shareable(bundle["bot"]),
+                  "skills": [dict(s, steps=[{k: v for k, v in st.items() if k != "approved_always"} for st in s.get("steps") or []])
+                             for s in bundle.get("skills", [])]}
     names = {b["name"] for b in engine.store.find("bots")}
     name = (str(bundle["bot"].get("name") or "Imported bot").strip() or "Imported bot")[:40]
     base, n = name, 2
     while name in names:  # importing the same file twice gives "Name 2", not two identical bots
         name, n = f"{base[:36]} {n}", n + 1
-    home = bundle["bot"].get("home") or {}
+    home = bundle["bot"].get("home") or {} if move else {}
     old = engine.store.get("bots", home.get("bot")) if home.get("engine") == engine_id(engine) and home.get("bot") else None
-    moving = bool(bundle.get("cookies") or bundle.get("messages") or home)  # a move carries its sign-ins and chat
+    moving = move
     if old and old.get("status") == "moved":  # it's coming home: take its old place back
         name = old["name"]
     bot = dict(bundle["bot"], name=name, computer="local", pending_cookies=bundle.get("cookies") or None, remote=None, remote_id=None)
@@ -155,7 +190,7 @@ def move_bot(engine, bid, computer_id, progress=lambda step, **kw: None):
     size = len(str(bundle))
     n = len(bundle["skills"])
     progress("packed", text=f"Packed its memory, {n} skill{'' if n == 1 else 's'} and settings", size=size)
-    rid = remote.req("POST", "/api/import", bundle, timeout=120)["bot"]["id"]
+    rid = remote.req("POST", "/api/import?move=1", bundle, timeout=120)["bot"]["id"]
     progress("sent", text=f"Sent it to {comp['name']}")
     check = None
     try:
@@ -201,7 +236,7 @@ def bring_back(engine, bid, progress=lambda step, **kw: None):
     n = len(bundle.get("skills", []))
     progress("packed", text=f"Packed its memory and {n} skill{'' if n == 1 else 's'} there")
     bundle["bot"]["home"] = {"engine": engine_id(engine), "bot": bid}
-    import_bot(engine, bundle)
+    import_bot(engine, bundle, move=True)
     remote.req("DELETE", f"/api/bots/{b['remote_id']}", timeout=60)
     progress("done", text=f"{b['name']} is back on this computer")
     engine.bus.publish("bots")

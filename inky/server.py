@@ -35,9 +35,15 @@ class Server(ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = str(self.server_address[0]), self.server_address[1]
 
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return  # a page closed or a client went quiet: not worth a traceback in the log
+        super().handle_error(request, client_address)
+
 
 # The app's page loads only its own scripts and fonts. Pictures of what bots found come from the sites themselves (img-src),
 # and the desktop app talks to its shell over ipc:.
+MAX_BODY = 16_000_000  # a move with its sign-ins, chat and history fits; a shared bot file is far smaller
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; "
        "connect-src 'self' ipc: http://ipc.localhost; media-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 ROUTES = []
@@ -276,8 +282,10 @@ def export(E, h, q, body, bid):
 
 @route("POST", "/api/import")
 def import_(E, h, q, body):
+    """?move=1: a move from one of your paired computers (keeps its sign-ins and chat). Anything else is a file someone
+    gave you: the same checks, fence and fresh start as a shared agent."""
     try:
-        bid = transfer.import_bot(E, body)
+        bid = transfer.import_bot(E, body, move=True) if q.get("move") else library.install(E, body, file=True)
     except ValueError as e:
         raise HTTPError(400, str(e))
     return {"bot": E.bot_view(E.store.get("bots", bid))}
@@ -339,6 +347,13 @@ def skill(E, h, q, body, sid):
     return {"skill": E.store.get("skills", int(sid))}
 
 
+def bad_goto(steps, start):
+    """Every “go to” in a site file is a web address: never a file on this computer or anything that isn't http(s)."""
+    bad = next((st.get("value") for st in steps if st.get("action") == "goto" and not skills_mod.web_address(st.get("value"), start or "")), None)
+    if bad is not None:
+        raise HTTPError(400, f"A step opens “{str(bad)[:60]}”, which isn’t a web address.")
+
+
 @route("PATCH", r"/api/skills/(\d+)")
 def patch_skill(E, h, q, body, sid):
     was = E.store.get("skills", int(sid))
@@ -349,6 +364,7 @@ def patch_skill(E, h, q, body, sid):
         ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
         if not isinstance(patch["steps"], list) or not patch["steps"] or not all(isinstance(st, dict) and st.get("action") in ok for st in patch["steps"]):
             raise HTTPError(400, "It needs at least one step.")
+        bad_goto(patch["steps"], patch.get("start_url") or was.get("start_url"))
         if patch["steps"] != was.get("steps"):  # removing a step or "ask again" is a new version, like Show me once
             patch["version"] = (was.get("version") or 1) + 1
     if "name" in patch:
@@ -385,8 +401,11 @@ def import_skill(E, h, q, body, bid):
         raise HTTPError(400, "That file has no steps Inky can run.")
     if not skills_mod.web_address(body.get("start_url"), ""):
         raise HTTPError(400, "That file has no web address to start on.")
+    bad_goto(steps, body.get("start_url"))
     s = {k: body[k] for k in ("name", "site", "goal", "start_url", "version", "max_pages") if k in body}
     s["name"] = (str(s.get("name") or "Imported skill").strip() or "Imported skill")[:60]
+    if "max_pages" in s:  # a file can't make it read a billion pages
+        s["max_pages"] = max(1, min(int(s["max_pages"]) if str(s["max_pages"]).isdigit() else 3, 20))
     s["steps"] = [{k: v for k, v in st.items() if k != "approved_always"} for st in steps]  # someone else's yes isn't yours: it asks again
     sid = E.store.insert("skills", s, bot_id=int(bid), status="ok")
     E.bus.publish("bots")  # the sidebar stops saying it hasn't learned yet
@@ -854,12 +873,13 @@ def library_index(E, h, q, body):
 @route("POST", "/api/library/preview")
 def library_preview(E, h, q, body):
     """What an agent would do here, before it's installed: its sites, what it may do that can't be undone, its skills."""
+    file = isinstance(body.get("bundle"), dict)  # a bot file you opened: previewed as it would arrive, without what it may carry
     try:
-        b = library.fetch(body.get("url", ""))
-        listing = library.listing_for(b, body.get("url", "").strip())
+        b = library.as_shared(body["bundle"]) if file else library.fetch(body.get("url", ""))
+        listing = library.listing_for(b, None if file else body.get("url", "").strip())
     except Exception as e:
         raise HTTPError(400, str(e) if isinstance(e, ValueError) else "That link doesn’t point to an Inky agent.")
-    have = [x["id"] for x in E.store.find("bots") if (x.get("library") or {}).get("slug") == listing.get("slug")]
+    have = [] if file else [x["id"] for x in E.store.find("bots") if (x.get("library") or {}).get("slug") == listing.get("slug")]
     return {"listing": listing, "check": library.check(b), "have": have,
             "skills": [{"name": s.get("name"), "steps": len(s.get("steps") or [])} for s in b.get("skills") or []]}
 
@@ -868,7 +888,7 @@ def library_preview(E, h, q, body):
 def library_install(E, h, q, body):
     url = body.get("url", "")
     try:
-        bid = library.install(E, library.fetch(url), source=url)
+        bid = library.install(E, body["bundle"], file=True) if isinstance(body.get("bundle"), dict) else library.install(E, library.fetch(url), source=url)
     except Exception as e:
         raise HTTPError(400, str(e) if isinstance(e, ValueError) else "That agent couldn’t be installed.")
     return {"id": bid}
@@ -1195,6 +1215,7 @@ def telegram_test(E, h, q, body):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     engine = None
+    timeout = 60  # a client that stops sending mid-request never holds a thread
 
     def log_message(self, *a):
         pass
@@ -1249,12 +1270,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._screen(int(m.group(1)), m.group(2))
         if path == "/api/events":
             return self._sse()
-        n = int(self.headers.get("Content-Length") or 0)
         try:
-            body = json.loads(self.rfile.read(n) or b"{}") if n else {}
-        except json.JSONDecodeError:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0 or n > (MAX_BODY if self._authed(q) else 4096):  # before the token is checked, only a pairing code fits
+            self.close_connection = True
+            return self._send(413 if n > 0 else 400, {"error": "That request is too big." if n > 0 else "bad Content-Length"})
+        try:
+            raw = self.rfile.read(n) if n else b""
+        except (TimeoutError, ConnectionError):
+            self.close_connection = True
+            return
+        try:
+            body = json.loads(raw or b"{}")
+        except (ValueError, RecursionError):  # not JSON, not UTF-8, or nested too deep
             return self._send(400, {"error": "bad JSON"})
-        proxied = self._proxy(method, path, body)
+        if not isinstance(body, dict):
+            return self._send(400, {"error": "Send a JSON object."})
+        proxied = self._proxy(method, path, body, u.query)
         if proxied is not None:
             return
         for meth, rx, fn in ROUTES:
@@ -1271,7 +1305,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(500, {"error": f"{type(e).__name__}: {e}"})
         return self._send(404, {"error": "not found"})
 
-    def _proxy(self, method, path, body):
+    def _proxy(self, method, path, body, query=""):
         """Bots that moved to another engine: forward their calls there."""
         m = re.match(r"^/api/bots/(\d+)(/.*)?$", path)
         if not m or path.endswith(("/move", "/bring-back")) or method == "DELETE" or self.headers.get("X-Inky-Forwarded"):
@@ -1282,7 +1316,7 @@ class Handler(BaseHTTPRequestHandler):
         c = self.engine.store.get("computers", int(b["computer"]))
         if not c:
             return None
-        rpath = f"/api/bots/{b['remote_id']}{m.group(2) or ''}"
+        rpath = f"/api/bots/{b['remote_id']}{m.group(2) or ''}" + (f"?{query}" if query else "")
         try:
             r = httpx.request(method, c["url"] + rpath, json=body if method != "GET" else None, headers=fwd_headers(self.engine, c, b),
                               timeout=transfer.connect_timeout(120 if method != "GET" else 20))
@@ -1412,6 +1446,8 @@ def serve(engine, host="127.0.0.1", port=8800):
     srv = Server((host, port), type("EngineHandler", (Handler,), {"engine": engine}))
     srv.daemon_threads = True
     engine.port = srv.server_port  # connectors that call back into Inky (n8n) need it
+    from inky import computer
+    computer.SELF_PORTS.add(srv.server_port)  # bots' browsers never open this engine's own page
     engine.host = host
     if not getattr(engine, "watching_needs", False):
         engine.watching_needs = True
