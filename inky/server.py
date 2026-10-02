@@ -1073,6 +1073,8 @@ def settings_view(E):
     d["n8n_connected"] = connectors.PROVIDERS["n8n"].configured(E)
     d["web_url"] = lan_url(E)
     d["engine_name"] = E.store.setting("engine_name") or platform.node()  # the stored, trimmed name (not what was typed)
+    from inky import __version__
+    d["version"] = __version__
     return d
 
 

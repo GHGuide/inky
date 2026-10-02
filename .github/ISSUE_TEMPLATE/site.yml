@@ -1,0 +1,26 @@
+name: A site doesn't work
+description: Inky learns a site badly, reads the wrong things, or can't learn it
+labels: [learning]
+body:
+  - type: input
+    id: job
+    attributes:
+      label: The sentence you typed
+      placeholder: "e.g. Every morning, new 2-bedroom flats for rent in Utrecht under €1500"
+    validations: { required: true }
+  - type: input
+    id: site
+    attributes:
+      label: The site's address
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What went wrong?
+      description: What did it read, or where did it get stuck? The bot's chat and its Watch tab show both.
+    validations: { required: true }
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: e.g. gemma3:12b in Ollama

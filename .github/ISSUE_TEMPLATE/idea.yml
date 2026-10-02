@@ -1,0 +1,14 @@
+name: An idea
+description: Something Inky should do, or do better
+labels: [idea]
+body:
+  - type: textarea
+    id: job
+    attributes:
+      label: What would you like a bot to do?
+      description: Describe the job in your own words, as you'd type it to Inky.
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: What gets in the way today?

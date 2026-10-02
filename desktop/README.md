@@ -26,7 +26,7 @@ Pick one in Computers (or setup step 2):
 
 ## Build
 
-You need Python 3.12 with `uv`, Node 22 and Rust.
+You need Python 3.12 with `uv`, Node 22 and Rust. Releases are built by [.github/workflows/release.yml](../.github/workflows/release.yml) when a version tag is pushed.
 
 ```bash
 uv sync                      # from the repo root: engine deps + PyInstaller (build only)
@@ -45,4 +45,4 @@ For a quick local build use `npx tauri build --debug --bundles app`.
 - **Windows:** the app's windows show the engine's own web UI. `?bar=1` is the floating command bar and `?buddy=1` is the desktop buddy.
 - **Native side:** the web UI tells the native side what changed (`tray`, `notify`, `bar`, `open_needs`, `autostart`, `app_info`, `open_url`). Only the local engine page may call these (`capabilities/default.json`).
 
-Builds are unsigned. On macOS, right-click the app → Open the first time.
+Builds are ad-hoc signed on macOS and unsigned on Windows, so both warn the first time. [The main README](../README.md#download) says what to click.

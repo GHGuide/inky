@@ -1,6 +1,6 @@
 # Inky · product vision
 
-Agreed with the user on 2026-10-01. Every fix and feature is checked against this page.
+What Inky is for, and who for. Every fix and feature is checked against this page; [acceptance.md](acceptance.md) turns it into pass/fail checks.
 
 ## In one sentence
 

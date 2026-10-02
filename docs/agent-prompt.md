@@ -21,7 +21,7 @@ Read `docs/vision.md` (the product) and `docs/acceptance.md` (the pass/fail chec
 ## 2. Non-negotiable rules
 
 1. **Safety.** Bots ask before sending, buying, deleting, signing up or accepting terms. They never type passwords or card numbers, never solve CAPTCHAs or robot checks, and never contact anyone on their own. The approval gate (`Ctx.gate` in `inky/bots.py`) is the only way past an irreversible step; never add a path around it, and never expose approving as an MCP tool.
-2. **Secrets.** Keys live in the system keychain (`inky/keys.py`). Never print, log, commit, or pass them on a command line. Tests use scratch keys or none.
+2. **Secrets.** Keys live in the macOS Keychain, or in a file only the user can read on Windows and Linux (`inky/keys.py`). Never print, log, commit, or pass them on a command line. Tests use scratch keys or none.
 3. **Your test data is not the user's data.** Test with a scratch home (`--home <tempdir>` / `INKY_HOME`), never the real `~/.inky`. "Do" bots only ever send to the local test site (`python -m tests.site_server 8766`).
 4. **Gentle on the web.** Cache searches, back off when a site or search engine pushes back, never hammer a site in a loop.
 5. **No new dependencies** unless the stdlib, Playwright, httpx or something already installed can't do it, and say why.
