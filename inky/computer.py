@@ -201,7 +201,8 @@ LISTS_JS = r"""() => {
     const sameFor = (l) => { const c = rel(first, l), by = {};  // results with this link are one and the same result
       for (const it of peers) { let x = null; try { x = it.querySelector(c); } catch (e) {} const h = x && x.getAttribute('href');
         if (h) (by[h] = by[h] || new Set()).add((it.innerText || '').trim()); }
-      return Object.values(by).every((t) => t.size === 1); };
+      const odd = Object.values(by).filter((t) => t.size > 1).length;  // one sponsored copy of a result is no reason to doubt the rest
+      return odd <= Math.floor(0.1 * Object.keys(by).length); };
     const own = a && (a === first || (ranked[0].o && sameFor(a)));
     const atext = own ? (a.innerText || '').trim() : '', ttl = own ? (a.getAttribute('title') || '').trim() : '';
     const sole = head && own && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));

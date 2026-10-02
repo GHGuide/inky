@@ -171,6 +171,9 @@ class Site(BaseHTTPRequestHandler):
             items = "".join(f'<li class="story"><a class="headline" href="/a/{i}">Cycling story {i}: how the city changed its bike lanes</a>'
                             f' <span class="by">by Reporter {i % 3} · {i + 1} hours ago</span></li>' for i in range(15))
             return self.send(shell("News", f"<h1>Latest news</h1><ul class='stories'>{items}</ul>"))
+        if p == "/sponsored":  # one result shown twice, once marked as an ad: the others keep their own links
+            cards = card({**BIKES[0], "name": "Ad: " + BIKES[0]["name"]}) + "".join(card(b) for b in BIKES[:12])
+            return self.send(shell("E-bikes", f"<h1>E-bikes</h1>{cards}"))
         if p == "/table":
             rows = "".join(f'<tr><td><a href="/p/{b["id"]}">{esc(b["name"])}</a></td><td>{b["where"]}</td><td>{eur(b["price"])}</td></tr>' for b in BIKES[:12])
             return self.send(shell("E-bikes", f"<h1>E-bikes</h1><table><thead><tr><th>Name</th><th>Where</th><th>Price</th></tr></thead><tbody>{rows}</tbody></table>"))

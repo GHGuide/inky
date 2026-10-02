@@ -253,6 +253,10 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/quotes", "Find quotes about life", n=29, priced=False)
         self.assertEqual([i["title"] for i in out["items"]], [q["text"] for q in learn_site.QUOTES])
 
+    def test_a_sponsored_copy_doesnt_cost_the_others_their_links(self):
+        _, _, out = self.learned_and_repeats("/sponsored", "Find e-bikes", n=12)  # the ad copy is the same result
+        self.assertTrue(all(i.get("link") for i in out["items"]))
+
     def test_a_reading_step_on_shared_links_still_keeps_results_apart(self):  # one a model wrote, or learned before
         skill = {"name": "Quotes", "goal": "Find quotes", "start_url": self.base + "/quotes", "max_pages": 3, "steps": [
             {"action": "extract", "spec": {"item": "div.quote", "fields": {"title": "span.text", "link": "a.tag@href", "text": ""}}, "text": "Read"},

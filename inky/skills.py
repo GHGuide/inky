@@ -807,12 +807,14 @@ def replay(ctx, skill, repair_role="repair"):
                         f"It found {len(items)} items, but none had a name or price. The site’s page has probably changed.",
                         ["Show me once", "Try again", "Skip this run"], url=start_url_of(skill))
     items = [r for r in items if r.get("title") or r.get("price") or r.get("name")]  # nameless rows are never results
-    named_by = {}
+    names = {}
     for r in items:
         if r.get("link"):
-            named_by.setdefault(r["link"], set()).add(r.get("title"))
-    if any(len(t) > 1 for t in named_by.values()):  # one link for different results (a tag, an author) is none of theirs: it can't tell them apart
+            names.setdefault(r["link"], set()).add(r.get("title"))
+    shared = sum(1 for r in items if len(names.get(r.get("link"), ())) > 1)
+    if shared and shared >= 0.2 * sum(1 for r in items if r.get("link")):  # many results share a link (a tag, an author): it is none of theirs
         items = [{k: v for k, v in r.items() if k != "link"} for r in items]
+    items = list({item_key(r): r for r in items}.values())  # the same result twice (an ad copy of it) is one result
     return {"items": items, "repairs": repairs, "pages": pages}
 
 
