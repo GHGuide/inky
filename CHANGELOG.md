@@ -24,6 +24,10 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
   - Needs you lists each handled problem once.
   - Settings shows desktop shortcuts only in the app.
   - The chat's examples go away once you've talked to a bot.
+- Found can be ordered by cheapest or newest. Its rule tags open the bot's Settings.
+- Unpairing a computer signs this one out over there too, and Needs you flags a server that signed you out.
+- Handing back after a robot check while learning carries on learning that site.
+- Messages no longer start with “Something went wrong (str)” in front of a perfectly readable reason. The Library marks starters even when the public library is reachable. The unused first-run tour is gone.
 - Each device you pair gets its own key. Computers lists them with Sign out, and “Sign out older pairings” cuts off pairings made with 0.1.0.
 - `run_skill` is now `run_bot`. The old name still works.
 - Daily and weekly checks run at a time of day (07:30 unless you say “every evening” or “at 9”), so Run now in between never moves tomorrow's check. Settings offers the same choices as New bot (6 hours and weekly too).

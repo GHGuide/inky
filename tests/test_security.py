@@ -132,6 +132,30 @@ class SecurityTest(unittest.TestCase):
             srv.shutdown()
             E.close()
 
+    def test_unpairing_signs_this_computer_out_over_there(self):
+        import json
+        from inky import transfer
+        from inky.bots import plain_error
+        self.assertEqual(plain_error("Couldn’t open the site: that address doesn’t exist."), "Couldn’t open the site: that address doesn’t exist.")
+        B = make_engine()
+        srv = serve(B, port=0)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        ub = f"http://127.0.0.1:{srv.server_port}"
+        tok = {"X-Inky-Token": self.E.token, "Content-Type": "application/json"}
+        call = lambda m, path, body=None: json.loads(urllib.request.urlopen(urllib.request.Request(
+            self.url + path, method=m, data=json.dumps(body).encode() if body is not None else None, headers=tok)).read())
+        try:
+            cid = call("POST", "/api/computers", {"url": ub, "code": transfer.pair_code(B.token)})["id"]
+            key = self.E.store.get("computers", cid)["token"]
+            self.assertEqual(len(B.store.setting("peers", [])), 1)
+            call("DELETE", f"/api/computers/{cid}")
+            self.assertEqual(B.store.setting("peers", []), [])
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(urllib.request.Request(ub + "/api/bots", headers={"X-Inky-Token": key}))
+        finally:
+            srv.shutdown()
+            B.close()
+
 
 if __name__ == "__main__":
     unittest.main()

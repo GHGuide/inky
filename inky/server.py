@@ -110,6 +110,15 @@ def peers_list(E, h, q, body):
     return {"peers": [{k: p.get(k) for k in ("id", "name", "since", "seen")} for p in E.store.setting("peers", []) or []]}
 
 
+@route("DELETE", "/api/peers/me")
+def peer_forget_me(E, h, q, body):
+    """A computer that unpaired from this one: its key stops working here too."""
+    t = h.headers.get("X-Inky-Token") or ""
+    peers = E.store.setting("peers", []) or []
+    E.store.set_setting("peers", [p for p in peers if p.get("hash") != peer_hash(t)])
+    return {"ok": True}
+
+
 @route("DELETE", r"/api/peers/([0-9a-f]+)")
 def peer_remove(E, h, q, body, pid):
     peers = E.store.setting("peers", []) or []
@@ -1249,6 +1258,12 @@ def rename_computer(E, h, q, body, cid):
 
 @route("DELETE", r"/api/computers/(\d+)")
 def del_computer(E, h, q, body, cid):
+    c = E.store.get("computers", int(cid))
+    if c and str(c.get("token", "")).startswith("p-"):  # tell it to forget this computer's key (best effort: it may be off)
+        try:
+            transfer.Remote(c["url"], c["token"]).req("DELETE", "/api/peers/me", timeout=5)
+        except Exception:
+            pass
     for b in E.store.find("bots"):  # their placeholders here point at that server: they'd act on whatever has that id there later
         if b.get("status") == "moved" and str(b.get("computer")) == str(cid):
             E.delete_bot(b["id"])

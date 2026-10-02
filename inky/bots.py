@@ -282,6 +282,8 @@ def nres(n, word="result"):
 def plain_error(e):
     """What went wrong, in words: browser and network errors are long and technical."""
     t = str(e)
+    if isinstance(e, str) and not re.search(r"net::ERR_|Locator\.|Timeout|Call log:|Traceback|Error:", t):
+        return t  # already words someone wrote for you (a run's note, a retry's reason)
     if "Locator." in t and ("Timeout" in t or "timeout" in t):
         return "Couldn’t click it: the button moved, or something covered it. Show it once, or try again."
     if "Timeout" in type(e).__name__ or "Timeout " in t or "timed out" in t:
@@ -1826,12 +1828,16 @@ class Engine:
                 r = b.get("resume_after_handback")
                 sid = r if type(r) is int else next((n.get("skill_id") for n in open_takeover if n.get("skill_id")), None)
                 self.store.update("bots", bid, resume_after_handback=False)
+                learning = next((n for n in open_takeover if not n.get("skill_id") and n.get("url")), None) if sid is None else None
                 if resume and not alive:
-                    self.store.message(bid, "bot", "Thanks, carrying on from here.")
+                    self.store.message(bid, "bot", "Thanks, carrying on from here.", kind="status")
                     try:
-                        self.run(bid, sid, reason="after you took over")
+                        if learning:  # it was learning that site when it hit the check: learn on, don't replay something else
+                            self.learn(bid, learning.get("goal") or b.get("goal"), learning["url"])
+                        else:
+                            self.run(bid, sid, reason="after you took over")
                     except Exception as e:
-                        self.store.message(bid, "bot", f"I couldn’t carry on: {e}")
+                        self.store.message(bid, "bot", f"I couldn’t carry on: {plain_error(e)}")
         elif cmd == "stop" and run:
             run.stop = True
             run.paused.clear()

@@ -363,7 +363,6 @@ VIEWS.bots = {
     this.refresh();
     this.recap();
     this.better();
-    try { if (sessionStorage.getItem("inkyTourNext") && !localStorage.getItem("inkyTour")) { sessionStorage.removeItem("inkyTourNext"); setTimeout(() => tour(0), 600); } } catch (e) {}
     this.timer = setInterval(() => $$("#cards img[data-live]").forEach((i) => (i.src = screenUrl(i.dataset.live))), 2500);
   },
   async better() {  // best results first: a small model learns sites poorly, so a bigger one you already have is offered once
@@ -1117,15 +1116,18 @@ VIEWS.bot = {
       const lead = matchMedia("(max-width:640px)").matches && keys.includes("link") && (keys.find((k) => /title|name/i.test(k)) || keys.find((k) => k !== "link"));  // phones: the title is the link
       const cols = [...keys.filter((k) => k !== "link").slice(0, 5), ...keys.filter((k) => k === "link" && !lead)];  // the link goes last
       const price = keys.find((k) => /price/i.test(k)), cost = (r) => numOf(r[price]) ?? Infinity;
-      rows.sort((x, y) => (price ? cost(x) - cost(y) || 0 : (y.ts || 0) - (x.ts || 0) || (y.id || 0) - (x.id || 0)));  // cheapest first, else newest first
+      const by = price && this.sortBy !== "new" ? "price" : "new";  // cheapest first when there are prices, unless you picked newest
+      rows.sort((x, y) => (by === "price" ? cost(x) - cost(y) || 0 : (y.ts || 0) - (x.ts || 0) || (y.id || 0) - (x.id || 0)));
       const last = runs.find((r) => r.kind === "replay" && r.status !== "running" && r.items != null);
       const rules = checked.length ? ` its ${checked.length === 1 ? "rule" : "rules"}` : "";
       const head = rows.length ? `${nWord(rows.length, "thing")} found${rows.some((r) => r.new) ? ` · ${rows.filter((r) => r.new).length} new` : ""}`
         : last && last.items ? `None of the last ${nWord(last.items, "result")} ${last.items === 1 ? "passes" : "pass"}${rules}` : last ? "The last run found nothing to read" : "No results yet";
-      tb.innerHTML = `<div class="between wrap"><b>${head}</b><span class="row wrap">${checked.map((x) => `<span class="chip">${esc(ruleText(x))}</span>`).join("")}</span></div>
+      const sorter = price && rows.length > 1 ? `<span class="seg" role="group" aria-label="Order">${[["price", "Cheapest"], ["new", "Newest"]].map(([v, t]) => `<button type="button" data-sort="${v}" aria-pressed="${by === v}" class="${by === v ? "on" : ""}">${t}</button>`).join("")}</span>` : "";
+      tb.innerHTML = `<div class="between wrap"><b>${head}</b><span class="row wrap">${checked.map((x) => `<a class="rtag" href="#/bot/${b.id}/settings" title="Change it in Settings">${esc(ruleText(x))}</a>`).join("")}${sorter}</span></div>
         ${skip.length ? `<details class="small muted skipnote"><summary>${skip.length === 1 ? "1 rule can’t" : `${skip.length} rules can’t`} be checked on these sites</summary>${skip.map((x) => `<div>${esc(ruleText(x))}: the site doesn’t show ${esc(x.field)}</div>`).join("")}<div>Tell the bot another way to check, or remove the rule in Settings.</div></details>` : ""}
         ${rows.length ? `<div class="rlist">${rows.map((r) => resultCard(r, keys)).join("")}</div>`
           : `<p class="muted">${last && last.items ? "Loosen a rule in Settings, or wait for the next run." : "Press Run now to check."}</p>`}`;
+      $$("[data-sort]", tb).forEach((x) => (x.onclick = () => { this.sortBy = x.dataset.sort; this.tab_results(tb); }));
     }).catch((e) => { if (seq === this.resultsSeq && this.tab === "results") tb.innerHTML = `<p class="muted">Couldn’t load its results: ${esc(e.message)}</p>`; });
   },
 
@@ -1271,7 +1273,7 @@ VIEWS.bot = {
       }));
     if (put("#where", `<b>Where it works</b>${b.remote ? `<span class="small">It runs on <b>${esc(b.remote)}</b> now.</span><button class="btn s bringback" style="align-self:flex-start"${this.bringing ? " disabled" : ""}>Bring back to this computer</button>`
       : `<span class="seg" id="mode" role="group" aria-label="Where it works"><button data-m="own" ${seg(b.mode !== "screen")}>Its own computer</button><button data-m="screen" ${seg(b.mode === "screen")} ${S.settings.screen_allowed ? "" : "disabled"}>A window on your screen</button></span>
-        ${S.settings.screen_allowed ? "" : `<span class="small muted">A window on your screen is off until you allow bots on your screen in <a href="#/settings">Settings</a>.</span>`}
+        ${S.settings.screen_allowed ? "" : `<span class="small muted">A window on your screen is off until you <a href="#/setup/screen">let bots use your screen</a>.</span>`}
         <span class="small muted">${b.mode === "screen" ? "It opens a visible window on your desktop with the coral frame. Move your mouse to pause it, Esc to stop, ⌥C to chat." : "A private browser, streamed here. Your screen stays yours."}</span>
         <a class="btn s" href="#/computers" style="align-self:flex-start">Move to another computer</a>`}`)) {
       $$("#mode button", tb).forEach((x) => (x.onclick = () => { $$("#mode button", tb).forEach((y) => { y.classList.toggle("on", y === x); y.setAttribute("aria-pressed", y === x); }); this.save({ mode: x.dataset.m }).catch((e) => toast(e.message)); }));
@@ -1442,7 +1444,7 @@ VIEWS.bot = {
   },
 };
 
-// ================================================================ rituals: hatch, goodbye, first-run tour
+// ================================================================ rituals: hatch, goodbye
 function hatch(b, intro) {
   const o = document.createElement("div"), l = b.look || {};
   o.className = "ritual"; o.tabIndex = -1; o.setAttribute("role", "dialog"); o.setAttribute("aria-label", `${b.name} hatched`);
@@ -1490,50 +1492,6 @@ function goodbye(b) {  // b.remote: it lives on another computer, and is deleted
     $("#byeyes").onclick = () => go(false);
     $("#byehere").onclick = () => go(true);
   });
-}
-
-const TOUR = [
-  ["#nav .navbot", "This is your bot. Its critter shows how it’s doing: busy, asleep at night, or waving when it needs you."],
-  ["#cards", "Each bot has its own computer. When one is working you can watch it live, take over and hand back."],
-  ["#nav .needlink", "When a bot needs a yes, it waits here. Nothing that can’t be undone happens without you."],
-  [null, () => `${TOUCH ? "Tap the search button" : `Press ${MAC ? "⌘K" : "Ctrl+K"}${APP ? ` (or ${MAC ? "⌥Space" : "Alt+Space"} from any app)` : ""}`} to talk to any bot. That’s it, have fun!`],
-];
-const tourBox = (sel) => { const t = sel && $(sel), r = t && t.getBoundingClientRect(); return r && r.width && r.height && r.bottom > 0 && r.top < innerHeight ? r : null; };
-function tourKey(e) {
-  if (CMD.open) return;
-  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); tour(TOUR.length); }
-  else if (e.key === "Tab" && $(".coach .tip")) trapTab($(".coach .tip"), e);
-}
-function tour(i = 0) {
-  $$(".coach").forEach((x) => x.remove());
-  removeEventListener("keydown", tourKey, true);
-  if (i === 0 && !S.bots.length) { try { sessionStorage.setItem("inkyTourNext", "1"); } catch (e) {} return; }  // it starts once your first bot exists
-  if (i >= TOUR.length) { try { localStorage.setItem("inkyTour", "1"); } catch (e) {} return; }
-  const [sel, said] = TOUR[i], text = typeof said === "function" ? said() : said;
-  const tgt = sel && $(sel);
-  if (tgt && tgt.offsetParent) tgt.scrollIntoView({ block: "center" });  // point at it where you can see it
-  const r = tourBox(sel);
-  if (sel && !r) return tour(i + 1);  // nothing to point at here (the sidebar is hidden on a phone)
-  const shown = TOUR.filter(([s]) => !s || tourBox(s)), n = shown.indexOf(TOUR[i]) + 1;
-  const w = Math.min(320, innerWidth - 32);
-  let pos = "left:50%;top:40%;transform:translate(-50%,-50%)", ring = "";
-  if (r) {
-    const top = Math.max(4, r.top - 6), bottom = Math.min(innerHeight - 4, r.bottom + 6), left = Math.max(4, r.left - 6), right = Math.min(innerWidth - 4, r.right + 6);
-    ring = `<div class="ring" style="left:${left}px;top:${top}px;width:${right - left}px;height:${bottom - top}px"></div>`;
-    let x = r.right + 16, y = Math.max(16, Math.min(innerHeight - 200, r.top));
-    if (x + w > innerWidth - 16) { x = Math.max(16, Math.min(innerWidth - w - 16, r.left)); y = Math.max(16, Math.min(innerHeight - 200, bottom + 12)); }  // no room beside it: below
-    pos = `left:${x}px;top:${y}px`;
-  }
-  const c = document.createElement("div");
-  c.className = "coach";
-  c.innerHTML = `${ring}<div class="card tip" role="dialog" aria-label="Tour, step ${n} of ${shown.length}" style="width:${w}px;${pos}">
-      <span class="row">${critter("octopus", "#E86F51", "none", 36, "happy")}<span class="mono small muted">${n} of ${shown.length}</span></span><span>${esc(text)}</span>
-      <div class="row" style="justify-content:flex-end"><button class="btn s" id="tskip">Skip</button><button class="btn s p" id="tnext">${i === TOUR.length - 1 ? "Done" : "Next"}</button></div></div>`;
-  document.body.appendChild(c);
-  addEventListener("keydown", tourKey, true);
-  $("#tnext").onclick = () => tour(i + 1);
-  $("#tskip").onclick = () => tour(TOUR.length);
-  $("#tnext").focus();
 }
 
 const CHOSEN = {};  // "bot:need" → your answer: its buttons stop working at once, and the card says what you chose

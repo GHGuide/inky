@@ -173,6 +173,8 @@ def index():
         local = []
         if (BUNDLED / "index.json").exists():
             local = [{**a, "url": "bundled:" + a["file"], "starter": True} for a in json.loads((BUNDLED / "index.json").read_text(encoding="utf-8"))["agents"]]
+        starters = {a["slug"] for a in local}
+        remote = [{**a, "starter": True} if a["slug"] in starters else a for a in remote]  # the public copy of a starter is still a starter
         seen = {a["slug"] for a in remote}
         _cache.update(at=time.time(), data={"agents": remote + [a for a in local if a["slug"] not in seen], "error": err if not remote else None})
     return _cache["data"]

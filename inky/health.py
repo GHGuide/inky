@@ -63,11 +63,13 @@ def check(engine):
     rows.append({"name": "Docker", "ok": d["running"], "detail": d.get("version") or ("stopped" if d["installed"] else "not installed"),
                  "info": True, "fix": None})
     for c in engine.store.find("computers"):
-        try:
-            ok = httpx.get(c["url"].rstrip("/") + "/api/ping", timeout=3).status_code == 200
+        try:  # with its key, so a server that signed this computer out shows up too
+            code = httpx.get(c["url"].rstrip("/") + "/api/needs?status=none", timeout=3, headers={"X-Inky-Token": c.get("token") or ""}).status_code
         except Exception:
-            ok = False
-        rows.append({"name": c["name"], "ok": ok, "detail": "reachable" if ok else "can’t reach it", "fix": "#/computers"})
+            code = None
+        ok = code == 200
+        rows.append({"name": c["name"], "ok": ok, "detail": "reachable" if ok else "signed this computer out · pair again" if code == 401 else "can’t reach it",
+                     "fix": "#/computers"})
     for s in engine.mcp.servers():
         if s["enabled"]:
             rows.append({"name": s["label"], "ok": s["installed"], "detail": ("connected" if s["connected"] else "ready") if s["installed"] else "not installed",
