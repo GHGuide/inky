@@ -165,6 +165,17 @@ def quick_command(text):
     return None
 
 
+HANDOFF = re.compile(r"^(?:please\s+|can you\s+|could you\s+)?(?:ask|have|get|tell|let|use)\s+(codex|claude(?:[\s-]?code)?)\s+(?:to\s+)?(.{3,})$", re.I)
+
+
+def handoff(text):
+    """“Ask Codex to …”, “have Claude Code …”: the agent you named and the job, or None. Never left to the model to pick."""
+    m = HANDOFF.match((text or "").strip())
+    if not m:
+        return None
+    return ("codex" if m.group(1).lower() == "codex" else "claude-code"), m.group(2).strip().rstrip("?")
+
+
 def you_form(t):
     """“I like mystery novels” → “You like mystery novels”: how the bot keeps what you told it."""
     swaps = {"i": "you", "i'm": "you're", "i’m": "you’re", "me": "you", "my": "your", "mine": "yours", "am": "are", "myself": "yourself"}
@@ -858,6 +869,9 @@ class Engine:
                 return self._say(bid, self.take_offer(bid, last["id"], 0, said_yes=True))
             if RECAP.search(text):  # “what did you do?”: the facts, not a guess from the model
                 return self._say(bid, self.recap(bid))
+            h = handoff(text)
+            if h:  # you named the agent: it goes to that one, with what this bot found
+                return self._handoff(bid, *h)
             cmd = quick_command(text)
             f = None if cmd or text.lower().startswith("new rule:") else limit_filter(re.sub(r"[.!]+$", "", FILLER.sub("", text.strip())))
             if f:  # “only keep books under £15”: a limit is as plain as a command
@@ -1085,6 +1099,32 @@ class Engine:
             return f"automation: {a.get('label')}"
         raise Guard(f"unknown action {t}")
 
+    def _handoff(self, bid, server, task):
+        b = self.store.get("bots", bid)
+        srv = next((x for x in self.mcp.servers() if x["name"] == server), None)
+        who = self.mcp.label(server)
+        if not srv or not srv["installed"]:
+            return self._say(bid, f"{who} isn’t installed on this computer. Connectors shows how to get it.")
+        if server == "claude-code" and connectors.signed_in("claude-code", timeout=15) is False:
+            alt = " Codex can take it now: say “ask Codex to …”." if any(x["name"] == "codex" and x["installed"] for x in self.mcp.servers()) else ""
+            return self._say(bid, f"Claude Code isn’t signed in on this computer, so it can’t take a whole job. Open a terminal, run claude "
+                                  f"and sign in, then ask again.{alt}")
+        if not srv["connected"]:
+            try:
+                self.mcp.connect(server)
+            except Exception as e:
+                return self._say(bid, f"I couldn’t reach {who}: {plain_error(e)}. Connectors → {who} → Connect.")
+        kept = skills.apply_filters([r for r in self.store.find("results", bot_id=bid, limit=2000)], b.get("filters"))  # your rules as they are now
+        found = [{k: r.get(k) for k in ("title", "price", "link") if r.get(k)} for r in kept][:20]
+        prompt = (f"{task}\n\nContext: you're helping {b['name']}, an Inky bot whose job is: {b.get('job') or b.get('goal')}."
+                  + (f" What it has found so far (JSON):\n{json.dumps(found, ensure_ascii=False)}" if found else " It hasn't found anything yet."))
+        label = f"Ask {who}: {skills.short(task, 60)}"
+        a = ({"server": "codex", "tool": "codex", "args": {"prompt": prompt, "sandbox": "read-only"}, "label": label} if server == "codex" else
+             {"server": "claude-code", "tool": "Agent", "args": {"description": skills.short(task, 40), "prompt": prompt, "subagent_type": "general-purpose"}, "label": label})
+        threading.Thread(target=self.delegate, args=(bid, a), daemon=True).start()  # it asks you first
+        r = self._say(bid, f"I’ll hand that to {who} as soon as you say yes. Its answer comes back here.")
+        return {**r, "actions": [{"type": "delegate", **a}], "done": [f"handing to {server}"]}
+
     def _say(self, bid, text):
         self.store.message(bid, "bot", text)
         self.bus.publish("messages", bot=bid)
@@ -1231,6 +1271,8 @@ class Engine:
                     out = j.get("reply") or j.get("result") or f"done ({label})"
             except (ValueError, TypeError):
                 pass
+            if r["error"] and a["server"] == "claude-code" and re.search(r"Agent type .* not found|not (logged|signed) in|login", out, re.I):
+                out = "it isn’t signed in on this computer, so it can’t take a whole job. Open a terminal, run claude and sign in."
             self.store.message(bid, "bot", f"{who}: {out[:1500]}" if not r["error"] else f"{who} had a problem: {out[:600]}",
                                delegate=label)
             self.store.event(bid, "delegate", f"{who} finished: {label}", error=r["error"])

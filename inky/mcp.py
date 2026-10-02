@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-PROTOCOL = "2025-06-18"
+PROTOCOL = "2025-06-18"  # what Inky asks for as a client
 
 def launcher(module, sub):
     """How to start one of Inky's own tools: `python -m module`, or `<app binary> sub` inside the desktop app."""
@@ -246,10 +246,15 @@ class MCPManager:
 # ---------------------------------------------------------------- a minimal stdio MCP server
 
 
-def serve_stdio(name, version, tools):
-    """tools: {tool_name: (description, input_schema, fn(args) -> str[, annotations])}"""
+SUPPORTED = ("2025-06-18", "2025-03-26", "2024-11-05")  # newest first
+
+
+def serve_stdio(name, version, tools, instructions=None, aliases=None, errors=()):
+    """tools: {tool_name: (description, input_schema, fn(args) -> str[, annotations])}. aliases: old names still accepted.
+    errors: exception types whose message is meant for the agent as it is (anything else is shown as a short error)."""
     out = sys.stdout
     sys.stdout = sys.stderr  # nothing but protocol on the real stdout
+    aliases = aliases or {}
 
     def send(m):
         out.write(json.dumps(m) + "\n")
@@ -259,14 +264,17 @@ def serve_stdio(name, version, tools):
         try:
             m = json.loads(raw)
         except Exception:
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "not JSON"}})
             continue
         method, mid = m.get("method"), m.get("id")
         if mid is None:
             continue  # notification
         try:
             if method == "initialize":
-                res = {"protocolVersion": (m.get("params") or {}).get("protocolVersion", PROTOCOL),
-                       "capabilities": {"tools": {}}, "serverInfo": {"name": name, "version": version}}
+                want = (m.get("params") or {}).get("protocolVersion")
+                res = {"protocolVersion": want if want in SUPPORTED else SUPPORTED[0],  # one we speak, never just an echo
+                       "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": name, "version": version},
+                       **({"instructions": instructions} if instructions else {})}
             elif method == "ping":
                 res = {}
             elif method == "tools/list":
@@ -274,13 +282,22 @@ def serve_stdio(name, version, tools):
                                  for k, v in tools.items()]}
             elif method == "tools/call":
                 p = m.get("params") or {}
-                if p.get("name") not in tools:
-                    raise KeyError(f"unknown tool {p.get('name')}")
+                tool = aliases.get(p.get("name"), p.get("name"))
+                if tool not in tools:
+                    send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": f"Unknown tool: {p.get('name')}. Tools: {', '.join(tools)}"}})
+                    continue
+                args = p.get("arguments") or {}
+                missing = [k for k in tools[tool][1].get("required", []) if args.get(k) in (None, "")]
                 t0 = time.time()
-                try:
-                    text, err = tools[p["name"]][2](p.get("arguments") or {}), False  # (desc, schema, fn[, annotations])
-                except Exception as e:
-                    text, err = f"Error: {e}", True
+                if missing:
+                    text, err = f"Missing {', '.join(missing)}. {tools[tool][1]['properties'][missing[0]].get('description', '')}".strip(), True
+                else:
+                    try:
+                        text, err = tools[tool][2](args), False  # (desc, schema, fn[, annotations])
+                    except errors as e:
+                        text, err = str(e), True
+                    except Exception as e:
+                        text, err = f"Something went wrong in {tool}: {type(e).__name__}: {e}", True
                 res = {"content": [{"type": "text", "text": text if isinstance(text, str) else json.dumps(text)}],
                        "isError": err, "_meta": {"seconds": round(time.time() - t0, 2)}}
             else:

@@ -1,6 +1,7 @@
 """HTTP API + static UI. Every /api call needs the X-Inky-Token header (or ?t= for images and SSE),
 so other websites open in your browser can't drive your bots."""
 import hmac
+import itertools
 import json
 import os
 import platform
@@ -915,6 +916,51 @@ def find_sites(E, h, q, body):
         r["named"] = bool(len(name) > 2 and re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", said))
     rows.sort(key=lambda r: not r["named"])
     return {"sites": rows, "searched": qs, "note": note, "more": bool(body.get("more"))}
+
+
+MAKING, MADE = {}, itertools.count(1)  # bots being made from a sentence in the background (for MCP clients, which can't wait a minute for a draft)
+
+
+@route("POST", "/api/bots/from-job")
+def from_job(E, h, q, body):
+    """Make a bot the way the New bot screen does (draft, find sites unless one is named, create, learn), in the background.
+    Returns at once with an id to ask about: a draft with a local model can take longer than an MCP client waits."""
+    job = str(body.get("job") or "").strip()
+    if not job:
+        raise HTTPError(400, "Describe the job first.")
+    jid = str(next(MADE))
+    MAKING[jid] = {"status": "drafting", "job": job}
+
+    def go():
+        try:
+            d = E.draft_bot(job)
+            start, more = body.get("site") or d.get("start_url"), []
+            if not start:
+                MAKING[jid]["status"] = "finding sites"
+                try:
+                    found = find_sites(E, None, {}, {"job": d["job"], "queries": d.get("search"), "guess": d.get("guess")})["sites"]
+                except Exception:
+                    found = []
+                pick = [x["url"] for x in found if x.get("named")] or [x["url"] for x in found][:3]
+                start, more = (pick[0], pick[1:]) if pick else (None, [])
+            filters = [{**f, "text": f.get("text") or f"{f['field']} {f['op']} {f['value']}"} for f in d.get("filters") or []]
+            b = E.create_bot({**d, "start_url": start, "more_sites": more, "filters": filters})
+            if start:
+                E.learn(b["id"], b.get("goal") or d.get("goal"), start)
+            MAKING[jid].update(status="learning" if start else "needs a site", bot=b["id"], name=b["name"], sites=[x for x in [start, *more] if x],
+                               rules=[f["text"] for f in filters], every_minutes=(b.get("schedule") or {}).get("every_minutes"))
+        except Exception as e:
+            from inky.bots import plain_error
+            MAKING[jid].update(status="failed", error=plain_error(e))
+    threading.Thread(target=go, daemon=True, name="from-job").start()
+    return {"id": jid, **MAKING[jid]}
+
+
+@route("GET", r"/api/bots/from-job/(\d+)")
+def from_job_status(E, h, q, body, jid):
+    if jid not in MAKING:
+        raise HTTPError(404, "No bot is being made with that id.")
+    return {"id": jid, **MAKING[jid]}
 
 
 @route("POST", r"/api/bots/(\d+)/share-link")

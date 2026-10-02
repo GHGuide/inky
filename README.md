@@ -97,7 +97,7 @@ Every installer is built in public by [GitHub Actions](.github/workflows/release
 - **Phone:** get alerts and answer questions on Telegram.
 - **Other computers:** run bots on a spare Mac or a Linux server, so they keep working while your laptop sleeps. Pair one with a link, a code or SSH.
 - **Your own screen:** let a bot work in a visible window, with a coral frame. Press Esc to stop it, or move the mouse to take over. It's off until you allow it.
-- **Connectors:** Claude Code, Codex, n8n, Apify, or any MCP server. Inky is an MCP server too, so other agents can list and run your bots. Approving things never happens from outside the app.
+- **Connectors:** Claude Code, Codex, n8n, Apify, or any MCP server. Inky is an MCP server too, so other agents can list, run, message and create your bots ([how](docs/mcp.md)). Approving things never happens from outside the app.
 - **Share:** send a bot to a friend as a link, or get one from the [library](library/). What's shared is what it learned and its rules, never your logins, memory or results.
 
 ## Privacy and safety

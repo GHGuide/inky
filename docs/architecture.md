@@ -76,7 +76,7 @@ Every call needs the `X-Inky-Token` header (`?t=` for images and the event strea
 | `GET /api/connectors`, `POST /api/connectors/{name}/test` | Connectors |
 | `POST /api/bots/{id}/share-code`, `POST /api/library/install` | Share and get bots |
 
-`python -m inky.mcp_server` exposes the same through MCP: list bots, get one, message it, run it, read results and Needs you, create a bot. Approving is deliberately not a tool.
+`python -m inky.mcp_server` exposes the same through MCP: list bots, get one, message it, run it, read results and Needs you, create a bot (`POST /api/bots/from-job`, which works in the background so no call waits longer than a client does). Approving is deliberately not a tool. See [mcp.md](mcp.md).
 
 ## Tests
 

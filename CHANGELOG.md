@@ -4,6 +4,16 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+### Added
+- "Ask Codex to …" or "have Claude Code …" in a bot's chat hands that job, with what the bot found, to the agent you named, after you say yes. If Claude Code isn't signed in, the bot says so and offers Codex.
+- Inky as an MCP server: `create_bot` answers within a minute and keeps making the bot in the background (`create_bot_status`); bots are found by loose names ("books", "the ebike bot"); short, readable answers; tool hints so clients know which tools only read. [docs/mcp.md](docs/mcp.md) explains it, including `codex exec`.
+
+### Changed
+- `run_skill` is now `run_bot`. The old name still works.
+
+### Fixed
+- Inky's MCP server answers with a protocol version it speaks, a clear message for a missing argument or an unknown tool, and one plain sentence when Inky isn't running.
+
 ## [0.1.0] - 2026-10-02
 
 The first public release.

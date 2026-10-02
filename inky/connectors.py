@@ -51,21 +51,21 @@ def _run(cmd, timeout=5):
         return None
 
 
-def signed_in(name):
-    """True, False, or None when we can't tell. Cached for 30 s: the CLIs take a moment to answer."""
+def signed_in(name, timeout=5):
+    """True, False, or None when we can't tell. Cached for 30 s: the CLIs take a moment to answer (a few seconds when busy)."""
     hit = STATUS_CACHE.get(name)
-    if hit and time.time() - hit[0] < 30:
+    if hit and time.time() - hit[0] < 30 and (hit[1] is not None or timeout <= 5):
         return hit[1]
     val = None
     if name == "claude-code":
-        r = _run(["claude", "auth", "status"])
+        r = _run(["claude", "auth", "status"], timeout=timeout)
         if r and r.stdout.strip():
             try:
                 val = bool(json.loads(r.stdout).get("loggedIn"))
             except ValueError:
                 val = r.returncode == 0
     elif name == "codex":
-        r = _run(["codex", "login", "status"])
+        r = _run(["codex", "login", "status"], timeout=timeout)
         val = None if r is None else r.returncode == 0
     STATUS_CACHE[name] = (time.time(), val)
     return val
