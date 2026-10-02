@@ -230,9 +230,10 @@ LISTS_JS = r"""() => {
       const leaves = [...it.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
       // a price split over a few tiny elements ("1.450," and "00") counts as one
       const small = [...it.querySelectorAll('*')].filter((e) => e.children.length && e.children.length <= 3 && (e.innerText || '').trim().length < 20 && [...e.children].every((c) => !c.children.length));
-      const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
+      const P = it.tagName === 'TR' ? CUR : PRICE;  // in a table a bare 0.55 is a figure (a win rate), not a price: there it needs its currency
+      const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return P.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
       return prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
-        || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
+        || leaves.find((e) => P.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
     };
     const withPrice = [first, ...peers].find((it) => priceIn(it));  // the first result can be an ad with no price ("Bieden")
     if (withPrice) fields.price = rel(withPrice, priceIn(withPrice));

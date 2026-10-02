@@ -202,11 +202,11 @@ class Site(BaseHTTPRequestHandler):
             n = int(q.get("page_num", "1"))
             hits = [t for t in TEAMS if q.get("q", "").lower() in t["name"].lower()]
             rows = "".join(f'<tr class="team"><td class="name">{t["name"]}</td><td class="year">{t["year"]}</td><td class="wins">{t["wins"]}</td>'
-                           f'<td class="losses">{t["losses"]}</td></tr>' for t in hits[(n - 1) * 10:n * 10])
+                           f'<td class="losses">{t["losses"]}</td><td class="pct">{t["wins"] / (t["wins"] + t["losses"]):.2f}</td></tr>' for t in hits[(n - 1) * 10:n * 10])
             nxt = f'<a href="/teams?{urlencode({**q, "page_num": n + 1})}" aria-label="Next">»</a>' if n * 10 < len(hits) else ""
             return self.send(shell("Hockey Teams", '<h1>Hockey Teams: Forms, Searching and Pagination</h1><form action="/teams">'
                                                    '<input name="q" placeholder="Search for Teams..." aria-label="Search for Teams"><button>Search</button></form>'
-                                                   f'<table><tr><th>Team Name</th><th>Year</th><th>Wins</th><th>Losses</th></tr>{rows}</table>{nxt}'))
+                                                   f'<table><tr><th>Team Name</th><th>Year</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>{rows}</table>{nxt}'))
         if p == "/hn/news":  # Hacker News: each story is two table rows, the second with its vote, user and comment links
             stories = "".join(
                 f'<tr class="athing submission" id="{i}"><td class="title"><span class="rank">{i}.</span></td><td class="votelinks"><a href="/hn/vote?id={i}">'

@@ -267,7 +267,8 @@ def home_page(url):
 
 SUBMIT = re.compile(r"\b(search|find|go|submit|cerca|trova|buscar|rechercher|suchen|szukaj|caută|cauta|найти|поиск|zoeken|sök|ok)\b", re.I)
 DOING = re.compile(r"\b(send|submit|contact|book|apply|post|order|reserve|sign up|register|message|reply|enquire|inquire|request)\b", re.I)
-FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?)\b", re.I)
+FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?|"
+                     r"identify|collect|gather|extract|scrape)\b", re.I)
 PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal: the kind of things it is about, not whether each one matches a topic,
 price or limit in it (Inky applies those itself). Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
 
@@ -371,7 +372,9 @@ def learn(ctx, goal, start_url, max_steps=24):
     page = comp.call("open", start_url)
     steps, history = [], []
     extract, empty, typed, finished = None, 0, {}, False
-    watch, looked, idle, doubted, hinted = bool(FINDING.search(goal or "")), {}, 0, set(), set()
+    said = f"{goal or ''} {ctx.bot.get('job') or ''}"  # the goal is the model's words for your job: “Find …” may come back as “Identify …”
+    watch = bool(FINDING.search(goal or "") or (FINDING.search(said) and not DOING.search(said)))
+    looked, idle, doubted, hinted = {}, 0, set(), set()
     front = bool(re.search(r"front ?page|home ?page|homepage|voorpagina", f"{goal} {ctx.bot.get('job') or ''}", re.I))
     ctx.emit("learn", f"Opened {urlparse(page['url']).netloc}", step=0)
     for _ in range(max_steps * 2):  # strikes don't use up the steps; the steps themselves are capped below
@@ -482,7 +485,7 @@ def learn(ctx, goal, start_url, max_steps=24):
                     raise
                 except Exception:
                     pass
-        if act == "done" and not extract and FINDING.search(goal or "") and page["url"] not in doubted:  # a watch job that never read anything: read the results here, if they fit
+        if act == "done" and not extract and watch and page["url"] not in doubted:  # a watch job that never read anything: read the results here, if they fit
             spec, rows = read_results(ctx, goal, page)
             if rows and fits(ctx, goal, rows)[0]:
                 extract = spec

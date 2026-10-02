@@ -129,10 +129,10 @@ class LearningTest(unittest.TestCase):
         urllib.request.urlopen(f"{self.base}/__layout?v={v}").read()
 
     # -------------------------------------------------------------- helpers
-    def learn(self, path, job, *steps, comp=None, filters=None, **plan):
+    def learn(self, path, job, *steps, comp=None, filters=None, goal=None, **plan):
         model = Plan(*steps, **plan)
         ctx = Ctx(comp or self.comp, model, job, filters)
-        skill = skills.learn(ctx, job, self.base + path)
+        skill = skills.learn(ctx, goal or job, self.base + path)  # the goal is the model's words for the job
         return skill, model, ctx
 
     def replay(self, skill, comp=None, model=None, filters=None):
@@ -267,6 +267,7 @@ class LearningTest(unittest.TestCase):
     def test_a_table_without_links(self):  # scrapethissite's hockey teams
         _, _, out = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", n=24, priced=False)
         self.assertEqual([i["title"] for i in out["items"]], [t["name"] for t in learn_site.TEAMS])
+        self.assertNotIn("price", out["items"][0])  # its win rate (0.55) is no price
 
     def test_story_rows_with_vote_and_user_rows_between(self):  # Hacker News
         _, model, out = self.learned_and_repeats("/hn/news", "Tell me new Hacker News stories about AI", pick=0, n=30, priced=False)
@@ -275,7 +276,7 @@ class LearningTest(unittest.TestCase):
 
     def test_a_search_that_finds_nothing_is_undone(self):  # “hockey” is no team's name: the page before had the teams
         skill, model, out = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", step("fill", "Search for Teams", "hockey", "Type hockey", tries=1),
-                                                     step("click", "button:Search", label="Click Search", tries=1), n=24, priced=False)
+                                                     step("click", "button:Search", label="Click Search", tries=1), goal="Identify hockey teams exceeding 40 wins", n=24, priced=False)
         self.assertEqual(self.texts(skill), ["Read 10 results", "Next page (Next)"])
 
     def test_featured_items_beside_the_category_link(self):  # webscraper.io: a few top items on every page, laptops one link away
