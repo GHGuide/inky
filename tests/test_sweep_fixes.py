@@ -210,3 +210,20 @@ class FilesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoldsUpTest(unittest.TestCase):
+    def test_learning_whose_first_check_finds_nothing_is_not_kept(self):
+        from unittest import mock
+        from inky import skills as skills_mod
+        E = make_engine()
+        self.addCleanup(E.close)
+        b = E.create_bot({"name": "Bikes", "goal": "find e-bikes", "start_url": "https://shop.example/"})
+        learned = {"name": "Check shop.example", "start_url": "https://shop.example/", "steps": [{"action": "extract", "spec": {"item": "li"}, "text": "Read 9 results"}]}
+        def empty_check(bid, sid, run, reason, repair_role="repair"):
+            E.store.insert("runs", {"kind": "replay", "skill": "Check shop.example", "items": 0, "matched": 0}, bot_id=bid, status="ok")
+        with mock.patch.object(skills_mod, "learn", lambda *a, **k: dict(learned)), mock.patch.object(E, "_replay", empty_check), \
+                mock.patch.object(E, "computer", lambda bid: SimpleNamespace(call=lambda *a, **k: None)):
+            E.learn(b["id"], "find e-bikes", "https://shop.example/").thread.join(30)
+        self.assertEqual(E.store.find("skills", bot_id=b["id"]), [])  # not kept
+        self.assertTrue(any("didn’t hold up" in m["text"] for m in E.store.find("messages", bot_id=b["id"])))

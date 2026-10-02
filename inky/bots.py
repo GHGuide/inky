@@ -1307,6 +1307,12 @@ class Engine:
                 self.runs[bid] = run2
                 run2.thread = threading.current_thread()
                 self._replay(bid, sid, run2, "silent" if batch else "first run after learning")
+                chk = next((r for r in self.store.find("runs", bot_id=bid, limit=3) if r.get("kind") == "replay"), {})
+                if chk.get("status") == "ok" and not chk.get("items"):  # checked right after learning and found nothing: it didn't hold up
+                    self.store.delete("skills", sid)
+                    site = (urlparse(url).netloc or url).removeprefix("www.")
+                    raise skills.NeedsHelp("learn_failed", f"What it learned on {site} didn’t hold up",
+                                           "Checking it again right after learning found nothing, so I didn’t keep it.", ["Try again", "Show me once"])
             if batch:
                 last = next((r for r in self.store.find("runs", bot_id=bid, limit=3) if r.get("kind") == "replay"), {}) if reads else {}
                 self._batch_record(bid, url, True, f"{last.get('matched', 0)} of {nres(last.get('items', 0))} pass your rules" if reads else "learned")
