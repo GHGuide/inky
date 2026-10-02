@@ -150,9 +150,12 @@ LISTS_JS = r"""() => {
   };
   const step = (n, k) => n.tagName.toLowerCase() + cls(n).slice(0, k).map((c) => '.' + CSS.escape(c)).join('');
   const relK = (item, el, k) => { const parts = []; for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(step(n, k)); return parts.join(' > '); };
+  const nth = (n) => { const sib = [...n.parentElement.children].filter((c) => c.tagName === n.tagName);  // the 3rd <td> of a row has no class to tell it apart
+    return step(n, 1) + (sib.length > 1 ? `:nth-of-type(${sib.indexOf(n) + 1})` : ''); };
+  const relN = (item, el) => { const parts = []; for (let n = el; n && n !== item; n = n.parentElement) parts.unshift(nth(n)); return parts.join(' > '); };
   let peers = [];  // the other results, so a selector is picked that works for most of them, not just the first
   const rel = (item, el) => {  // a selector inside one result: the most specific one that still finds this field in most results
-    const cands = [relK(item, el, 2), relK(item, el, 1), step(el, 1), relK(item, el, 0), step(el, 0)].filter((c, i, a) => c && a.indexOf(c) === i && item.querySelector(c) === el);
+    const cands = [relK(item, el, 2), relK(item, el, 1), step(el, 1), relK(item, el, 0), step(el, 0), relN(item, el)].filter((c, i, a) => c && a.indexOf(c) === i && item.querySelector(c) === el);
     if (!cands.length) return el.tagName.toLowerCase();
     const cover = (c) => peers.filter((it) => { try { return it.querySelector(c); } catch (e) { return false; } }).length;
     let best = cands[0], most = cover(best);

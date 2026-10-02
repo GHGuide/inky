@@ -224,6 +224,10 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/articles", "Find new articles about cycling", n=15, priced=False)
         self.assertNotIn("price", out["items"][0])
 
+    def test_results_in_a_table(self):
+        _, _, out = self.learned_and_repeats("/table", "Find e-bikes", n=12)
+        self.assertEqual([skills.parse_num(i["price"]) for i in out["items"]], [b["price"] for b in learn_site.BIKES[:12]])
+
     # -------------------------------------------------------------- how pages behave
     def test_cookie_banner_over_the_page(self):
         comp = self.computer()
