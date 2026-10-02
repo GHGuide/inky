@@ -268,7 +268,8 @@ def home_page(url):
 SUBMIT = re.compile(r"\b(search|find|go|submit|cerca|trova|buscar|rechercher|suchen|szukaj|caută|cauta|найти|поиск|zoeken|sök|ok)\b", re.I)
 DOING = re.compile(r"\b(send|submit|contact|book|apply|post|order|reserve|sign up|register|message|reply|enquire|inquire|request)\b", re.I)
 FINDING = re.compile(r"\b(find|finds|watch|check|monitor|list|search|look for|track|new|cheap|cheapest|price|prices|under|below|compare|results?|offers?|deals?|listings?)\b", re.I)
-PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal. Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
+PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal: the kind of things it is about, not whether each one matches a topic,
+price or limit in it (Inky applies those itself). Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
 
 
 def read_results(ctx, goal, page):
@@ -284,6 +285,7 @@ def read_results(ctx, goal, page):
     if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
         lists = [c for c in lists if c["count"] >= 6]
     lists = [c for c in lists if not menu_list(c.get("rows") or [])]  # "Elektrische fietsen 743": a category menu with counts
+    lists = [c for c in lists if all(r.get("title") or r.get("price") for r in c.get("rows") or [])] or lists  # rows with no name (votes, user links): another list
     if any(f.get("field") == "price" for f in ctx.bot.get("filters") or []) and any(c.get("priced") for c in lists):
         lists = [c for c in lists if c.get("priced")]  # the job has a price limit: a list without prices can't be checked against it
     if lists:

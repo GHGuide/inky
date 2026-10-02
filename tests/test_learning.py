@@ -264,6 +264,11 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", n=24, priced=False)
         self.assertEqual([i["title"] for i in out["items"]], [t["name"] for t in learn_site.TEAMS])
 
+    def test_story_rows_with_vote_and_user_rows_between(self):  # Hacker News
+        _, model, out = self.learned_and_repeats("/hn/news", "Tell me new Hacker News stories about AI", pick=0, n=30, priced=False)
+        self.assertEqual(model.calls["pick"], 0)  # one real list: nothing to ask (a small model said “none fits”: not every story is about AI)
+        self.assertTrue(out["items"][0]["title"].startswith("Story 1:"))
+
     def test_featured_items_beside_the_category_link(self):  # webscraper.io: a few top items on every page, laptops one link away
         skill, _, out = self.learned_and_repeats("/shop/", "Find laptops under $500", step("click", "Computers", label="Open Computers"),
                                                  step("click", "Computers", label="Open Computers again"), step("extract", tries=1, label="Read"),
