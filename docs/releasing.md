@@ -32,9 +32,9 @@ On clean machines, or at least clean user accounts:
 
 Edit the draft: paste the CHANGELOG section as the notes, then press **Publish release**. `releases/latest` now points to it.
 
-## Later, once the money and keys are there
+## Signing and stores
 
-- **Updates inside the app:** add `tauri-plugin-updater`, generate a key with `npx tauri signer generate`, put the public key in `tauri.conf.json` and the private key in the `TAURI_SIGNING_PRIVATE_KEY` secret. tauri-action then uploads `latest.json`. Keep the private key backed up offline: without it no further update can be published.
+- **Updates inside the app are already on.** Release builds are signed with the updater key; its public half is in `tauri.conf.json`, and the private half is in the repo's Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and with the maintainer, backed up offline. If that key is lost, installed copies can't be updated any more and people have to reinstall by hand. The app reads `releases/latest/download/latest.json`, so publishing a release is what rolls it out.
 - **macOS notarization** (Apple Developer Program): see [desktop/README.md](../desktop/README.md#signing-and-notarizing-later).
 - **Windows signing:** SignPath Foundation is free for open-source projects once there's a public release; otherwise an Azure Trusted Signing or OV certificate.
 - **Package managers:** winget after a release or two; a Homebrew cask once the app is notarized.
