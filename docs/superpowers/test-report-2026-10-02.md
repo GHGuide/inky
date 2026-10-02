@@ -3,9 +3,9 @@
 Branch `build`. Checked against [docs/acceptance.md](../acceptance.md), written this round together with [docs/agent-prompt.md](../agent-prompt.md).
 Model: gemma3:12b in Ollama, on this Mac. Every engine used a scratch home; your `~/.inky` was only read, never written. Do bots sent only to the local test site.
 
-Unit tests: `.venv/bin/python -m unittest`: **103 tests, OK** (the 2 install.sh tests skip without Docker).
+Unit tests: `.venv/bin/python -m unittest`: **103 tests, OK** (the 2 install.sh tests skip without Docker). Test runs now leave no temporary folders behind.
 
-## A. The five-bot test (release gate): passed
+## A. The five-bot test (release gate): passed, with one honest caveat
 
 `python -m tests.journeys five` creates the five bots from their sentences only, the way the New bot screen does: draft, find sites (unless one is named), check all, create, learn, then check again with no AI. It also asks "what did you find?" and makes one bot run on a 1-minute schedule by itself.
 
@@ -21,6 +21,8 @@ Final run (commit c8fbf30), 266 s in total:
 | Runs on its own | | | a 1-minute schedule ran by itself, 0 AI calls | |
 
 The gate also passed earlier in the night with different sites for E-bike Hunter (marktplaats, 2dehands, a bike shop), but that run had a flaw the test didn't catch yet: one site's "results" were a category menu with no prices. The test now fails on any found item without a price, and the final run above passed with that check.
+
+Last run of the night (commit 6bc6b2a, with every fix): Book Bargains, Python Jobs, HN Watch, Contact Form and "runs on its own" passed. E-bike Hunter found only correct things (e-bikes under €1500, such as a Gazelle HeavyDuty for €1,499.99) but learned 1 site instead of 2. DuckDuckGo had paused the searches again, so its sites came from the model's backup list: marktplaats.nl (learned), funda.nl (a housing site), fietsenopfietsen.nl (no e-bikes) and 2dehands.be. Inky gave up on those three by itself, each within its budget, instead of keeping wrong results. When the search works, E-bike Hunter learns 3 sites in about a minute (the run above).
 
 What still varies: when DuckDuckGo pauses Inky's searches (it did, often, after hours of test runs), the sites come from the model's own list instead. That list can include a site that doesn't fit (funda.nl, a housing site): learning gives up on it within its budget (15 AI calls), says so in one line, and the other sites carry on.
 
@@ -48,7 +50,10 @@ What still varies: when DuckDuckGo pauses Inky's searches (it did, often, after 
 
 ## B–H. The rest of the criteria
 
-REGRESSION_RESULTS
+Journeys run on the final code: `newuser` (3-step setup on the real screens, opens on Found, 14 found → 3 after "under £15" in chat, no page errors, fits a phone), `chat` (10/10), `do` (Approve sends once, Deny sends nothing, "Always" sends without asking next time, a moved button is fixed by itself), `batch` (2 of 3 sites, one progress line), `handled` (no card, one quiet line), `stop` (0.3 s), `share` (the other Inky ran it: 60 items, 14 pass) and `books` (14, 1 AI call): **all pass**.
+
+`do` failed once during the night: with temperature 0, gemma kept retyping the message after it was sent. Fixed: a Do job's learning ends once its sending step went through.
+
 
 | Area | Result |
 |---|---|

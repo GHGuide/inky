@@ -109,9 +109,13 @@ Test it with a scratch home on the local test site, never on the person's real a
 .venv/bin/python -m tests.site_server 8766        # local test site, for Do bots
 .venv/bin/python -m tests.journeys                # end-to-end journeys (minutes, real sites, gemma3:12b)
 .venv/bin/python -m tests.journeys books chat     # only some
+.venv/bin/python -m tests.journeys five           # the release gate: five bots from five sentences (docs/acceptance.md A)
+INKY_FIVE="E-bike Hunter" INKY_JOURNEY_KEEP=1 INKY_TRACE=1 .venv/bin/python -m tests.journeys five   # one bot, keep its folder, log every learning reply
 .venv/bin/python -m inky --home "$(mktemp -d)" --port 8899   # a scratch engine with the UI at http://127.0.0.1:8899
 .venv/bin/python desktop/scripts/build-engine.py && (cd desktop && npx tauri build)   # build the desktop app
 ```
+
+When learning goes wrong, read the trace (`INKY_TRACE=1` writes each model reply, the page it was on and what it was last told to `engine.log` in the kept folder) before changing anything: most failures are a pattern the learner can catch itself (a search typed but not sent, a home page's feed, a menu read as results, a link to "place an ad").
 
 Journeys need a capable model (default `gemma3:12b` in Ollama; set `INKY_JOURNEY_MODEL` for another). They use scratch homes and clean up after themselves. If the machine is overloaded, stop and say so instead of reporting crashes as failures.
 
