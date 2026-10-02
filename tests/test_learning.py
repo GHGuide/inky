@@ -228,6 +228,22 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/table", "Find e-bikes", n=12)
         self.assertEqual([skills.parse_num(i["price"]) for i in out["items"]], [b["price"] for b in learn_site.BIKES[:12]])
 
+    def test_titles_never_details_or_view(self):
+        _, _, out = self.learned_and_repeats("/details", "Find flats", n=9)
+        self.assertTrue(out["items"][0]["title"].startswith("Flat on Via Roma 0"))
+        _, _, out = self.learned_and_repeats("/details2", "Find bikes", n=9)
+        self.assertTrue(out["items"][0]["title"].startswith("Red city bike"))
+
+    def test_shared_links_dont_merge_results(self):
+        _, _, out = self.learned_and_repeats("/quotes", "Find quotes about life", n=29, priced=False)
+        self.assertEqual([i["title"] for i in out["items"]], [q["text"] for q in learn_site.QUOTES])
+
+    def test_a_reading_step_on_shared_links_still_keeps_results_apart(self):  # one a model wrote, or learned before
+        skill = {"name": "Quotes", "goal": "Find quotes", "start_url": self.base + "/quotes", "max_pages": 1, "steps": [
+            {"action": "extract", "spec": {"item": "div.quote", "fields": {"title": "a.tag", "link": "a.tag@href", "text": ""}}, "text": "Read"}]}
+        out, _ = self.replay(skill)
+        self.assertEqual(len({skills.item_key(i) for i in out["items"]}), 10)
+
     # -------------------------------------------------------------- how pages behave
     def test_cookie_banner_over_the_page(self):
         comp = self.computer()

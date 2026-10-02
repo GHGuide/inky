@@ -673,6 +673,9 @@ def replay(ctx, skill, repair_role="repair"):
             linked = [r for r in rows if r.get("link")]
             if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
                 rows = linked
+            links = [r["link"] for r in rows if r.get("link")]
+            if len(set(links)) < 0.8 * len(links):  # one link many results share (a tag, an author) is none of theirs: it can't tell them apart
+                rows = [{k: v for k, v in r.items() if k != "link"} for r in rows]
             items += rows
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)

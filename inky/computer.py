@@ -194,15 +194,22 @@ LISTS_JS = r"""() => {
     const ranked = links.map((l, i) => ({ l, i, u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
       .sort((x, y) => y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
     const a = ranked.length ? ranked[0].l : null;
-    const atext = a ? (a.innerText || '').trim() : '', ttl = a ? (a.getAttribute('title') || '').trim() : '';
-    const sole = head && a && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
+    // a link the results share (a quote's tags, its author) is no one result's own: it neither names one nor tells them apart
+    const own = a && (a === first || ranked[0].u >= 0.8 * peers.filter((it) => { try { return it.querySelector(rel(first, a)); } catch (e) { return false; } }).length);
+    const atext = own ? (a.innerText || '').trim() : '', ttl = own ? (a.getAttribute('title') || '').trim() : '';
+    const sole = head && own && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
+    const named = head && (own || !head.closest('a[href]')) ? head : null;
+    const ownText = (e) => [...e.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join(' ').trim();
+    const said = [...first.querySelectorAll('*')].find((e) => { const t = ownText(e);  // no heading: the first words that name it (not a price, not “View”)
+      return t.length >= 10 && !PRICE.test(t) && !GENERIC.test(t) && !e.closest('a[href],del,s,strike'); });
     if (ttl && atext && ttl.toLowerCase().startsWith(atext.replace(/(\.\.\.|…)$/, '').trim().toLowerCase().slice(0, 12)))
       fields.title = (a === first ? '' : rel(first, a)) + '@title';  // a cut-off name whose full name is in its title
     else if (sole) fields.title = rel(first, head);
-    else if (a && a !== first && atext.length >= 3 && !(head && GENERIC.test(atext))) fields.title = rel(first, a);  // “Dettagli” names nothing: its heading does
-    else if (head) fields.title = rel(first, head);
+    else if (own && a !== first && atext.length >= 3 && !GENERIC.test(atext)) fields.title = rel(first, a);  // “Dettagli” names nothing: its heading does
+    else if (named) fields.title = rel(first, named);
+    else if (said) fields.title = rel(first, said);
     else if (a) fields.title = a === first ? '' : rel(first, a);
-    if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
+    if (own) fields.link = (a === first ? '' : rel(first, a)) + '@href';
     // the price: not a discount badge ("€424 korting", "-20%"), not a struck-out old price; the sale/current one when there are two
     const OFF = /korting|discount|rabatt|réduction|sconto|descuento|reducere|bespaar|save|you save|\boff\b|%|was\b|before|vorher|avant|prima/i;
     const OLDW = 'old|was|compare|regular|strike|before|original|list-?price';  // whole words in class names: a random "kOLdPq" isn't one
