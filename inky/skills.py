@@ -234,6 +234,12 @@ def refused_page(page):
     return bool(REFUSED.search(head)) and len(page.get("elements") or []) < 40
 
 
+# selling, posting an ad, or signing in: never part of finding things on a site
+ACCOUNT = re.compile(r"plaats(en)?\s+(een\s+)?(zoekertje|advertentie)|maak\s+(een\s+)?advertentie|advertentie\s+plaatsen|place\s+(an?\s+)?ad\b|post\s+(an?\s+)?ad\b|"
+                     r"\bsell\b|\bverkopen\b|inserisci\s+annuncio|anzeige\s+aufgeben|déposer\s+une\s+annonce|publicar\s+anuncio|"
+                     r"\blog\s?in\b|\binloggen\b|\bsign\s?(in|up)\b|\bregist(er|reren|rieren)\b|/login|/identity/|/account|AdWizard", re.I)
+
+
 def home_page(url):
     u = urlparse(url or "")
     return not u.path.strip("/") and not u.query
@@ -482,6 +488,11 @@ def learn(ctx, goal, start_url, max_steps=24):
             continue
         elif el is None:
             history.append(f"element {idx} does not exist")
+            continue
+        if watch and act in ("click", "goto") and el and not DOING.search(goal or "") and \
+                ACCOUNT.search(f"{el.get('name') or ''} {el.get('href') or ''} {d.get('step') or ''}"):
+            # finding things never needs selling, posting an ad, or an account
+            history.append(f"“{el.get('name')}” is for selling or your account, not for finding: search or open the category instead")
             continue
         if watch and act in ("fill", "select") and el and FILTER_FIELD.search(f"{el.get('name')} {el.get('placeholder')} {d.get('step') or ''}") \
                 and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", f"{el.get('name')} {el.get('placeholder')}", re.I) \

@@ -111,6 +111,13 @@ class LearningChecksTest(unittest.TestCase):
         self.assertFalse(PARKED.search("shop.nl This e-bike is for sale, 2 years old"))
         self.assertFalse(PARKED.search("2dehands.be Fietsen te koop"))
 
+    def test_finding_never_needs_selling_or_an_account(self):
+        from inky.skills import ACCOUNT
+        for t in ("Plaats zoekertje", "Maak advertentie", "Inloggen", "Sign in", "Place an ad", "https://www.2dehands.be/identity/v2/login"):
+            self.assertTrue(ACCOUNT.search(t), t)
+        for t in ("Fietsen en Brommers", "Elektrische fietsen", "Zoeken", "Selling price €20", "Volgende"):
+            self.assertFalse(ACCOUNT.search(t), t)
+
     def test_word_rules(self):
         from inky import skills
         from inky.bots import stated
