@@ -279,6 +279,10 @@ class LearningTest(unittest.TestCase):
                                                  step("click", "Laptops", label="Open Laptops"), n=15)
         self.assertEqual(self.texts(skill), ["Open Computers", "Open Laptops", "Read 6 results", "Next page (›)"])
 
+    def test_links_are_named_by_what_they_say(self):  # not by an aria-label that only says what kind of link it is
+        names = [e["name"] for e in self.comp.call("open", self.base + "/shop/computers")["elements"]]
+        self.assertTrue({"Computers", "Laptops", "Tablets", "Cart"} <= set(names), names)
+
     def test_the_same_mistake_three_times_gives_up_soon(self):
         model = Plan(step("click", "Computers", tries=99))  # a link to the page it's already on, again and again
         with self.assertRaises(skills.NeedsHelp) as e:

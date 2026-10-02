@@ -59,7 +59,10 @@ INDEX_JS = r"""() => {
     return parts.join(' > ');
   };
   const labelOf = (el) => {
-    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+    const al = el.getAttribute('aria-label'), seen = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? '' : (el.innerText || '').trim().replace(/\s+/g, ' ');
+    // a label that says what kind of link it is (“Navigation subcategory”), not what it says (“Laptops”): what it says
+    if (al && seen.length <= 40 && /\p{L}{3}/u.test(seen) && !al.toLowerCase().includes(seen.replace(/(\.\.\.|…)$/, '').toLowerCase())) return seen;
+    if (al) return al;
     if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) return l.innerText.trim(); }
     const wrap = el.closest('label'); if (wrap) return wrap.innerText.trim();
     return '';

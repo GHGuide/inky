@@ -99,8 +99,9 @@ def thumb(p):
 
 
 def shop(title, body):
-    side = ('<div class="sidebar"><a href="/shop/">Home</a> <a href="/shop/computers">Computers</a> '
-            '<a href="/shop/computers/laptops">Laptops</a> <a href="/shop/computers/tablets">Tablets</a></div>')
+    side = ('<div class="sidebar"><a href="/shop/">Home</a> <a href="/shop/computers" aria-label="Navigation category">Computers</a> '  # as on webscraper.io
+            '<a href="/shop/computers/laptops" aria-label="Navigation subcategory">Laptops</a> '
+            '<a href="/shop/computers/tablets" aria-label="Navigation subcategory">Tablets</a> <a href="/shop/cart" aria-label="Cart"><b>×</b></a></div>')
     return shell(title, f"{side}<div class='page'>{body}</div>")
 
 
