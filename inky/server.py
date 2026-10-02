@@ -10,6 +10,7 @@ import threading
 import time
 import traceback
 from datetime import datetime
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +25,16 @@ from inky.mcp import PRESETS
 UI = Path(__file__).parent / "ui"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
          ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
+class Server(ThreadingHTTPServer):
+    """HTTPServer looks up this computer's full name when it starts (getfqdn: a multicast-DNS lookup). macOS holds that
+    lookup for about 30 s the first time a new app touches the local network, so a first launch sat on "Waking up your
+    bots". Nothing here uses that name."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = str(self.server_address[0]), self.server_address[1]
+
+
 # The app's page loads only its own scripts and fonts. Pictures of what bots found come from the sites themselves (img-src),
 # and the desktop app talks to its shell over ipc:.
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; "
@@ -1352,7 +1363,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(engine, host="127.0.0.1", port=8800):
-    srv = ThreadingHTTPServer((host, port), type("EngineHandler", (Handler,), {"engine": engine}))
+    srv = Server((host, port), type("EngineHandler", (Handler,), {"engine": engine}))
     srv.daemon_threads = True
     engine.port = srv.server_port  # connectors that call back into Inky (n8n) need it
     engine.host = host
@@ -1370,7 +1381,7 @@ def lan_access(E, on):
     if on and not srv and getattr(E, "host", "") not in ("0.0.0.0", "::", ""):
         for port in ((E.port or 8800) + 1, 0):
             try:  # no address reuse: on macOS it would let us share a port another program listens on
-                cls = type("LanServer", (ThreadingHTTPServer,), {"allow_reuse_address": False})
+                cls = type("LanServer", (Server,), {"allow_reuse_address": False})
                 srv = cls(("0.0.0.0", port), type("EngineHandler", (Handler,), {"engine": E}))
                 break
             except OSError:

@@ -43,6 +43,16 @@ class SecurityTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             urllib.request.urlopen(req)
 
+    def test_starting_never_looks_up_this_computers_name(self):
+        # macOS holds that lookup ~30 s the first time a new app touches the network: a first launch sat waiting
+        from unittest import mock
+        import socket
+        from inky.server import Server, Handler
+        with mock.patch.object(socket, "getfqdn", side_effect=AssertionError("looked up the name")), \
+                mock.patch.object(socket, "gethostbyaddr", side_effect=AssertionError("looked up the name")):
+            srv = Server(("127.0.0.1", 0), Handler)
+            srv.server_close()
+
     def test_pair_code_reveals_nothing_of_the_token(self):
         code = pair_code(self.E.token)
         self.assertEqual(len(code), 6)

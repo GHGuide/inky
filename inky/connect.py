@@ -178,11 +178,9 @@ def parse_beacon(data):
 
 
 def local_ips():
+    """This computer's address on the network. (Not by looking up its own name: on macOS that's a multicast-DNS
+    lookup that can hang for 30 s the first time an app touches the local network.)"""
     ips = {"127.0.0.1"}
-    try:
-        ips |= set(socket.gethostbyname_ex(socket.gethostname())[2])
-    except OSError:
-        pass
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("192.0.2.1", 9))  # no packet is sent; this only picks the outgoing interface
