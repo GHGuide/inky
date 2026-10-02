@@ -184,6 +184,19 @@ class LearningTest(unittest.TestCase):
         skill, _, _ = self.learned_and_repeats("/enter/", "Find e-bikes", step("fill", "textbox:Search", "e-bike", "Type e-bike"), n=25)
         self.assertEqual(self.texts(skill)[:3], ["Type e-bike", "Press Enter to search", "Read 10 results"])
 
+    def test_aspnet_post_form_searches_without_asking(self):
+        skill, _, ctx = self.learn("/aspx/", "Find e-bikes", step("fill", "Search bikes", "e-bike", "Type e-bike"), step("click", "button:Search", label="Click Search"))
+        self.assertEqual(ctx.asked, [])
+        self.assertEqual(self.texts(skill), ["Type e-bike", "Click Search", "Read 25 results"])
+        out, rctx = self.replay(skill)
+        self.assertEqual((len(out["items"]), rctx.asked), (25, []))
+
+    def test_aspnet_form_parts(self):
+        page = self.comp.call("open", self.base + "/aspx/")
+        verdict = {e["name"]: classify("click" if e["role"] == "button" else "press", e, page)[0] for e in page["elements"] if e["form"] and e["role"] != "link"}
+        self.assertEqual(verdict, {"Search bikes": "ok", "Search": "ok", "User name": "password", "Password": "password", "Log in": "password",
+                                   "Newsletter": "irreversible", "Subscribe": "irreversible"})
+
     def test_category_links_instead_of_search(self):
         skill, _, _ = self.learned_and_repeats("/cats/", "Find e-bikes", step("click", "E-bikes", label="Open E-bikes"), n=25)
         self.assertEqual(self.texts(skill)[:2], ["Open E-bikes", "Read 10 results"])

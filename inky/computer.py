@@ -77,8 +77,13 @@ INDEX_JS = r"""() => {
   const formOf = (el) => {  // what pressing it would send: a POST form, a sign-in (it has a password box)
     const f = el.form || el.closest('form'); if (!f) return null;
     const ty = (el.getAttribute('type') || '').toLowerCase();
-    return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!f.querySelector('input[type=password]'),
-             personal: !!f.querySelector('textarea, input[type=email], input[type=tel]'),  // a message, an email, a phone number
+    // one form around the whole page (ASP.NET): only the controls beside this one count, not a newsletter or sign-in box elsewhere
+    let near = f;
+    if (f.querySelector('input[name=__VIEWSTATE], main, header, nav, footer'))
+      for (let g = el.parentElement; g && g !== f; g = g.parentElement)
+        if ([...g.querySelectorAll('input:not([type=hidden]), textarea, select, button')].some((x) => x !== el)) { near = g; break; }
+    return { post: (f.getAttribute('method') || 'get').toLowerCase() === 'post', password: !!near.querySelector('input[type=password]'),
+             personal: !!near.querySelector('textarea, input[type=email], input[type=tel]'),  // a message, an email, a phone number
              submits: el.tagName === 'BUTTON' ? (ty || 'submit') === 'submit' : el.tagName === 'INPUT' && ['submit', 'image'].includes(ty) };
   };
   let i = 0;
