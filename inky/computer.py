@@ -153,18 +153,21 @@ LISTS_JS = r"""() => {
     else if (head) fields.title = rel(first, head);
     else if (a) fields.title = a === first ? '' : rel(first, a);
     if (a) fields.link = (a === first ? '' : rel(first, a)) + '@href';
-    const leaves = [...first.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
     // the price: not a discount badge ("€424 korting", "-20%"), not a struck-out old price; the sale/current one when there are two
     const OFF = /korting|discount|rabatt|réduction|sconto|descuento|reducere|bespaar|save|you save|\boff\b|%|was\b|before|vorher|avant|prima/i;
     const OLDW = 'old|was|compare|regular|strike|before|original|list-?price';  // whole words in class names: a random "kOLdPq" isn't one
     const OLD = (e) => { const c = String(e.className || '') + ' ' + String((e.parentElement || {}).className || '');
       return e.closest('del,s,strike') || new RegExp(`(^|[-_\\s])(${OLDW})([-_\\s]|$)`, 'i').test(c) || new RegExp(`(^|[-_\\s])(${OLDW})[A-Z]`).test(c); };
-    // a price split over a few tiny elements ("1.450," and "00") counts as one
-    const small = [...first.querySelectorAll('*')].filter((e) => e.children.length && e.children.length <= 3 && (e.innerText || '').trim().length < 20 && [...e.children].every((c) => !c.children.length));
-    const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
-    const price = prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
-      || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
-    if (price) fields.price = rel(first, price);
+    const priceIn = (it) => {
+      const leaves = [...it.querySelectorAll('*')].filter((e) => !e.children.length || [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()));
+      // a price split over a few tiny elements ("1.450," and "00") counts as one
+      const small = [...it.querySelectorAll('*')].filter((e) => e.children.length && e.children.length <= 3 && (e.innerText || '').trim().length < 20 && [...e.children].every((c) => !c.children.length));
+      const prices = [...leaves, ...small].filter((e) => { const t = (e.innerText || '').trim(); return PRICE.test(t) && t.length < 40 && !OFF.test(t) && !OLD(e); });
+      return prices.find((e) => /sale|current|final|now|special|actual|nieuw|new/i.test(String(e.className || '') + ' ' + (e.innerText || ''))) || prices[0]
+        || leaves.find((e) => PRICE.test((e.innerText || '').trim()) && (e.innerText || '').trim().length < 40);
+    };
+    const withPrice = [first, ...peers].find((it) => priceIn(it));  // the first result can be an ad with no price ("Bieden")
+    if (withPrice) fields.price = rel(withPrice, priceIn(withPrice));
     if (fields.title !== '') fields.text = '';  // everything the result shows (place, company, tags), for rules like “remote”
     const img = first.querySelector('img');
     if (img) fields.image = rel(first, img) + '@src';
