@@ -661,6 +661,9 @@ def replay(ctx, skill, repair_role="repair"):
                             f"It showed “{short(page.get('title') or 'Access denied', 60)}”.", step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])
+            linked = [r for r in rows if r.get("link")]
+            if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
+                rows = linked
             items += rows
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)

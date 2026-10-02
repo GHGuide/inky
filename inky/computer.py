@@ -79,6 +79,10 @@ EXTRACT_JS = r"""(spec) => {
       if (k === 'text' && row[k]) row[k] = row[k].slice(0, 400);
       if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }
+    if ('link' in row && !row.link) {  // a result built a little differently: its own first link
+      const a = it.matches('a[href]') ? it : it.querySelector('a[href]');
+      if (a) { try { row.link = new URL(a.getAttribute('href'), location.href).href; } catch (e) {} }
+    }
     return row;
   });
 }"""
