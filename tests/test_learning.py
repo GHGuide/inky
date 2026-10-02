@@ -266,6 +266,10 @@ class LearningTest(unittest.TestCase):
         fresh, _ = self.replay(skill)  # a browser that never saw it: the banner is closed again
         self.assertEqual(len(fresh["items"]), 25)
 
+    def test_results_that_come_after_the_page(self):
+        _, model, out = self.learned_and_repeats("/late", "Find e-bikes", n=12)
+        self.assertEqual(model.calls["selectors"], 0)  # it waited for the list instead of asking the model to guess one
+
     def test_redirects(self):
         for path in ("/old", "/jsredirect"):
             skill, _, out = self.learned_and_repeats(path, "Find e-bikes", n=25)

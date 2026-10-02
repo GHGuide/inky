@@ -266,6 +266,11 @@ def read_results(ctx, goal, page):
     Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
     comp = ctx.computer
     lists = comp.call("lists")
+    for _ in range(4):  # some sites fill in their list a moment after the page loads
+        if lists:
+            break
+        time.sleep(1)
+        lists = comp.call("lists")
     if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
         lists = [c for c in lists if c["count"] >= 6]
     lists = [c for c in lists if not menu_list(c.get("rows") or [])]  # "Elektrische fietsen 743": a category menu with counts
@@ -674,6 +679,11 @@ def replay(ctx, skill, repair_role="repair"):
                             f"It showed “{short(page.get('title') or 'Access denied', 60)}”.", step=i)
         if step["action"] == "extract":
             rows = comp.call("extract", step["spec"])
+            for _ in range(5):  # a list that comes a moment after the page
+                if rows:
+                    break
+                time.sleep(1)
+                rows = comp.call("extract", step["spec"])
             linked = [r for r in rows if r.get("link")]
             if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
                 rows = linked
