@@ -220,7 +220,11 @@ def next_link(page):
         name = (e.get("name") or "").strip()
         if name and len(name) < 40 and NEXT.match(name) and (e.get("role") == "link" and e.get("href") or e.get("role") == "button" and not home):
             return e
-    return None
+    nums = {}
+    for e in page.get("elements") or []:  # only page numbers (1 2 3 …): page 2 is next
+        if e.get("role") == "link" and re.search(r"page|pagina|seite|offset|start=|[?&](p|pg|pn|o)=\d|/p/\d", e.get("href") or "", re.I):
+            nums.setdefault((e.get("name") or "").strip(), e)
+    return nums["2"] if "2" in nums and "3" in nums else None
 
 
 def error_page(page):
@@ -682,7 +686,10 @@ def replay(ctx, skill, repair_role="repair"):
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
             nxt = steps[i + 1] if i + 1 < len(steps) and steps[i + 1].get("next_page") else None
             if nxt and pages < skill.get("max_pages", 3):
-                idx, _ = locate(nxt["target"], comp.call("elements")["elements"])
+                target = nxt["target"]
+                if (target.get("name") or "").isdigit():  # numbered pages: after page 2 comes the link “3”
+                    target = {**target, "name": str(int(target["name"]) + pages - 1), "text": str(int(target["name"]) + pages - 1)}
+                idx, _ = locate(target, comp.call("elements")["elements"])
                 if idx is not None:
                     page = _do(comp, nxt, idx, None, i + 2)
                     continue  # read the next page with the same extract step

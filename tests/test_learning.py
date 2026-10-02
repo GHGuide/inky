@@ -202,6 +202,10 @@ class LearningTest(unittest.TestCase):
         self.assertEqual(self.texts(skill)[:2], ["Open E-bikes", "Read 10 results"])
 
     # -------------------------------------------------------------- pagination
+    def test_numbered_pages(self):
+        _, _, out = self.learned_and_repeats("/numbered", "Find e-bikes")
+        self.assertEqual((out["pages"], len(out["items"])), (3, 24))
+
     def test_load_more_button(self):
         _, _, out = self.learned_and_repeats("/more", "Find e-bikes")
         self.assertEqual(len(out["items"]), 25)  # every one once, though each “Load more” shows the earlier ones again
