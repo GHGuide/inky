@@ -569,7 +569,9 @@ def answer_for_bot(E, h, q, body, bid, nid):
 @route("GET", "/api/activity")
 def activity(E, h, q, body):
     names = {b["id"]: b["name"] for b in E.store.find("bots")}
-    ev = [dict(e, bot=names.get(e["bot_id"])) for e in E.store.find("events", limit=400) if e.get("kind") != "ai"][:150]
+    # what each run did, not each page it read inside it (“Read 20 results” three times under “60 results, 14 pass your rules”)
+    step = lambda e: e.get("kind") == "replay" and re.match(r"^(Read \d+ results?|Pressed |Clicked |Typed |Opened |Next page)", e.get("text") or "")
+    ev = [dict(e, bot=names.get(e["bot_id"])) for e in E.store.find("events", limit=600) if e.get("kind") != "ai" and not step(e)][:150]
     runs = [dict(r, bot=names.get(r["bot_id"])) for r in E.store.find("runs", limit=300)]
     week = time.time() - 7 * 86400
     wk = [r for r in runs if r["ts"] > week]

@@ -1997,8 +1997,9 @@ VIEWS.computers = {
       const act = away ? "" : c.kind === "local" ? (reach.length && b.status !== "moved" ? `<button class="btn s" data-move="${b.id}" aria-label="Move ${esc(name)}">Move</button>` : "")
         : mine ? `<button class="btn s" data-back="${mine.id}" aria-label="Bring ${esc(name)} back">Bring back</button>` : "";
       const live = running(b) && c.kind === "local";
-      const body = `<div class="thumb ${live ? "" : "idle"}" style="height:90px">${live ? `<img src="${screenUrl(b.id)}" alt="">` : esc(away ? "can’t see it now" : (STATUS[b.status] || [String(b.status).replace(/_/g, " ")])[0])}</div>
-        <span class="row small">${botCritter(mine || b, 22)}<b class="grow cname" title="${esc(name)}">${esc(name)}</b></span>`;
+      const state = away ? "can’t see it now" : (STATUS[b.status] || [String(b.status).replace(/_/g, " ")])[0];
+      const body = `${live ? `<div class="thumb" style="height:90px"><img src="${screenUrl(b.id)}" alt=""></div>` : ""}
+        <span class="row small">${botCritter(mine || b, 22)}<b class="grow cname" title="${esc(name)}">${esc(name)}</b>${live ? "" : `<span class="muted">${esc(state)}</span>`}</span>`;  // a live screen only while it runs
       return `<div class="botcard cbot${mine ? "" : " nolink"}${away ? " away" : ""}">${mine ? `<a class="cblink" data-open="${mine.id}" href="#/bot/${mine.id}/computer" aria-label="${esc(name)}, open its computer">${body}</a>` : body}${act}</div>`;
     };
     redraw(box, () => (box.innerHTML = computers.map((c) => {
