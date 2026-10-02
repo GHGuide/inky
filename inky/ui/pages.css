@@ -83,3 +83,10 @@ a.ev:hover{background:rgba(17,17,16,.03);color:inherit}
 .hrow:last-child{border-bottom:0}
 @media (max-width:640px){.need .opts{padding-left:0}}
 .cfound{gap:4px;padding:12px 14px;min-height:90px;justify-content:center}
+/* ready-made jobs: a calm grid of small cards, one click to a draft */
+.ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;width:100%;margin-top:10px}
+.idea{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);text-align:left;cursor:pointer;font:inherit;color:var(--ink);transition:border-color .15s,transform .15s}
+.idea b{font-size:13.5px;font-weight:600}.idea span{font-size:12.5px;color:var(--muted)}
+.idea:hover{border-color:var(--line2);transform:translateY(-1px)}.idea:focus-visible{outline:2px solid var(--coral);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.idea{transition:none}.idea:hover{transform:none}}
+.idea.try{border-color:var(--coral);background:var(--coral-bg)}.idea.try b{color:var(--coral-t)}

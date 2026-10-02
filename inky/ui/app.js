@@ -205,6 +205,16 @@ function appNotify(bot, title, body, hash) {
   invoke("notify", { title, body, hash });
 }
 
+// "Send me a test": alerts reach you before you rely on them (in the app: the system notification; in a browser: the browser's)
+async function testNotify() {
+  const title = "Inky", body = "This is how your bots will tell you about new things.";
+  if (APP) { invoke("notify", { title, body, hash: "#/bots" }); return toast("Sent. If nothing showed up, allow notifications for Inky in your system settings."); }
+  if (!("Notification" in window)) return toast("This browser can't show notifications. Use the Inky app, or Telegram in More → Phone.");
+  const ok = Notification.permission === "granted" || (await Notification.requestPermission()) === "granted";
+  if (!ok) return toast("Notifications are blocked for this page. Allow them in the browser's site settings.");
+  new Notification(title, { body });
+}
+
 // double-clicking an .inky bot file (or .inkyskill) in Finder/Explorer
 async function importFile(text) {
   let d;

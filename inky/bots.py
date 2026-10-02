@@ -219,8 +219,8 @@ def every_words(m):
     return unit if n == 1 else f"{n} {unit}s"
 
 
-def nres(n):
-    return f"{n} result{'' if n == 1 else 's'}"
+def nres(n, word="result"):
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 def plain_error(e):
@@ -889,7 +889,7 @@ class Engine:
         last = next((r for r in self.store.find("runs", bot_id=bid, limit=5) if r.get("kind") == "replay" and r.get("status") == "ok"), None)
         if last:
             status += (f". Last run {datetime.fromtimestamp(last['ts']).strftime('%a %H:%M')}: {last.get('items', 0)} results, "
-                       f"{last.get('matched', 0)} pass the rules, {last.get('new', 0)} new, {last.get('ai_calls', 0)} AI calls. "
+                       f"{last.get('matched', 0)} pass the rules, {last.get('new', 0)} new, {nres(last.get('ai_calls', 0), 'AI call')}. "
                        f"Results saved so far: {sum(1 for r in self.store.find('results', bot_id=bid, limit=2000) if r.get('passed') is not False)}")
         sys = CHAT_SYSTEM.format(name=b["name"], job=b.get("job", ""), tone=b.get("look", {}).get("tone", "cheerful"),
                                  fields=", ".join(fields) or "none yet", rules="; ".join(r["text"] for r in b.get("rules", [])),
@@ -1295,11 +1295,11 @@ class Engine:
                 self.store.delete("skills", same)
                 self._worked(bid, f"skill:{same}")
             self._worked(bid, f"site:{skills.site_of(urlparse(url).hostname or '')}")
-            self.store.event(bid, "learned", f"Learned {skill['name']}: {len(skill['steps'])} steps, {run.ai_calls} AI calls")
+            self.store.event(bid, "learned", f"Learned {skill['name']}: {nres(len(skill['steps']), 'step')}, {nres(run.ai_calls, 'AI call')}")
             self._finish(run, "ok", learned=sid)
             reads = any(st["action"] == "extract" for st in skill["steps"])
             if not batch:
-                self.store.message(bid, "bot", f"Learned “{skill['name']}” in {len(skill['steps'])} steps with {run.ai_calls} AI calls. "
+                self.store.message(bid, "bot", f"Learned “{skill['name']}” in {nres(len(skill['steps']), 'step')} with {nres(run.ai_calls, 'AI call')}. "
                                                f"From now on it repeats with none." + (" Checking it once now." if reads else " Done for now."))
                 self.bus.publish("messages", bot=bid)
             if reads:  # an action (like sending) already happened while learning: never twice
@@ -1493,7 +1493,7 @@ class Engine:
                 self.store.message(bid, "bot", f"{len(new)} new {'match' if len(new) == 1 else 'matches'} from {nres(len(out['items']))}: {top}")
                 self.notify(bid, f"{len(new)} new: {top}")
             elif not reads:
-                self.store.message(bid, "bot", f"Done: “{skill['name']}”, {len(skill['steps'])} steps, {run.ai_calls} AI calls.")
+                self.store.message(bid, "bot", f"Done: “{skill['name']}”, {nres(len(skill['steps']), 'step')}, {nres(run.ai_calls, 'AI call')}.")
             elif reason not in ("schedule", "silent"):
                 ai = "no AI" if not run.ai_calls else f"{run.ai_calls} AI call{'s' if run.ai_calls > 1 else ''} to fix a step"
                 self.store.message(bid, "bot", f"Checked {nres(len(out['items']))} with {ai}. {len(kept)} pass{'es' if len(kept) == 1 else ''} your rules, none new.")

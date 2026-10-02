@@ -5,6 +5,23 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const OPS = ["<=", "<", ">=", ">", "==", "!=", "contains", "not_contains", "in", "not_in"];
 const EVERY = [[0, "Only when I ask"], [60, "Every hour"], [360, "Every 6 hours"], [1440, "Every day"], [10080, "Every week"]];
 const everyOf = (d) => { const m = +d.every_minutes || 0; return EVERY.reduce((a, [v]) => (Math.abs(v - m) < Math.abs(a - m) ? v : a), 0); };  // nearest choice
+// Ready-made jobs: what people really set up most (price drops, restocks, rentals, jobs, second-hand deals, news), and a
+// practice site that always works. One click fills the box; the person edits the words.
+const money = (n) => { const l = navigator.language || "en"; return /^en-US/i.test(l) ? `$${n}` : /^en-GB/i.test(l) ? `£${n}` : `€${n}`; };
+const IDEAS = () => {
+  const nl = /^nl/i.test(navigator.language || "");
+  return [
+    ["Try it now", "A practice site · ready in a minute", "Every morning, find books under £20 on books.toscrape.com"],
+    ["Price drop", "Headphones under " + money(250), `Tell me when Sony WH-1000XM5 headphones drop below ${money(250)}`],
+    ["Back in stock", "A console you can't get", "Tell me when the Nintendo Switch 2 is back in stock"],
+    ["New rentals", "Flats as soon as they're listed", `Every morning, new 2-bedroom flats for rent in ${nl ? "Utrecht" : "Lisbon"} under ${money(1500)}`],
+    ["New jobs", "Remote roles, every day", "Every day, new remote Python jobs on python.org"],
+    ["Second-hand deals", "Second-hand, under your price", nl ? `Second-hand e-bikes under ${money(1000)} on marktplaats.nl` : `Second-hand road bikes under ${money(600)} on eBay`],
+    ["News on a topic", "Only what you care about", "Every hour, new Hacker News stories about AI"],
+  ];
+};
+const ideasHtml = () => `<div class="ideas" role="group" aria-label="Ready-made jobs">${IDEAS().map(([t, sub, say]) =>
+  `<button type="button" class="idea${t === "Try it now" ? " try" : ""}" data-ex="${esc(say)}"><b>${esc(t)}</b><span>${esc(sub)}</span></button>`).join("")}</div>`;
 const FIELD_WORDS = { price: "Price", title: "Name", text: "Mentions" };  // what a rule checks, in plain words
 const fieldOptions = (cur) => [...new Set([...Object.keys(FIELD_WORDS), cur].filter(Boolean))]
   .map((k) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(FIELD_WORDS[k] || k)}</option>`).join("");
@@ -107,7 +124,9 @@ VIEWS.setup = {
       body = `<h1>You’re ready</h1><div class="row" style="justify-content:center">${critter("octopus", "#E86F51", "none", 72)}</div>
       <p class="lede" style="text-align:center">${models.roles.learn ? `Your bots think with <b>${esc(models.roles.learn.model)}</b>.` : "No model yet: add one in More → Models when you’re ready."} Your phone, another computer or your own screen can be added later in More.</p>
       <div class="composer" style="width:100%"><label class="l" for="job">What should your first bot do?</label><textarea id="job" rows="2" placeholder="e.g. Every morning, find used e-bikes under €1,000 on marktplaats.nl"></textarea>
-        <div class="between"><span class="mono small muted">${esc(shortcut())}</span><button class="btn p" id="start">Start</button></div></div>`;
+        <div class="between"><span class="small muted">Plain words are fine. No site? It finds them for you.</span><button class="btn p" id="start">Start</button></div></div>
+      <p class="small muted" style="margin:6px 0 0">Or start from one of these:</p>${ideasHtml()}
+      <div class="between small" style="margin-top:12px"><span class="muted">Bots tell you about new things with a notification.</span><button class="btn s" id="testnote" type="button">Send me a test</button></div>`;
       foot = nav(2, "#/bots", "Go to your bots");
     }
     if (extra) foot = `<div class="wfoot between"><a href="#/settings" class="muted">Back to Settings</a><a class="btn p" href="#/settings" id="wnext" style="min-height:44px">Done</a></div>`;
@@ -145,6 +164,8 @@ VIEWS.setup = {
       };
       $("#start").onclick = start;
       enterSends($("#job"), start);
+      $$("[data-ex]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); $("#job").value = b.dataset.ex; start(); }));  // setup ends, its draft opens
+      $("#testnote").onclick = () => testNotify();
     }
   },
   lanText(url) {
@@ -303,7 +324,7 @@ VIEWS.bots = {
       <p class="lede" style="margin-top:-6px">Say it in your own words. A bot does it now, again whenever you like, and tells you what it finds.</p>
       <div class="composer"><label class="vh" for="job">Describe the job</label><textarea id="job" rows="2" placeholder="e.g. Every morning, find used e-bikes under €1,000 on marktplaats.nl"></textarea>
         <div class="between"><span class="small muted">Inky drafts the bot and finds the sites; you check it, then it starts.</span><button class="btn p" id="go">Start</button></div></div>
-      <div class="row wrap" style="justify-content:center">${["Find rental flats abroad under €150k", "Watch 5 webshops for price drops", "Every morning, check new books on books.toscrape.com"].map((t) => `<button class="btn" data-ex="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
+      ${ideasHtml()}</div>
       <div class="page" style="padding-top:12px"><div id="betterm"></div><div id="recap"></div><div class="between"><h2>Your bots</h2><span class="row"><span class="seg" id="homeview" role="group" aria-label="Show bots as"><button data-hv="cards" aria-pressed="false">Cards</button><button data-hv="office" aria-pressed="false">Office</button></span><label class="btn s" for="importf">Import a bot file</label><input type="file" id="importf" accept=".inky,.json" class="vh"></span></div><div class="botcards" id="cards"></div></div>`;
     const go = () => {
       const t = $("#job").value.trim();
@@ -321,7 +342,7 @@ VIEWS.bots = {
     };
     $("#go").onclick = go;
     enterSends($("#job"), go);
-    $$("[data-ex]").forEach((b) => (b.onclick = () => { $("#job").value = b.dataset.ex; $("#job").focus(); }));
+    $$("[data-ex]").forEach((b) => (b.onclick = () => { location.hash = `#/new?job=${encodeURIComponent(b.dataset.ex)}`; }));  // one click to its draft
     $("#importf").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       e.target.value = "";
@@ -414,9 +435,10 @@ VIEWS.new = {
     this.picked = new Set(); this.found = null; this.siteQuery = ""; this.searched = null; this.allSites = false; this.gotMore = false; this.every = 0;  // "edited", not "dirty": the router calls a page's dirty() before leaving it
     el.innerHTML = `${mobileBar("New bot")}<div class="page narrow"><h1>New bot</h1><p class="lede">Describe the job. It drafts the bot, you check it, then it learns the site once while you watch.</p>
       <div class="composer" style="width:100%"><label class="vh" for="job">Job</label><textarea id="job" rows="3" placeholder="e.g. Every morning, find flats in Bari under €150k on casafacile.it">${esc(job)}</textarea>
-      <div class="between"><span class="small muted">Include the site if you know it.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox"></div></div>`;
+      <div class="between"><span class="small muted">Include the site if you know it. No site? It finds them for you.</span><button class="btn p" id="draft">Draft the bot</button></div></div><div id="draftbox">${job ? "" : `<p class="small muted" style="margin:14px 0 8px">Or start from one of these:</p>${ideasHtml()}`}</div></div>`;
     $("#draft", el).onclick = () => this.draft();
     enterSends($("#job", el), () => this.draft());
+    $$("[data-ex]", el).forEach((b) => (b.onclick = () => { $("#job", el).value = b.dataset.ex; this.draft(); }));
     if (job) this.draft();
   },
   leave() { this.req++; },  // a draft that comes back after you left is dropped
@@ -721,6 +743,7 @@ VIEWS.bot = {
       this.go(m[2]);
     });
     this.drawHead(); this.drawMsgs(true); this.drawTab(true);
+    this.firstLearn = !!(qs && qs.get("hatch"));  // just made: when its first check is done, it shows you what it found
     if (qs && qs.get("hatch")) { history.replaceState(null, "", `#/bot/${b.id}/${tab}`); hatch(b, (this.data.messages.find((m) => m.intro) || {}).text); }
   },
   go(tab) {  // another tab of this bot, without leaving the page
@@ -781,6 +804,11 @@ VIEWS.bot = {
     if (id !== this.id || !this.data) return;  // you went to another bot meanwhile
     this.data = d;
     this.drawHead(); this.drawMsgs(); this.drawTab(false, force);
+    const b = d.bot;
+    if (this.firstLearn && this.tab === "computer" && !b.run_kind && !b.sites_to_go && !["learning", "working"].includes(b.status) && b.found > 0) {
+      this.firstLearn = false;
+      this.go("results");
+    }
   },
   edit(fn) {  // one change at a time, each made to the bot as it is now, so nothing added meanwhile is lost
     const id = this.id;
