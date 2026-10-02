@@ -234,6 +234,10 @@ class LearningTest(unittest.TestCase):
             self.assertEqual(skills.parse_num(s), n, s)
         for price in ("Free", "Gratis", "€ 0", "£12"):  # free things pass a price limit
             self.assertTrue(skills.keep({"price": price}, {"field": "price", "op": "<=", "value": 20}), price)
+        team, wins = {"title": "Boston Bruins", "text": "Boston Bruins 1990 44 24"}, {"field": "text", "op": ">", "value": 40, "text": "more than 40 wins"}
+        for op in (">", "<"):  # a number rule on all of a result's words would compare its first number (the year): it can't be checked
+            self.assertTrue(skills.keep(team, {**wins, "op": op}))
+        self.assertEqual(skills.unchecked([team], [wins]), ["more than 40 wins"])
 
     def test_results_without_prices(self):
         _, _, out = self.learned_and_repeats("/articles", "Find new articles about cycling", n=15, priced=False)
@@ -340,6 +344,10 @@ class LearningTest(unittest.TestCase):
         t0 = time.time()
         self.learned_and_repeats("/slow", "Find e-bikes", n=25)
         self.assertGreater(time.time() - t0, 9)  # it really waited for each page
+
+    def test_a_next_page_that_takes_a_second(self):  # it must read page 2, not page 1 again while page 2 is on its way
+        _, _, out = self.learned_and_repeats("/slownext", "Find e-bikes", n=25)
+        self.assertEqual(out["pages"], 3)
 
     # -------------------------------------------------------------- what learning refuses
     def test_home_feed_sell_and_log_in_are_refused(self):

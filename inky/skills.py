@@ -121,8 +121,8 @@ def keep(item, f):
     op, want = f.get("op"), f.get("value")
     if f.get("field") == "text" and "text" not in item:  # anything shown in the result: what was read of it
         item = {**item, "text": " ".join(str(x) for k, x in item.items() if isinstance(x, str) and k not in ("link", "image"))}
-    if f.get("field") not in item:  # the site has no such field: can't judge, so keep (unchecked() reports it)
-        return True
+    if f.get("field") not in item or (f.get("field") == "text" and op in ("<", "<=", ">", ">=")):  # no such field, or a number in all its
+        return True  # words (“more than 40 wins” would compare the year): can't judge, so keep, and unchecked() says so
     v = item.get(f.get("field"))
     if op in ("<", "<=", ">", ">="):
         a, b = parse_num(v), parse_num(want)
@@ -158,7 +158,8 @@ def apply_filters(items, filters):
 def unchecked(items, filters):
     """Rules this site's results can't be checked against (their field isn't extracted)."""
     fields = {k for it in items[:20] for k in it}
-    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or [] if items and f.get("field") not in fields | {"text"}]
+    return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or []
+            if items and (f.get("field") not in fields | {"text"} or (f.get("field") == "text" and f.get("op") in ("<", "<=", ">", ">=")))]
 
 
 def item_key(it):

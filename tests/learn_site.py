@@ -233,6 +233,9 @@ class Site(BaseHTTPRequestHandler):
             return self.send("", 302, headers=[("Location", "/search?q=e-bike")])
         if p == "/jsredirect":
             return self.send("<!doctype html><title>Moving</title><script>location.replace('/search?q=e-bike')</script>")
+        if p == "/slownext":  # the first page comes at once, the next ones take a second (like scrapethissite.com)
+            time.sleep(1.2 if n > 1 else 0)
+            return self.send(shell("E-bikes", "<h1>E-bikes</h1>" + paged(BIKES, n, 10, lambda k: f"/slownext?page={k}")))
         if p == "/slow":
             time.sleep(3)
             return self.send(shell("E-bikes", "<h1>E-bikes</h1>" + paged(BIKES, n, 10, lambda k: f"/slow?page={k}")))
