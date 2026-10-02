@@ -272,16 +272,22 @@ PICK_LIST_SYSTEM = """Pick the list of results on this page that fits the goal: 
 price or limit in it (Inky applies those itself). Reply with ONE JSON object: {"pick": <list number, or 0 if none fits>}"""
 
 
-def read_results(ctx, goal, page):
-    """The results on this page: Inky finds the lists itself (repeated items with links), the model only picks one.
-    Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
-    comp = ctx.computer
+def wait_for_lists(comp, tries=4):
+    """The page's lists of results; some sites fill them in a moment after the page loads."""
     lists = comp.call("lists")
-    for _ in range(4):  # some sites fill in their list a moment after the page loads
+    for _ in range(tries):
         if lists:
             break
         time.sleep(1)
         lists = comp.call("lists")
+    return lists
+
+
+def read_results(ctx, goal, page):
+    """The results on this page: Inky finds the lists itself (repeated items with links), the model only picks one.
+    Falls back to the model writing selectors from an outline. -> (spec, rows); rows is [] when nothing was found."""
+    comp = ctx.computer
+    lists = wait_for_lists(comp)
     if home_page(page.get("url")):  # a home page's few tiles are its categories or featured items, not results
         lists = [c for c in lists if c["count"] >= 6]
     lists = [c for c in lists if not menu_list(c.get("rows") or [])]  # "Elektrische fietsen 743": a category menu with counts
@@ -565,10 +571,17 @@ def learn(ctx, goal, start_url, max_steps=24):
         if el and classify(step["action"], el, page)[0] == "irreversible":
             step["sends"] = True  # this is the step that sends or submits: a job that never has one never does anything
         ctx.gate(step, el, page)
+        listed = watch and act in ("click", "press") and steps and steps[-1]["action"] == "fill" and comp.call("lists")  # sending a search
         try:
             page_after = _do(comp, step, idx, el, len(steps) + 1)
             if act == "goto" and error_page(page_after):  # an address the model made up: back, and click links instead
                 history.append(f"{d.get('value')} doesn’t exist (an error page); click a link on the page instead of guessing addresses")
+                page = comp.call("open", page["url"])
+                continue
+            if listed and page_after["url"] != page["url"] and not wait_for_lists(comp):  # the search emptied a page that listed results
+                box = steps.pop()
+                typed.pop(((box.get("target") or {}).get("role"), (box.get("target") or {}).get("name")), None)
+                history.append(f"searching for “{box.get('value')}” found nothing, and the page before already listed results: read those, or search for something simpler")
                 page = comp.call("open", page["url"])
                 continue
         except (NeedsHelp, Stopped):

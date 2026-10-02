@@ -273,6 +273,11 @@ class LearningTest(unittest.TestCase):
         self.assertEqual(model.calls["pick"], 0)  # one real list: nothing to ask (a small model said “none fits”: not every story is about AI)
         self.assertTrue(out["items"][0]["title"].startswith("Story 1:"))
 
+    def test_a_search_that_finds_nothing_is_undone(self):  # “hockey” is no team's name: the page before had the teams
+        skill, model, out = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", step("fill", "Search for Teams", "hockey", "Type hockey", tries=1),
+                                                     step("click", "button:Search", label="Click Search", tries=1), n=24, priced=False)
+        self.assertEqual(self.texts(skill), ["Read 10 results", "Next page (Next)"])
+
     def test_featured_items_beside_the_category_link(self):  # webscraper.io: a few top items on every page, laptops one link away
         skill, _, out = self.learned_and_repeats("/shop/", "Find laptops under $500", step("click", "Computers", label="Open Computers"),
                                                  step("click", "Computers", label="Open Computers again"), step("extract", tries=1, label="Read"),
