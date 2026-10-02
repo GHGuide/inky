@@ -33,15 +33,15 @@ class Plan:
     """A model that does its steps in order (each at most `tries` times, only when its element is on the page),
     then reads the results and says done. It answers learning's other questions as told."""
 
-    def __init__(self, *steps, fits=None, repair=None, selectors=None):
-        self.steps, self.fits, self.repair, self.selectors = list(steps), fits or (lambda sample: True), repair, selectors
+    def __init__(self, *steps, fits=None, repair=None, selectors=None, pick=1):
+        self.steps, self.fits, self.repair, self.selectors, self.pick = list(steps), fits or (lambda sample: True), repair, selectors, pick
         self.calls, self.tried = collections.Counter(), collections.Counter()
 
     def ask_json(self, role, system, user, bot_id=None, **kw):
         kind = KIND.get(system, "step")
         self.calls[kind] += 1
         if kind == "pick":
-            return {"pick": 1}, {}
+            return {"pick": self.pick}, {}
         if kind == "fits":
             ok = self.fits(user.split("RESULTS:")[1].lower())
             return {"fits": ok, "why": "fits" if ok else "a different kind of thing"}, {}
@@ -249,10 +249,11 @@ class LearningTest(unittest.TestCase):
         self.assertEqual([i["title"] for i in out["items"]], [q["text"] for q in learn_site.QUOTES])
 
     def test_a_reading_step_on_shared_links_still_keeps_results_apart(self):  # one a model wrote, or learned before
-        skill = {"name": "Quotes", "goal": "Find quotes", "start_url": self.base + "/quotes", "max_pages": 1, "steps": [
-            {"action": "extract", "spec": {"item": "div.quote", "fields": {"title": "a.tag", "link": "a.tag@href", "text": ""}}, "text": "Read"}]}
-        out, _ = self.replay(skill)
-        self.assertEqual(len({skills.item_key(i) for i in out["items"]}), 10)
+        skill = {"name": "Quotes", "goal": "Find quotes", "start_url": self.base + "/quotes", "max_pages": 3, "steps": [
+            {"action": "extract", "spec": {"item": "div.quote", "fields": {"title": "span.text", "link": "a.tag@href", "text": ""}}, "text": "Read"},
+            {"action": "click", "target": {"role": "link", "name": "Next →"}, "text": "Next page", "next_page": True, "optional": True}]}
+        out, _ = self.replay(skill)  # each page's first tags all differ, but page 2 has the same ones again
+        self.assertEqual(len({skills.item_key(i) for i in out["items"]}), 29)
 
     # -------------------------------------------------------------- how pages behave
     def test_cookie_banner_over_the_page(self):

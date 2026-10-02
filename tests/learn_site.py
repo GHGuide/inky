@@ -19,7 +19,12 @@ FEED = [{"id": f"f{i}", "name": n, "price": p, "where": "Amsterdam"} for i, (n, 
 TAGS = ["love", "life", "inspirational", "humor", "books", "truth"]
 AUTHORS = ["Albert Einstein", "Jane Austen", "Mark Twain", "Marilyn Monroe"]
 QUOTES = [{"text": f"“Quote number {i}: the {['world', 'mind', 'book', 'heart', 'truth'][i % 5]} is what we make of it, again and again.”",
-           "author": AUTHORS[i % 4], "tags": [TAGS[i % 6], TAGS[(i + 2) % 6]]} for i in range(29)]
+           "author": AUTHORS[i % 4], "tags": [f"topic{i % 10}", TAGS[i % 6]]} for i in range(29)]  # like the real site: on one page the first tags all differ
+
+LAPTOPS = [{"id": f"lt{i}", "name": f"{['Asus', 'Lenovo', 'Acer', 'Dell', 'HP'][i % 5]} VivoBook {14 + i} laptop", "price": 299 + i * 61} for i in range(15)]
+TOP = [{"id": "t0", "name": "Galaxy Tab 3", "price": 97}, {"id": "t1", "name": "Nokia 123", "price": 24}, {"id": "t2", "name": "Asus VivoBook 14 laptop", "price": 299}]
+TEAMS = [{"name": f"{['Boston', 'Chicago', 'Detroit', 'Toronto', 'Montreal', 'New York'][i % 6]} {['Bruins', 'Hawks', 'Wings', 'Leafs'][i // 6]}",
+          "year": 1990 + i % 5, "wins": 30 + (i * 7) % 25, "losses": 20 + i % 9} for i in range(24)]
 
 CSS = """body{font-family:system-ui,sans-serif;margin:0;color:#222}header{background:#234;color:#fff;padding:12px 20px}
 header a{color:#fff;margin-right:14px}main{max-width:900px;margin:20px auto;padding:0 16px}
@@ -84,6 +89,19 @@ def finder():
     btn = {1: '<button type="submit">Search</button>', 2: '<button type="submit">Go</button>', 3: '<button type="submit">Go</button>',
            4: '<button type="button" onclick="this.textContent=\'Saved\'">Save search</button>'}[STATE["layout"]]
     return f'<form action="/search" onsubmit="return {str(STATE["layout"] != 4).lower()}">{box}{btn}</form>'
+
+
+def thumb(p):
+    """webscraper.io's product card: the price heading comes first, the name is a link with the full name in its title."""
+    return (f'<div class="col-md-4"><div class="thumbnail"><div class="caption"><h4 class="price">${p["price"]:.2f}</h4>'
+            f'<h4><a class="title" href="/shop/product/{p["id"]}" title="{esc(p["name"])}">{esc(p["name"][:16])}...</a></h4>'
+            f'<p class="description">{esc(p["name"])}, 8GB, 256GB SSD</p></div></div></div>')
+
+
+def shop(title, body):
+    side = ('<div class="sidebar"><a href="/shop/">Home</a> <a href="/shop/computers">Computers</a> '
+            '<a href="/shop/computers/laptops">Laptops</a> <a href="/shop/computers/tablets">Tablets</a></div>')
+    return shell(title, f"{side}<div class='page'>{body}</div>")
 
 
 class Site(BaseHTTPRequestHandler):
@@ -170,6 +188,34 @@ class Site(BaseHTTPRequestHandler):
             side = "".join(f'<span class="tag-item"><a class="tag" href="/quotes/tag/{t}/">{t}</a></span>' for t in TAGS)
             return self.send(shell("Quotes", f"<h1>Quotes to Scrape</h1><div class='row'><div class='col-md-8'>{''.join(quote(x) for x in chunk)}{nxt}</div>"
                                              f"<div class='col-md-4 tags-box'><h2>Top Ten tags</h2>{side}</div></div>"))
+        if p in ("/shop/", "/shop/computers"):  # a few featured items, and the category the job wants is a link away
+            return self.send(shop("Web Scraper Test Sites", "<h1>Top items being scraped right now</h1><div class='row'>" + "".join(thumb(t) for t in TOP) + "</div>"))
+        if p == "/shop/computers/laptops":
+            chunk = "".join(thumb(x) for x in LAPTOPS[(n - 1) * 6:n * 6])
+            nxt = f'<ul class="pagination"><li><a class="page-link" href="/shop/computers/laptops?page={n + 1}">›</a></li></ul>' if n * 6 < len(LAPTOPS) else ""
+            return self.send(shop("Laptops", f"<h1>Computers / Laptops</h1><div class='row'>{chunk}</div>{nxt}"))
+        if p == "/teams":  # scrapethissite's hockey teams: a table whose rows have no links, a search box, pages
+            n = int(q.get("page_num", "1"))
+            hits = [t for t in TEAMS if q.get("q", "").lower() in t["name"].lower()]
+            rows = "".join(f'<tr class="team"><td class="name">{t["name"]}</td><td class="year">{t["year"]}</td><td class="wins">{t["wins"]}</td>'
+                           f'<td class="losses">{t["losses"]}</td></tr>' for t in hits[(n - 1) * 10:n * 10])
+            nxt = f'<a href="/teams?{urlencode({**q, "page_num": n + 1})}" aria-label="Next">»</a>' if n * 10 < len(hits) else ""
+            return self.send(shell("Hockey Teams", '<h1>Hockey Teams: Forms, Searching and Pagination</h1><form action="/teams">'
+                                                   '<input name="q" placeholder="Search for Teams..." aria-label="Search for Teams"><button>Search</button></form>'
+                                                   f'<table><tr><th>Team Name</th><th>Year</th><th>Wins</th><th>Losses</th></tr>{rows}</table>{nxt}'))
+        if p == "/hn/news":  # Hacker News: each story is two table rows, the second with its vote, user and comment links
+            stories = "".join(
+                f'<tr class="athing submission" id="{i}"><td class="title"><span class="rank">{i}.</span></td><td class="votelinks"><a href="/hn/vote?id={i}">'
+                f'<div class="votearrow"></div></a></td><td class="title"><span class="titleline"><a href="https://example.org/story{i}">Story {i}: what changed in '
+                f'{["AI", "Rust", "space", "chips", "maps"][i % 5]} this week</a> <span class="sitebit">(<a href="/hn/from?site=example.org">example.org</a>)</span></span></td></tr>'
+                f'<tr><td colspan="2"></td><td class="subtext"><span class="subline">{i * 7} points by <a class="hnuser" href="/hn/user?id=u{i % 4}">u{i % 4}</a> '
+                f'<a href="/hn/item?id={i}">{i} hours ago</a> | <a href="/hn/hide?id={i}">hide</a> | <a href="/hn/item?id={i}">{i * 3} comments</a></span></td></tr>'
+                '<tr class="spacer" style="height:5px"></tr>' for i in range(1, 31))
+            return self.send('<!doctype html><html><head><meta charset=utf-8><title>Hacker News</title></head><body><center><table id="hnmain">'
+                             '<tr><td><table><tr><td><span class="pagetop"><b class="hnname"><a href="/hn/news">Hacker News</a></b> '
+                             '<a href="/hn/newest">new</a> | <a href="/hn/past">past</a> | <a href="/hn/ask">ask</a></span></td></tr></table></td></tr>'
+                             f'<tr id="bigbox"><td><table>{stories}<tr><td colspan="2"></td><td class="title"><a href="/hn/news?p=2" class="morelink" rel="next">More</a></td></tr>'
+                             '</table></td></tr></table></center></body></html>')
         if p == "/cookie":
             wall = ('<div id="consent" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9;display:flex;align-items:center;justify-content:center">'
                     '<div style="background:#fff;padding:30px">We use cookies to make this site work. '

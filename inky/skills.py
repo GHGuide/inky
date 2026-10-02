@@ -697,10 +697,7 @@ def replay(ctx, skill, repair_role="repair"):
             linked = [r for r in rows if r.get("link")]
             if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
                 rows = linked
-            links = [r["link"] for r in rows if r.get("link")]
-            if len(set(links)) < 0.8 * len(links):  # one link many results share (a tag, an author) is none of theirs: it can't tell them apart
-                rows = [{k: v for k, v in r.items() if k != "link"} for r in rows]
-            rows = [r for r in rows if not (item_key(r) in seen or seen.add(item_key(r)))]  # each once: “Load more” shows the earlier ones again
+            rows = [r for r in rows if not ((item_key(r), r.get("title")) in seen or seen.add((item_key(r), r.get("title"))))]  # each once: “Load more” shows the earlier ones again
             items += rows
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
@@ -788,6 +785,12 @@ def replay(ctx, skill, repair_role="repair"):
                         f"It found {len(items)} items, but none had a name or price. The site’s page has probably changed.",
                         ["Show me once", "Try again", "Skip this run"], url=start_url_of(skill))
     items = [r for r in items if r.get("title") or r.get("price") or r.get("name")]  # nameless rows are never results
+    named_by = {}
+    for r in items:
+        if r.get("link"):
+            named_by.setdefault(r["link"], set()).add(r.get("title"))
+    if any(len(t) > 1 for t in named_by.values()):  # one link for different results (a tag, an author) is none of theirs: it can't tell them apart
+        items = [{k: v for k, v in r.items() if k != "link"} for r in items]
     return {"items": items, "repairs": repairs, "pages": pages}
 
 

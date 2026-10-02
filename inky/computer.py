@@ -191,11 +191,17 @@ LISTS_JS = r"""() => {
     // the result's own link goes somewhere different in every result; "more jobs in Worldwide" or a category link repeats
     const differs = (l) => { if (l === first) return peers.length; const c = rel(first, l);
       return new Set(peers.map((it) => { try { const x = it.querySelector(c); return x && x.getAttribute('href'); } catch (e) { return null; } }).filter(Boolean)).size; };
-    const ranked = links.map((l, i) => ({ l, i, u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
-      .sort((x, y) => y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
+    // one of a set of links in each result (its tags) isn't the result's own; the same link twice (picture and name) still is
+    const once = (l) => l === first || new Set([...first.querySelectorAll(relK(first, l, 2))].map((x) => x.getAttribute('href'))).size === 1 ? 1 : 0;
+    const ranked = links.map((l, i) => ({ l, i, o: once(l), u: differs(l), h: head && (head.contains(l) || l.contains(head)) ? 1 : 0, t: (l.innerText || '').trim() ? 1 : 0 }))
+      .sort((x, y) => y.o - x.o || y.u - x.u || y.h - x.h || y.t - x.t || x.i - y.i);
     const a = ranked.length ? ranked[0].l : null;
     // a link the results share (a quote's tags, its author) is no one result's own: it neither names one nor tells them apart
-    const own = a && (a === first || ranked[0].u >= 0.8 * peers.filter((it) => { try { return it.querySelector(rel(first, a)); } catch (e) { return false; } }).length);
+    const sameFor = (l) => { const c = rel(first, l), by = {};  // results with this link are one and the same result
+      for (const it of peers) { let x = null; try { x = it.querySelector(c); } catch (e) {} const h = x && x.getAttribute('href');
+        if (h) (by[h] = by[h] || new Set()).add((it.innerText || '').trim()); }
+      return Object.values(by).every((t) => t.size === 1); };
+    const own = a && (a === first || (ranked[0].o && sameFor(a)));
     const atext = own ? (a.innerText || '').trim() : '', ttl = own ? (a.getAttribute('title') || '').trim() : '';
     const sole = head && own && (a.contains(head) || (head.contains(a) && head.querySelectorAll('a[href]').length === 1));
     const named = head && (own || !head.closest('a[href]')) ? head : null;
