@@ -1718,7 +1718,7 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
     $("#shpost").onclick = async () => {
       const p = await review($("#shpost")); if (!p) return;
       confirmPublic(p, async () => {
-        const r = await post(`/api/bots/${b.id}/publish`, { meta: meta() });
+        const r = await post(`/api/bots/${b.id}/publish`, { meta: meta(), confirm: true });
         if (r.mode === "pr") out(`<span class="small good">✓ Pull request opened. Once someone reviews and merges it, everyone’s Library shows it.</span><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Open the pull request ↗</a>`);
         else if (r.mode === "web") { out(`<span class="small">${r.note ? esc(r.note) + " " : ""}GitHub opens with the file filled in. Click <b>Propose new file</b>, then <b>Create pull request</b>.</span><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Open GitHub ↗</a>`); openOut(r.url); }
         else if (r.mode === "manual") out(`<span class="small">This agent is too big for GitHub’s link. Download the file, then upload it on GitHub’s page.</span><div class="row"><button class="btn s" data-dl="/api/bots/${b.id}/export" data-name="${esc(r.filename)}">Download</button><a class="btn s" href="${esc(r.url)}" target="_blank" rel="noopener">Upload on GitHub ↗</a></div>`);
@@ -1743,7 +1743,7 @@ function shareBot(b) {  // Share: download the file, make a link anyone can open
       const p = await review($("#shlink")); if (!p) return;
       if (!p.gh) return out(`<span class="small">Share links need GitHub’s <b>gh</b> tool, signed in: run <span class="mono">gh auth login</span> once, then press Make a share link again. You can still send the file.</span>`);
       confirmPublic(p, async () => {
-        const r = await post(`/api/bots/${b.id}/share-link`, { meta: meta() });
+        const r = await post(`/api/bots/${b.id}/share-link`, { meta: meta(), confirm: true });
         if (r.mode !== "gist") return failed(r.text || (r.problems || []).join(" ") || "Couldn’t make the link.");
         out(`<span class="small good">✓ Anyone with Inky can open this link to get ${esc(b.name)}:</span><div class="row"><input class="f mono grow" id="shl" value="${esc(r.link)}" readonly aria-label="Share link"><button class="btn s" id="shcopy">Copy</button></div>`);
         $("#shcopy").onclick = () => copyText(r.link, $("#shcopy"), $("#shl"));

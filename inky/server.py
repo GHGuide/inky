@@ -904,7 +904,14 @@ def publish_preview(E, h, q, body, bid):
 
 @route("POST", r"/api/bots/(\d+)/publish")
 def publish(E, h, q, body, bid):
+    public(body)
     return library.publish(E, int(bid), body.get("meta") or {})
+
+
+def public(body):
+    """Posting in public happens only after you said yes on screen: a script or an agent calling the API can't do it by accident."""
+    if body.get("confirm") is not True:
+        raise HTTPError(400, "Posting in public needs your yes in the app.")
 
 
 @route("POST", r"/api/bots/(\d+)/share-code")
@@ -985,6 +992,7 @@ def from_job_status(E, h, q, body, jid):
 
 @route("POST", r"/api/bots/(\d+)/share-link")
 def share_link(E, h, q, body, bid):
+    public(body)  # it makes a public Gist with your GitHub account
     return library.share_link(E, int(bid), body.get("meta") or {})
 
 

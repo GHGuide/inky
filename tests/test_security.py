@@ -105,6 +105,10 @@ class SecurityTest(unittest.TestCase):
                                                               "steps": [{"action": "goto", "value": "file:///etc/passwd", "text": "x"}]})
         self.assertEqual(code, 400)
         self.assertIn("isn’t a web address", r["error"])
+        for route in ("share-link", "publish"):  # posting in public needs the yes the app asks for, not just an API call
+            code, r = post(f"/api/bots/{b['id']}/{route}", {"meta": {}})
+            self.assertEqual(code, 400, route)
+            self.assertIn("your yes", r["error"])
 
 
 if __name__ == "__main__":
