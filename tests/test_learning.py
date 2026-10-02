@@ -279,6 +279,11 @@ class LearningTest(unittest.TestCase):
                                                      step("click", "button:Search", label="Click Search", tries=1), goal="Identify hockey teams exceeding 40 wins", n=24, priced=False)
         self.assertEqual(self.texts(skill), ["Read 10 results", "Next page (Next)"])
 
+    def test_opening_one_result_is_no_step(self):  # a small model clicked one AI story on Hacker News and read that page
+        skill, _, _ = self.learned_and_repeats("/hn/news", "Tell me new Hacker News stories about AI",
+                                               step("click", "Story 5: what changed in AI this week", label="Click AI story"), n=30, priced=False)
+        self.assertEqual(self.texts(skill), ["Read 30 results"])
+
     def test_featured_items_beside_the_category_link(self):  # webscraper.io: a few top items on every page, laptops one link away
         skill, _, out = self.learned_and_repeats("/shop/", "Find laptops under $500", step("click", "Computers", label="Open Computers"),
                                                  step("click", "Computers", label="Open Computers again"), step("extract", tries=1, label="Read"),

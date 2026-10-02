@@ -210,7 +210,7 @@ class Site(BaseHTTPRequestHandler):
         if p == "/hn/news":  # Hacker News: each story is two table rows, the second with its vote, user and comment links
             stories = "".join(
                 f'<tr class="athing submission" id="{i}"><td class="title"><span class="rank">{i}.</span></td><td class="votelinks"><a href="/hn/vote?id={i}">'
-                f'<div class="votearrow"></div></a></td><td class="title"><span class="titleline"><a href="https://example.org/story{i}">Story {i}: what changed in '
+                f'<div class="votearrow"></div></a></td><td class="title"><span class="titleline"><a href="/hn/story{i}">Story {i}: what changed in '
                 f'{["AI", "Rust", "space", "chips", "maps"][i % 5]} this week</a> <span class="sitebit">(<a href="/hn/from?site=example.org">example.org</a>)</span></span></td></tr>'
                 f'<tr><td colspan="2"></td><td class="subtext"><span class="subline">{i * 7} points by <a class="hnuser" href="/hn/user?id=u{i % 4}">u{i % 4}</a> '
                 f'<a href="/hn/item?id={i}">{i} hours ago</a> | <a href="/hn/hide?id={i}">hide</a> | <a href="/hn/item?id={i}">{i * 3} comments</a></span></td></tr>'
@@ -258,7 +258,7 @@ class Site(BaseHTTPRequestHandler):
         if p == "/__layout":
             STATE["layout"] = int(q.get("v", "1"))
             return self.send(json.dumps(STATE), ctype="application/json")
-        if p in ("/sell", "/post", "/about") or p.startswith(("/p/", "/l/", "/b/", "/a/", "/quotes/")):
+        if p in ("/sell", "/post", "/about") or p.startswith(("/p/", "/l/", "/b/", "/a/", "/quotes/", "/hn/", "/shop/")):
             return self.send(shell("BikeBarn", f"<h1>{esc(p)}</h1>"))
         links = "".join(f"<li><a href='/cat/c{i}'>Category {i}</a></li>" for i in range(45))  # a shop's 404: its whole menu, and “not found”
         return self.send(shell("Page not found", f"<h1>Sorry, we couldn’t find that page</h1><ul>{links}</ul>"), 404)

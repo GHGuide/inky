@@ -260,6 +260,18 @@ def category_link(page, job):
     return None
 
 
+def opens_a_result(comp, page, el):
+    """Is this link one of the results the page already lists (a story, a product), not a way to more of them?"""
+    href = urljoin(page["url"], el.get("href") or "")
+    for c in comp.call("lists"):
+        if c["count"] < 6 or not c["fields"].get("link") or menu_list(c.get("rows") or []):
+            continue
+        rows = comp.call("extract", {"item": c["item"], "fields": {"title": c["fields"].get("title", ""), "link": c["fields"]["link"]}})
+        if sum(len(str(r.get("title") or "")) for r in rows) >= 20 * len(rows) and any(r.get("link") == href for r in rows):  # names, not category words
+            return True
+    return False
+
+
 def home_page(url):
     u = urlparse(url or "")
     return not u.path.strip("/") and not u.query
@@ -554,6 +566,9 @@ def learn(ctx, goal, start_url, max_steps=24):
         if act == "click" and el.get("role") == "link" and not re.match(r"#|javascript:|$", el.get("href") or "") and \
                 urljoin(page["url"], el["href"]).split("#")[0].rstrip("/") == page["url"].split("#")[0].rstrip("/"):
             history.append("you are already on that page: pick an element on it")  # “Computers” on the Computers page
+            continue
+        if watch and not extract and act == "click" and el.get("role") == "link" and el.get("href") and opens_a_result(comp, page, el):
+            history.append(f"“{short(el['name'], 40)}” opens one of the results this page lists: read the list instead (extract)")
             continue
         if watch and act in ("click", "goto") and el and not DOING.search(goal or "") and \
                 ACCOUNT.search(f"{el.get('name') or ''} {el.get('href') or ''} {d.get('step') or ''}"):
