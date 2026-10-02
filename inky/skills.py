@@ -654,7 +654,7 @@ def replay(ctx, skill, repair_role="repair"):
     fence(ctx, skill["start_url"])
     page = comp.call("open", skill["start_url"])
     fence(ctx, page.get("url"))
-    items, repairs, pages = [], [], 0
+    items, repairs, pages, seen = [], [], 0, set()
     steps = skill["steps"]
     extract_at = next((i for i, s in enumerate(steps) if s["action"] == "extract"), None)
     i = 0
@@ -676,6 +676,7 @@ def replay(ctx, skill, repair_role="repair"):
             links = [r["link"] for r in rows if r.get("link")]
             if len(set(links)) < 0.8 * len(links):  # one link many results share (a tag, an author) is none of theirs: it can't tell them apart
                 rows = [{k: v for k, v in r.items() if k != "link"} for r in rows]
+            rows = [r for r in rows if not (item_key(r) in seen or seen.add(item_key(r)))]  # each once: “Load more” shows the earlier ones again
             items += rows
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
