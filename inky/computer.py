@@ -486,6 +486,9 @@ class Computer:
                 self._go(page, value)
             elif action == "wait":
                 page.wait_for_timeout(int(float(value or 1) * 1000))
+            elif action == "scroll":  # to the end of the list (value: its items' selector) and of the page, as you would to see more
+                page.evaluate("css => { const last = css && [...document.querySelectorAll(css)].pop(); if (last) last.scrollIntoView({block: 'end'});"
+                              " window.scrollTo(0, document.scrollingElement.scrollHeight); }", value)
             else:
                 raise ValueError(f"unknown action {action}")
             self._settle()

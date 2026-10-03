@@ -418,7 +418,7 @@ def patch_skill(E, h, q, body, sid):
         raise HTTPError(404, "That site is gone: it was forgotten.")
     patch = {k: v for k, v in body.items() if k in ("name", "steps", "max_pages", "start_url")}
     if "steps" in patch:
-        ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
+        ok = {"click", "fill", "select", "press", "goto", "extract", "wait", "scroll"}
         if not isinstance(patch["steps"], list) or not patch["steps"] or not all(isinstance(st, dict) and st.get("action") in ok for st in patch["steps"]):
             raise HTTPError(400, "It needs at least one step.")
         bad_goto(patch["steps"], patch.get("start_url") or was.get("start_url"))
@@ -453,7 +453,7 @@ def import_skill(E, h, q, body, bid):
     if not isinstance(body, dict) or body.get("inky_skill") != 1:
         raise HTTPError(400, "That isn’t an Inky file." + (" It’s a bot file: import it on Your bots." if isinstance(body, dict) and body.get("bundle") else ""))
     steps = body.get("steps")
-    ok = {"click", "fill", "select", "press", "goto", "extract", "wait"}
+    ok = {"click", "fill", "select", "press", "goto", "extract", "wait", "scroll"}
     if not isinstance(steps, list) or not steps or not all(isinstance(st, dict) and st.get("action") in ok for st in steps):
         raise HTTPError(400, "That file has no steps Inky can run.")
     if not skills_mod.web_address(body.get("start_url"), ""):

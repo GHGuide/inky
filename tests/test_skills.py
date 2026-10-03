@@ -1,5 +1,6 @@
 import re
 import tempfile
+import time
 import unittest
 import urllib.request
 
@@ -221,6 +222,41 @@ class SkillsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Scroller:
+    """A results page that shows 10 more each time it's scrolled to the bottom, up to `last` (None: it never ends)."""
+
+    def __init__(self, last=None):
+        self.n, self.last, self.acts = 10, last, []
+
+    def call(self, fn, *a, **kw):
+        if fn == "act":
+            self.acts.append(a[0])
+            self.n = self.n + 10 if self.last is None else min(self.n + 10, self.last)
+        if fn == "extract":
+            return [{"title": f"Bike {i}", "link": f"https://shop.example/p/{i}"} for i in range(self.n)]
+        return {"url": "https://shop.example/bikes", "title": "Bikes", "elements": []}
+
+
+class InfiniteScrollTest(unittest.TestCase):
+    SKILL = {"name": "Bikes", "goal": "Find bikes", "start_url": "https://shop.example/bikes", "max_pages": 3, "steps": [
+        {"action": "extract", "spec": {"item": "article", "fields": {"title": "h2", "link": "a@href"}}, "text": "Read 10 results"},
+        {"action": "scroll", "target": None, "value": None, "text": "Scroll for more", "next_page": True, "optional": True}]}
+
+    def replay(self, comp, **kw):
+        return skills.replay(Ctx(comp, NoModel()), {**self.SKILL, **kw})
+
+    def test_a_list_that_never_ends_stops_at_max_pages(self):
+        comp = Scroller()
+        out = self.replay(comp, max_pages=4)
+        self.assertEqual((out["pages"], len(out["items"]), comp.acts), (4, 40, ["scroll"] * 3))  # only scrolls: never a click
+
+    def test_it_stops_when_scrolling_brings_nothing_new(self):
+        comp, t0 = Scroller(last=25), time.time()
+        out = self.replay(comp, max_pages=10)
+        self.assertEqual((out["pages"], len(out["items"]), len(comp.acts)), (3, 25, 3))  # the third scroll brought nothing
+        self.assertLess(time.time() - t0, 8)  # it waited a few seconds for more, no longer
 
 
 class RefusedPageTest(unittest.TestCase):
