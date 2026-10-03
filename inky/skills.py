@@ -244,6 +244,33 @@ def next_link(page):
     return nums["2"] if "2" in nums and "3" in nums else None
 
 
+def scroll_for_more(comp, spec, known, wait=4.0):
+    """Scroll to the end of the list, as you would on a page that loads more as you go (infinite scroll), and wait at most
+    `wait` seconds for results that aren't in `known` ((item_key, title) pairs). -> the new rows; [] when none came. It only scrolls."""
+    try:
+        comp.call("act", "scroll", None, spec.get("item"), step_text="Scroll for more")
+        end, last = time.time() + wait, None
+        while True:
+            new = [r for r in comp.call("extract", spec) if any(r.values()) and (item_key(r), r.get("title")) not in known]
+            if (new and len(new) == last) or time.time() >= end:  # new ones, and no more came in the last half second: the batch is in
+                return new  # (scrolling again while a page is still loading can make it load several batches at once)
+            last = len(new) or None
+            time.sleep(0.5)
+    except Exception:  # a page that won't scroll, or went away: there's no more to read, and what was read stands
+        return []
+
+
+def more_step(comp, page, spec, rows):
+    """How a run gets more results after reading `rows`: the next-page link or button, or a scroll when there's none
+    and scrolling to the end brings new results. -> that step, or None."""
+    nxt = next_link(page)
+    if nxt:
+        return {"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True}
+    if scroll_for_more(comp, spec, {(item_key(r), r.get("title")) for r in rows}):
+        return {"action": "scroll", "target": None, "value": None, "text": "Scroll for more", "next_page": True, "optional": True}
+    return None
+
+
 def error_page(page):
     """A “not found” or server error page: what a made-up address leads to."""
     head = f"{page.get('title') or ''} {' '.join(page.get('heads') or [])} {(page.get('text') or '')[:160]}"
@@ -444,10 +471,10 @@ def learn(ctx, goal, start_url, max_steps=24):
                     steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
                     ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
                     page = comp.call("elements")
-                    nxt = next_link(page)
+                    nxt = more_step(comp, page, spec, rows)
                     if nxt:
-                        steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
-                        ctx.emit("learn", "Next page", step=len(steps), target=nxt["name"])
+                        steps.append(nxt)
+                        ctx.emit("learn", nxt["text"], step=len(steps), target=(nxt["target"] or {}).get("name"))
                     finished = True
                     break
         idle += 1
@@ -462,9 +489,9 @@ def learn(ctx, goal, start_url, max_steps=24):
             extract = spec
             steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} results"})
             ctx.emit("learn", f"Read {len(rows)} results", step=len(steps), fields=list(spec.get("fields", {})))
-            nxt = next_link(comp.call("elements"))
+            nxt = more_step(comp, comp.call("elements"), spec, rows)
             if nxt:
-                steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
+                steps.append(nxt)
             finished = True
             return True
         looping = idle > 3 and len(history) >= 3 and len(set(history[-3:])) == 1  # the same mistake three times running
@@ -553,10 +580,10 @@ def learn(ctx, goal, start_url, max_steps=24):
             steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
             ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
             page = comp.call("elements")
-            nxt = next_link(page)
-            if nxt:  # a next page: it reads that too, every run (the model rarely thinks of it)
-                steps.append({"action": "click", "target": descriptor(nxt), "value": None, "text": f"Next page ({nxt['name'][:30]})", "next_page": True, "optional": True})
-                ctx.emit("learn", "Next page", step=len(steps), target=nxt["name"])
+            nxt = more_step(comp, page, spec, rows)
+            if nxt:  # a next page, or more as it scrolls: it reads that too, every run (the model rarely thinks of it)
+                steps.append(nxt)
+                ctx.emit("learn", nxt["text"], step=len(steps), target=(nxt["target"] or {}).get("name"))
                 finished = True
                 break
             continue
@@ -768,6 +795,7 @@ def replay(ctx, skill, repair_role="repair"):
                     break
                 time.sleep(1)
                 rows = comp.call("extract", step["spec"])
+            shown = {(item_key(r), r.get("title")) for r in rows}  # all it shows now, read or not (a sponsored block)
             linked = [r for r in rows if r.get("link")]
             if rows and len(linked) >= 0.8 * len(rows):  # most results open a page: the few that can't are sponsored blocks
                 rows = linked
@@ -776,7 +804,10 @@ def replay(ctx, skill, repair_role="repair"):
             pages += 1
             ctx.emit("replay", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=i + 1)
             nxt = steps[i + 1] if i + 1 < len(steps) and steps[i + 1].get("next_page") else None
-            if nxt and pages < skill.get("max_pages", 3):
+            if nxt and nxt["action"] == "scroll" and pages < skill.get("max_pages", 3):
+                if scroll_for_more(comp, step["spec"], seen | shown):  # more came at the end of the list: read them; none in a few seconds is the end
+                    continue
+            elif nxt and pages < skill.get("max_pages", 3):
                 target = nxt["target"]
                 if (target.get("name") or "").isdigit():  # numbered pages: after page 2 comes the link “3”
                     target = {**target, "name": str(int(target["name"]) + pages - 1), "text": str(int(target["name"]) + pages - 1)}

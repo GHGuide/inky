@@ -122,7 +122,8 @@ EXTRACT_JS = r"""(spec) => {
       const [css, attr] = v.split('@');
       // a price next to a struck-out one ("<del>€1.500</del> €1.199") is the one that's still true
       const el = !css ? it : k === 'price' ? [...it.querySelectorAll(css)].find((e) => !e.closest('del,s,strike')) || it.querySelector(css) : it.querySelector(css);
-      row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
+      const words = !attr || /^(text|textContent|innerText)$/.test(attr);  // a model's “span.text@textContent” means its words
+      row[k] = el ? (attr === 'value' ? (el.value || '') : !words ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
       if (k === 'text' && row[k]) row[k] = row[k].slice(0, 400);
       if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }
@@ -498,6 +499,18 @@ class Computer:
                 self._go(page, value)
             elif action == "wait":
                 page.wait_for_timeout(int(float(value or 1) * 1000))
+            elif action == "scroll":  # to the end of the list (value: its items' selector) and of the page, as you would to see more
+                # first wait (at most 2 s) till the page stops changing height: at the end of a page that is still shrinking (a
+                # spinner fading out), every frame is one more scroll to the end, and a site may load a batch for each of them
+                h = None
+                for _ in range(10):
+                    now = page.evaluate("document.scrollingElement.scrollHeight")
+                    if now == h:
+                        break
+                    h = now
+                    page.wait_for_timeout(200)
+                page.evaluate("css => { const last = css && [...document.querySelectorAll(css)].pop(); if (last) last.scrollIntoView({block: 'end'});"
+                              " window.scrollTo(0, document.scrollingElement.scrollHeight); }", value)
             else:
                 raise ValueError(f"unknown action {action}")
             self._settle()

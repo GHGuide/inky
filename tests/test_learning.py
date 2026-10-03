@@ -217,10 +217,12 @@ class LearningTest(unittest.TestCase):
             self.assertTrue(skills.next_link({"url": "https://shop.example/l?q=x", "elements": [{"role": "link", "name": name, "href": "?page=2"}]}), name)
         self.assertIsNone(skills.next_link({"url": "https://shop.example/l", "elements": [{"role": "link", "name": "Nextdoor deals", "href": "/nd"}]}))
 
-    def test_infinite_scroll_reads_what_is_shown(self):
-        skill, _, out = self.learned_and_repeats("/scroll", "Find e-bikes")
-        self.assertGreaterEqual(len(out["items"]), 10)
-        self.assertFalse(any(s.get("next_page") for s in skill["steps"]))
+    def test_infinite_scroll(self):  # 10 shown, 10 more each time it scrolls to the bottom, 25 in all
+        skill, model, out = self.learned_and_repeats("/scroll", "Find e-bikes", n=25)
+        self.assertEqual(self.texts(skill), ["Read 10 results", "Scroll for more"])
+        self.assertEqual((out["pages"], skill["max_pages"], model.calls["step"]), (3, 3, 0))  # found by scrolling, not by asking
+        out, _ = self.replay(dict(skill, max_pages=2))
+        self.assertEqual((out["pages"], len(out["items"])), (2, 20))
 
     # -------------------------------------------------------------- prices, titles, odd lists
     def test_prices(self):
@@ -252,6 +254,11 @@ class LearningTest(unittest.TestCase):
         self.assertTrue(out["items"][0]["title"].startswith("Flat on Via Roma 0"))
         _, _, out = self.learned_and_repeats("/details2", "Find bikes", n=9)
         self.assertTrue(out["items"][0]["title"].startswith("Red city bike"))
+
+    def test_a_selector_for_an_elements_text_reads_its_words(self):  # gemma3 wrote “span.text@textContent” for quotes.toscrape.com/scroll
+        self.comp.call("open", self.base + "/quotes")
+        rows = self.comp.call("extract", {"item": "div.quote", "fields": {"title": "span.text@textContent", "author": "small.author@innerText"}})
+        self.assertEqual((rows[0]["title"], rows[0]["author"]), (learn_site.QUOTES[0]["text"], learn_site.QUOTES[0]["author"]))
 
     def test_shared_links_dont_merge_results(self):
         _, _, out = self.learned_and_repeats("/quotes", "Find quotes about life", n=29, priced=False)
@@ -440,6 +447,13 @@ class EngineLearningTest(unittest.TestCase):
         self.assertEqual(sorted(r["title"] for r in stored), sorted(q["text"] for q in learn_site.QUOTES))
         again = self.run_once(bid, NoModel())
         self.assertEqual((again["status"], again["items"], again["new"], again["ai_calls"]), ("ok", 29, 0, 0))
+
+    def test_infinite_scroll_is_read_past_the_first_batch_and_a_second_run_finds_none_new(self):
+        bid = self.learned("/scroll", "Find e-bikes")
+        check = self.E.store.find("runs", bot_id=bid, limit=1)[0]
+        self.assertEqual((check["items"], check["new"], check["ai_calls"]), (25, 25, 0))
+        again = self.run_once(bid, NoModel())
+        self.assertEqual((again["status"], again["items"], again["new"], again["ai_calls"]), ("ok", 25, 0, 0))
 
     def test_a_repair_is_kept_only_when_it_finds_results(self):
         bid = self.learned("/find", "Find e-bikes", step("fill", "textbox:Search", "e-bike", "Type e-bike"), step("click", "button:Search", label="Click Search"))

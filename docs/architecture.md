@@ -45,11 +45,12 @@ flowchart LR
 - A site that turns bots away is skipped. A robot check stops and hands over to you. A start page that is only a sign-in form stops as "sign in first" before anything is typed; a 404 stops at once, with no AI calls.
 - A search that empties a page that already listed results is undone (and can't be typed again), and the model is told to read the list instead. A few featured items next to a link named like the job ("Laptops") send the model to that link first. A link to the page it's already on is no step, and neither is opening one of the results the page lists. The same mistake three times running ends learning early.
 - Each result keeps its own name and link: a link is a result's own only if it isn't one of a set (tags) and the results that share it are the same result; otherwise the name comes from the result's own words. A table's rows count as results even without links.
+- After reading the results it looks for a next page: a Next link, an arrow, page numbers or Load more. With none, it scrolls to the end of the list once; if new results appear (infinite scroll), it saves a `scroll` step, with no model asked.
 - What it learned is kept only if checking it again right away finds something.
 
 The result is a **skill**: plain steps that find their targets again by role, name, text or CSS.
 
-**Replay** (`skills.replay`) runs those steps with no model, reads up to three pages (a Next link, an arrow, page numbers or Load more; each result once), waits a few seconds for a list that comes after the page, applies your rules, and marks what's new. If a step can't be found, it asks a model once to repair that one step, and only keeps the fix if it still finds results. Every run is recorded, and new items become one chat message and a notification.
+**Replay** (`skills.replay`) runs those steps with no model, reads up to three pages (a Next link, an arrow, page numbers, Load more, or a `scroll` step for a list that loads more as you scroll; each result once), waits a few seconds for a list that comes after the page, applies your rules, and marks what's new. If a step can't be found, it asks a model once to repair that one step, and only keeps the fix if it still finds results. Every run is recorded, and new items become one chat message and a notification.
 
 ## Things the engine guarantees
 

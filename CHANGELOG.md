@@ -5,6 +5,7 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 ## [Unreleased]
 
 ### Added
+- Infinite scroll: pages that load more results as you scroll are read past the first batch, both when learning (it notices on its own, without asking the AI) and on every run after. It stops when nothing new appears, or after its page limit.
 - Rules on a table's columns: “more than 40 wins” checks a table's Wins column. Columns are read by their headings, and a rule finds its column even when said loosely (“win”, “number of wins”).
 
 ### Changed
