@@ -488,6 +488,15 @@ class Computer:
             elif action == "wait":
                 page.wait_for_timeout(int(float(value or 1) * 1000))
             elif action == "scroll":  # to the end of the list (value: its items' selector) and of the page, as you would to see more
+                # first wait (at most 2 s) till the page stops changing height: at the end of a page that is still shrinking (a
+                # spinner fading out), every frame is one more scroll to the end, and a site may load a batch for each of them
+                h = None
+                for _ in range(10):
+                    now = page.evaluate("document.scrollingElement.scrollHeight")
+                    if now == h:
+                        break
+                    h = now
+                    page.wait_for_timeout(200)
                 page.evaluate("css => { const last = css && [...document.querySelectorAll(css)].pop(); if (last) last.scrollIntoView({block: 'end'});"
                               " window.scrollTo(0, document.scrollingElement.scrollHeight); }", value)
             else:
