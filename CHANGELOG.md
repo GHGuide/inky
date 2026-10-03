@@ -4,6 +4,10 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-03
+
+Learning reads more of what sites show: infinite scroll, table columns, lists without links, and Hacker News' next pages.
+
 ### Added
 - Infinite scroll: pages that load more results as you scroll are read past the first batch, both when learning (it notices on its own, without asking the AI) and on every run after. It stops when nothing new appears, or after its page limit.
 - Results with no links (quotes, notices) are found without asking the AI. A page's own next link (`rel="next"`) and a bare “More” that goes to page 2 (Hacker News) are followed. More pages are found even when the AI says it's done after reading the first.
@@ -120,6 +124,7 @@ The first public release.
 ### Fixed
 - A first launch no longer waits about 30 seconds on macOS: starting the engine doesn't look up the computer's own name any more.
 
-[Unreleased]: https://github.com/GHGuide/inky/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/GHGuide/inky/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/GHGuide/inky/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/GHGuide/inky/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/GHGuide/inky/releases/tag/v0.1.0
