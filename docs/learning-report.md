@@ -6,7 +6,7 @@ What learning does on the kinds of pages people meet, and on real practice sites
 ## How to run it
 
 ```sh
-python -m unittest tests.test_learning        # 42 tests, about 3 minutes, no network, a scripted model
+python -m unittest tests.test_learning        # 44 tests, about 3 minutes, no network, a scripted model
 python -m tests.journeys learning             # real sites with gemma3:12b from Ollama, about 15 minutes
 INKY_LEARN="quotes.toscrape.com" python -m tests.journeys learning      # one site only
 INKY_JOURNEY_DIR=/tmp/scratch INKY_JOURNEY_PORT=9201 INKY_LOCAL_SITE_PORT=9210 python -m tests.journeys learning
@@ -35,7 +35,7 @@ that parses.
 | Only page numbers (1 2 3 4) | `test_numbered_pages` | **fail**: one page read | pass |
 | Next link that is only an arrow (› » →) | `test_next_page_arrows` | **fail**: not followed | pass |
 | Load more button | `test_load_more_button` | **fail**: 25 bikes read as 55 | pass |
-| Infinite scroll | `test_infinite_scroll_reads_what_is_shown` | pass (first 10 only) | pass (first 10 only) |
+| Infinite scroll | `test_infinite_scroll`, `test_infinite_scroll_is_read_past_the_first_batch_and_a_second_run_finds_none_new` | **fail**: 10 of 25 read | pass: 25 over 3 batches, second run finds none new |
 | Next page that takes a second | `test_a_next_page_that_takes_a_second` | pass | pass |
 | Prices: `€ 1.234,56`, `$1,234.56`, `£12`, Free, from €99, a range, struck-out old price, discount badge | `test_prices`, `test_parse_num` | **fail**: Free unread and failing "≤ 100"; sale card read at the old price | pass |
 | Results without prices | `test_results_without_prices` | pass | pass |
@@ -67,7 +67,8 @@ that parses.
 | Engine: a repair is kept only when it finds results | `test_a_repair_is_kept_only_when_it_finds_results` | pass | pass |
 | Engine: 29 quotes stored as 29; a second run finds none new, with 0 AI calls | `test_quotes_are_stored_one_each_and_a_second_run_finds_none_new` | **fail**: 6 stored | pass |
 
-42 tests: 24 failed before, all 42 pass now. The full unit suite passes.
+42 tests: 24 failed before, all 42 pass now. The full unit suite passes. (Infinite scroll came later, on branch
+`infinite-scroll`: one more engine test, and the unit tests below.)
 
 ## Real sites, gemma3:12b
 
@@ -127,10 +128,43 @@ Each fix is its own commit with a unit test.
 | A win rate (0.55) shown as each team's price | A bare decimal counts as a price; in a table it now needs a currency | `ccd67ac` |
 | "More than 40 wins" passed every team | The rule became `text > 40` and compared the first number in the row (the year). Now it's kept and reported as unchecked | `7863cf4` |
 
+## Infinite scroll (fixed later, branch `infinite-scroll`)
+
+A list that grows when you scroll to the bottom, with no next link or Load more button, used to be read only as far as
+the page showed it first (10 of 25 here). Now, after reading the results, learning looks for a next link as before;
+if there is none, it scrolls to the end of the list once and waits up to 4 seconds. If results it hadn't seen appear,
+it saves a `scroll` step ("Scroll for more", a next-page step with no target). No model is asked.
+
+Each run then reads a batch, scrolls, waits up to 4 seconds for new results, and reads again (each result once). It
+stops when a scroll brings nothing new, or after `max_pages` batches (3 by default), so a list that never ends still
+stops. Scrolling never clicks anything. Pages with a next link or Load more button are learned exactly as before, and
+skills saved before this replay unchanged. `tests/test_skills.py` (`InfiniteScrollTest`) checks both stop rules on a
+list that never ends and on one that does.
+
+Before scrolling, a run waits (at most 2 s) until the page stops changing height, and after new results appear it
+waits until no more come for half a second. Without that, quotes.toscrape.com/scroll loaded 50 to 80 quotes on one
+scroll: the scroll came while its loading spinner was fading out, the page shrank under it, and every frame counted as
+another scroll to the end. Runs then read different amounts, and a second run found "new" quotes that were there all
+along.
+
+On quotes.toscrape.com/scroll with gemma3:12b (`INKY_LEARN="quotes.toscrape.com scroll" python -m tests.journeys learning`):
+
+| | Steps learned | AI calls to learn | Read: check, run 1, run 2 | New | AI calls on runs | Time per run |
+|---|---|---|---|---|---|---|
+| First try | Click Quotes to Scrape; Read 10 results; Next page (Next →) | 7 | 30, 30, 30, from the paginated site it clicked through to | 30, 0, 0 | 0 | 5 s |
+| Now | Read 10 results; Scroll for more | 3 | 30, 30, 30, on the scroll page (3 batches of 10) | 30, 0, 0 | 0 | 4–6 s |
+
+The page's quotes have no links and arrive a moment after the page, so Inky's own list finder doesn't see them and the
+model writes the selectors. gemma3 wrote `span.text@textContent`, which read nothing (there is no such attribute), so
+learning gave up on the page and clicked through to the paginated site. `@text`, `@textContent` and `@innerText` now
+read an element's words (`test_a_selector_for_an_elements_text_reads_its_words`). A first selector of `a@href` for
+the title is still turned down, and the model gets a second try. Read with a fixed selector and no model, a
+run on this page reads 10 quotes without the scroll step and 30 with it, the same 30 on every run.
+
+Cost: learning a page whose list has no next link spends up to 4 more seconds on the scroll check.
+
 ## Not fixed, and why
 
-- **Infinite scroll** reads only what the page shows first (10 items here). Scrolling to load more would mean a new
-  replay step type. For "what's new" jobs the newest items come first anyway.
 - **Rules on a table column** ("more than 40 wins") can't be checked: the draft only knows the fields price, size,
   title and text, and tables aren't read column by column. The bot now says it couldn't check the rule instead of
   pretending.

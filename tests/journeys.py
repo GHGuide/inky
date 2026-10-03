@@ -492,6 +492,7 @@ def j_five():
 LEARNING = [  # public practice sites, visited politely: one learn and two runs each (a few page loads)
     {"site": "books.toscrape.com", "say": "Find books under £20 on books.toscrape.com", "url": "https://books.toscrape.com/", "priced": True},
     {"site": "quotes.toscrape.com", "say": "Collect the quotes on quotes.toscrape.com", "url": "https://quotes.toscrape.com/"},
+    {"site": "quotes.toscrape.com scroll", "say": "Collect the quotes on quotes.toscrape.com", "url": "https://quotes.toscrape.com/scroll"},  # infinite scroll
     {"site": "scrapethissite forms", "say": "Find hockey teams with more than 40 wins", "url": "https://www.scrapethissite.com/pages/forms/"},
     {"site": "webscraper.io static", "say": "Find laptops under $500", "url": "https://webscraper.io/test-sites/e-commerce/static", "priced": True},
     {"site": "webscraper.io allinone", "say": "Find laptops under $500", "url": "https://webscraper.io/test-sites/e-commerce/allinone", "priced": True},
