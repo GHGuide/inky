@@ -122,7 +122,8 @@ EXTRACT_JS = r"""(spec) => {
       const [css, attr] = v.split('@');
       // a price next to a struck-out one ("<del>€1.500</del> €1.199") is the one that's still true
       const el = !css ? it : k === 'price' ? [...it.querySelectorAll(css)].find((e) => !e.closest('del,s,strike')) || it.querySelector(css) : it.querySelector(css);
-      row[k] = el ? (attr === 'value' ? (el.value || '') : attr ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
+      const words = !attr || /^(text|textContent|innerText)$/.test(attr);  // a model's “span.text@textContent” means its words
+      row[k] = el ? (attr === 'value' ? (el.value || '') : !words ? (el.getAttribute(attr) || '') : el.innerText.trim().replace(/\s+/g, ' ')) : null;
       if (k === 'text' && row[k]) row[k] = row[k].slice(0, 400);
       if ((attr === 'href' || attr === 'src') && row[k]) { try { row[k] = new URL(row[k], location.href).href; } catch (e) {} }
     }

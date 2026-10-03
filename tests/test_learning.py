@@ -255,6 +255,11 @@ class LearningTest(unittest.TestCase):
         _, _, out = self.learned_and_repeats("/details2", "Find bikes", n=9)
         self.assertTrue(out["items"][0]["title"].startswith("Red city bike"))
 
+    def test_a_selector_for_an_elements_text_reads_its_words(self):  # gemma3 wrote “span.text@textContent” for quotes.toscrape.com/scroll
+        self.comp.call("open", self.base + "/quotes")
+        rows = self.comp.call("extract", {"item": "div.quote", "fields": {"title": "span.text@textContent", "author": "small.author@innerText"}})
+        self.assertEqual((rows[0]["title"], rows[0]["author"]), (learn_site.QUOTES[0]["text"], learn_site.QUOTES[0]["author"]))
+
     def test_shared_links_dont_merge_results(self):
         _, _, out = self.learned_and_repeats("/quotes", "Find quotes about life", n=29, priced=False)
         self.assertEqual([i["title"] for i in out["items"]], [q["text"] for q in learn_site.QUOTES])
