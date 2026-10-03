@@ -233,11 +233,12 @@ def scroll_for_more(comp, spec, known, wait=4.0):
     `wait` seconds for results that aren't in `known` ((item_key, title) pairs). -> the new rows; [] when none came. It only scrolls."""
     try:
         comp.call("act", "scroll", None, spec.get("item"), step_text="Scroll for more")
-        end = time.time() + wait
+        end, last = time.time() + wait, None
         while True:
             new = [r for r in comp.call("extract", spec) if any(r.values()) and (item_key(r), r.get("title")) not in known]
-            if new or time.time() >= end:
-                return new
+            if (new and len(new) == last) or time.time() >= end:  # new ones, and no more came in the last half second: the batch is in
+                return new  # (scrolling again while a page is still loading can make it load several batches at once)
+            last = len(new) or None
             time.sleep(0.5)
     except Exception:  # a page that won't scroll, or went away: there's no more to read, and what was read stands
         return []
