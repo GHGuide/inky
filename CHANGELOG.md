@@ -4,6 +4,10 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-03
+
+A security release, with a tidier chat and much better learning. Update if you run 0.1.0.
+
 ### Added
 - "Ask Codex to …" or "have Claude Code …" in a bot's chat hands that job, with what the bot found, to the agent you named, after you say yes. If Claude Code isn't signed in, the bot says so and offers Codex.
 - Inky as an MCP server: `create_bot` answers within a minute and keeps making the bot in the background (`create_bot_status`); bots are found by loose names ("books", "the ebike bot"); short, readable answers; tool hints so clients know which tools only read. [docs/mcp.md](docs/mcp.md) explains it, including `codex exec`.
@@ -49,6 +53,7 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 - A “never” rule also checks the page a step is on (“never contact the agency” stops the Send on the agency's contact page). Pausing while a bot waits for your yes holds after the yes.
 - Learning treats text on a page as what the site says, never as instructions. If a finding bot still wants to send something, its question says that isn't part of its job.
 - Requests to the engine have a size limit and a time limit; a broken request gets a clear error instead of an open connection.
+- macOS builds run with Apple's hardened runtime, and are signed with a Developer ID and notarized once the release has its Apple secrets ([docs/releasing.md](docs/releasing.md)).
 - Inky reads a `.env` file only from its own folder (`~/.inky/.env`), not from whatever folder it was started in.
 
 ### Fixed
@@ -107,5 +112,6 @@ The first public release.
 ### Fixed
 - A first launch no longer waits about 30 seconds on macOS: starting the engine doesn't look up the computer's own name any more.
 
-[Unreleased]: https://github.com/GHGuide/inky/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/GHGuide/inky/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/GHGuide/inky/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/GHGuide/inky/releases/tag/v0.1.0

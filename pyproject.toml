@@ -1,6 +1,6 @@
 [project]
 name = "inky"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bots that watch and work the web for you: they learn a site once with AI, then repeat with no AI, on your own computer."
 readme = "README.md"
 license = "MIT"

@@ -43,6 +43,24 @@ jobs:
         run: uv run playwright install --with-deps chromium && uv run python -m unittest discover -s tests -t .
       - run: npm ci
         working-directory: desktop
+      - name: Apple signing and notarizing (only when its secrets are set; otherwise an ad-hoc signature)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              [ -n "${!v}" ] && { echo "$v<<INKY_EOF"; printenv "$v"; echo "INKY_EOF"; } >> "$GITHUB_ENV"
+            done
+            echo "Signing with the Developer ID certificate; notarizing: $([ -n "$APPLE_PASSWORD" ] && echo yes || echo no)"
+          else
+            echo "No Apple secrets: ad-hoc signature (macOS asks once to open it)."
+          fi
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,7 +74,7 @@ jobs:
           releaseName: Inky ${{ github.ref_name }}
           releaseBody: |
             What's new: see CHANGELOG.md.
-            Installing: see "Download" in the README. The builds aren't notarized or signed by Apple or Microsoft yet, so macOS and Windows warn the first time; the README says what to click. Check a download against SHA256SUMS.txt, or with `gh attestation verify <file> -R GHGuide/inky`.
+            Installing: see "Download" in the README, which says what to click if your system asks the first time. Check a download against SHA256SUMS.txt, or with `gh attestation verify <file> -R GHGuide/inky`.
           releaseDraft: true
           prerelease: false
       - uses: actions/attest-build-provenance@v2

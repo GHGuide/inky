@@ -47,10 +47,30 @@ For a quick local build use `npx tauri build --debug --bundles app`.
 
 Builds are ad-hoc signed on macOS and unsigned on Windows, so both warn the first time. [The main README](../README.md#download) says what to click.
 
-## Signing and notarizing (later)
+## Signing and notarizing
 
-Releases are ad-hoc signed on macOS (`signingIdentity: "-"`, no hardened runtime). That's enough for macOS to offer **Open Anyway** instead of calling the app "damaged". To notarize with a Developer ID certificate:
+The app and its engine always run with the hardened runtime and [entitlements.plist](src-tauri/entitlements.plist): `allow-jit`, `allow-unsigned-executable-memory` and `disable-library-validation`. The engine is a PyInstaller program that unpacks Python, its libraries and Playwright's driver when it starts, and the hardened runtime refuses to load them otherwise. Without a certificate the signature is ad-hoc, so macOS offers **Open Anyway**. With a Developer ID it is signed, and with notary credentials it is also notarized, so it opens like any app.
 
-- turn the hardened runtime on and give the app an entitlements file with `com.apple.security.cs.disable-library-validation` and `com.apple.security.cs.allow-unsigned-executable-memory`: the engine is a PyInstaller program that unpacks Python and its libraries when it starts, and the hardened runtime refuses to load them otherwise;
-- add the `APPLE_*` secrets that `tauri-action` reads (certificate, password, signing identity, API key, issuer, team id);
-- time the engine's start inside the signed app (`Contents/MacOS/inky-engine --port 0 --home "$(mktemp -d)" --no-open`). It should be a few seconds. If it isn't, sample it (`/usr/bin/sample <pid> 2`) before anything else: a 30-second start once turned out to be a name lookup that macOS holds for new apps.
+**On your Mac**, once (only you can do this: it needs an app-specific password from [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords):
+
+```bash
+xcrun notarytool store-credentials inky-notary --apple-id <your Apple ID> --team-id <your team id>
+```
+
+Then build signed and notarize:
+
+```bash
+cd desktop && APPLE_SIGNING_IDENTITY="Developer ID Application: <name> (<team id>)" npx tauri build
+desktop/scripts/notarize-macos.sh
+```
+
+**In releases** ([release.yml](../.github/workflows/release.yml)), macOS builds are signed and notarized when these repository secrets exist, and ad-hoc signed otherwise:
+
+| Secret | What |
+|---|---|
+| `APPLE_CERTIFICATE` | the Developer ID Application certificate with its private key, exported from Keychain Access as .p12, base64 (`base64 -i cert.p12 \| gh secret set APPLE_CERTIFICATE -R GHGuide/inky`) |
+| `APPLE_CERTIFICATE_PASSWORD` | the password you gave the .p12 (`gh secret set APPLE_CERTIFICATE_PASSWORD -R GHGuide/inky`, then paste) |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: <name> (<team id>)` |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | your Apple ID, an app-specific password and your team id, for notarizing |
+
+If the engine starts slowly inside a signed app (`Contents/MacOS/inky-engine --port 0 --home "$(mktemp -d)" --no-open` should take a few seconds), sample it (`/usr/bin/sample <pid> 2`) before anything else: a 30-second start once turned out to be a name lookup that macOS holds for new apps.

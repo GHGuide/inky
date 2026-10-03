@@ -13,8 +13,8 @@ A release is a version tag. CI builds every installer into a **draft** release; 
 ## 2. Tag
 
 ```bash
-git tag v0.1.0 -m "Inky 0.1.0"
-git push origin v0.1.0
+git tag v0.1.1 -m "Inky 0.1.1"
+git push origin v0.1.1
 ```
 
 [release.yml](../.github/workflows/release.yml) builds macOS (Apple Silicon and Intel), Windows (setup .exe and .msi) and Linux (.AppImage, .deb, .rpm), adds build provenance and `SHA256SUMS.txt`, and leaves the release as a draft. The job fails if the tag and the app's version disagree.
@@ -35,6 +35,6 @@ Edit the draft: paste the CHANGELOG section as the notes, then press **Publish r
 ## Signing and stores
 
 - **Updates inside the app are already on.** Release builds are signed with the updater key; its public half is in `tauri.conf.json`, and the private half is in the repo's Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and with the maintainer, backed up offline. If that key is lost, installed copies can't be updated any more and people have to reinstall by hand. The app reads `releases/latest/download/latest.json`, so publishing a release is what rolls it out.
-- **macOS notarization** (Apple Developer Program): see [desktop/README.md](../desktop/README.md#signing-and-notarizing-later).
+- **macOS signing and notarization** are built in: add the Apple secrets once and every release is signed with the Developer ID and notarized. Until then it's ad-hoc signed. Steps and the local `notarize-macos.sh`: [desktop/README.md](../desktop/README.md#signing-and-notarizing).
 - **Windows signing:** SignPath Foundation is free for open-source projects once there's a public release; otherwise an Azure Trusted Signing or OV certificate.
 - **Package managers:** winget after a release or two; a Homebrew cask once the app is notarized.
