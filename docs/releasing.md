@@ -36,5 +36,10 @@ Edit the draft: paste the CHANGELOG section as the notes, then press **Publish r
 
 - **Updates inside the app are already on.** Release builds are signed with the updater key; its public half is in `tauri.conf.json`, and the private half is in the repo's Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and with the maintainer, backed up offline. If that key is lost, installed copies can't be updated any more and people have to reinstall by hand. The app reads `releases/latest/download/latest.json`, so publishing a release is what rolls it out.
 - **macOS signing and notarization** are built in: add the Apple secrets once and every release is signed with the Developer ID and notarized. Until then it's ad-hoc signed. Steps and the local `notarize-macos.sh`: [desktop/README.md](../desktop/README.md#signing-and-notarizing).
-- **Windows signing:** SignPath Foundation is free for open-source projects once there's a public release; otherwise an Azure Trusted Signing or OV certificate.
+- **Windows signing:** [SignPath Foundation](https://signpath.org/apply) signs open-source projects for free. Inky qualifies: MIT, public repo, public releases, and installers built in public CI. Once approved:
+  1. Add the secret `SIGNPATH_API_TOKEN`, and note the organization id, project slug and signing policy slug SignPath gives you.
+  2. In the Windows job of [release.yml](../.github/workflows/release.yml), build without uploading. Upload `bundle/nsis/*.exe` and `bundle/msi/*.msi` with `actions/upload-artifact` (with an `id`), then sign them with `SignPath/github-action-submit-signing-request@v2` (`github-artifact-id: ${{ steps.<id>.outputs.artifact-id }}`, `output-artifact-directory`).
+  3. Signing changes the files, so make their in-app update signatures again with `npx tauri signer sign <file>` (it reads `TAURI_SIGNING_PRIVATE_KEY`). Then upload the signed installers, their `.sig` files and the Windows entry of `latest.json` to the draft.
+
+  An Azure Trusted Signing or OV certificate works too, through `bundle.windows.signCommand`. That signs during the build, so step 3 isn't needed.
 - **Package managers:** winget after a release or two; a Homebrew cask once the app is notarized.
