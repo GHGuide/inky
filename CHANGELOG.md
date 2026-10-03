@@ -4,6 +4,12 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+### Added
+- Rules on a table's columns: “more than 40 wins” checks a table's Wins column. Columns are read by their headings, and a rule finds its column even when said loosely (“win”, “number of wins”).
+
+### Changed
+- The README's demo and screenshots show the current app.
+
 ## [0.1.1] - 2026-10-03
 
 A security release, with a tidier chat and much better learning. Update if you run 0.1.0.

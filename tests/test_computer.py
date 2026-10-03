@@ -55,6 +55,22 @@ class ComputerTest(unittest.TestCase):
         self.c.look = {"speed": "turbo"}
         self.assertGreater(took["slow"], took["turbo"] + 1.5, took)  # you can watch a slow bot type; a turbo one just goes
 
+    def test_a_tables_columns_can_be_checked_by_their_names(self):
+        from inky import skills
+        from tests import learn_site
+        site = learn_site.start()
+        try:
+            self.c.call("open", f"http://127.0.0.1:{site.server_port}/teams")
+            best = max(self.c.call("lists"), key=lambda l: l["count"])
+            self.assertTrue({"year", "wins", "losses"} <= set(best["fields"]), best["fields"])
+            self.assertNotIn("team_name", best["fields"])  # the title's own column isn't read twice
+            rows = self.c.call("extract", {"item": best["item"], "fields": best["fields"], "limit": 50})
+            wins = {"field": "Wins", "op": ">", "value": 40, "text": "more than 40 wins"}  # said loosely
+            self.assertTrue(0 < sum(skills.keep(r, wins) for r in rows) < len(rows))
+            self.assertEqual(skills.unchecked(rows, [wins]), [])
+        finally:
+            site.shutdown()
+
     def test_forms_say_what_they_send(self):
         from inky.safety import classify
         page = self.c.call("open", self.base + "/login")

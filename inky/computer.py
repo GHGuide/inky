@@ -242,6 +242,18 @@ LISTS_JS = r"""() => {
     if (fields.title !== '') fields.text = '';  // everything the result shows (place, company, tags), for rules like “remote”
     const img = first.querySelector('img');
     if (img) fields.image = rel(first, img) + '@src';
+    if (first.tagName === 'TR') {  // a table's columns, by their headings, so rules like "more than 40 wins" can check them
+      const tbl = first.closest('table');
+      const head = tbl && (tbl.querySelector('thead tr') || [...tbl.querySelectorAll('tr')].find((r) => r.querySelector('th') && !r.querySelector('td')));
+      let tEl = null;
+      try { tEl = fields.title ? first.querySelector(fields.title.split('@')[0]) : null; } catch (e) {}
+      if (head) [...head.children].slice(0, 12).forEach((th, i) => {
+        if (tEl && first.children[i] && (first.children[i] === tEl || first.children[i].contains(tEl))) return;  // the title's own column: already the title
+        const name = (th.innerText || '').trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '').slice(0, 30);
+        const cell = first.children[i];
+        if (name && cell && !(name in fields) && !/^(title|link|price|text|image)$/.test(name)) fields[name] = `${cell.tagName.toLowerCase()}:nth-child(${i + 1})`;
+      });
+    }
     out.push({ item, fields, count: document.querySelectorAll(item).length, priced: g.priced > 0.5 });
     if (out.length >= 5) break;
   }

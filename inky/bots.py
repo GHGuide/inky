@@ -357,7 +357,7 @@ KNOWN_SITES = {"hacker news": "https://news.ycombinator.com/"}  # sites people n
 DRAFT_SYSTEM = """You turn a job description into a bot. Reply with ONE JSON object:
 {"name": "<2 words, e.g. Flat Hunter>", "summary": "<one sentence of what it will do>", "goal": "<what to search and read on the site>",
  "start_url": "<the site to start on, full URL, or null if unknown>", "every_minutes": <a number of minutes: 1440 for daily or every morning, 60 for hourly, 0 for only when asked>, "summary_at": "<HH:MM or null>",
- "filters": [{"field": "<price|size|title|text>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
+ "filters": [{"field": "<price|size|title|text, or a column the site shows, like wins or year>", "op": "<|<=|>|>=|==|contains|not_contains|in|not_in", "value": <number|string|list>, "text": "<the rule in words>"}],
  "search": ["<2-3 web searches that find websites for this job; one in the local language if the job names a place>"],
  "ask_first": ["<things it must ask before>"], "questions": ["<at most 2 short questions if something important is missing>"],
  "persona": {"chatty": <0-1>, "playful": <0-1>, "emoji": <true|false>, "catchphrase": "<short, fits the job>", "quirk": "<one line>", "bio": "<one line, first person>"}}
@@ -369,7 +369,7 @@ Talk {tone}. Keep replies to one or two short sentences, in the language the use
 your status, schedule, counts or small talk about yourself unless asked. You can take actions. Reply with ONE JSON object:
 {{"reply": "<what you say>", "actions": [<zero or more actions>]}}
 Actions:
-{{"type":"add_rule","text":"<rule in words>","kind":"own|ask|never","filter":{{"field":..,"op":..,"value":..}} or null}}   (op: < <= > >= == != contains not_contains in not_in; kind ask = ask the user first, never = never do it)
+{{"type":"add_rule","text":"<rule in words>","kind":"own|ask|never","filter":{{"field":"<a result field, e.g. price, or a table column like wins>","op":..,"value":..}} or null}}   (op: < <= > >= == != contains not_contains in not_in; kind ask = ask the user first, never = never do it)
 {{"type":"remove_rule","text":"<rule to drop>"}}
 {{"type":"remember","text":"<fact about the user>"}}   {{"type":"forget","text":"<fact>"}}
 {{"type":"learn","goal":"<what to do on the site>","url":"<start URL>"}}   (learn a new site/search once)
@@ -1001,7 +1001,9 @@ class Engine:
             f = None if cmd or text.lower().startswith("new rule:") else limit_filter(re.sub(r"[.!]+$", "", FILLER.sub("", text.strip())))
             if f:  # “only keep books under £15”: a limit is as plain as a command
                 seen = self.store.find("results", bot_id=bid, limit=1)
-                if seen and f["field"] not in seen[0]:
+                if seen and skills.field_of(seen[0], f["field"]) in seen[0]:
+                    f = {**f, "field": skills.field_of(seen[0], f["field"])}  # “wins over 40”: its table's wins column
+                elif seen and f["field"] not in seen[0]:
                     f = {**f, "field": "price"} if "price" in seen[0] else None
                 elif not seen and f["field"] not in ("price", "size", "rooms", "year", "km", "rating", "floor", "area", "weight"):
                     f = {**f, "field": "price"}  # “books under 15”: the thing itself isn't a field, its price is

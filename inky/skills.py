@@ -117,7 +117,22 @@ def has_word(s, w):
     return bool(re.search(left + re.escape(w) + right, s))
 
 
+def field_of(item, name):
+    """The field a rule means, said loosely: “Wins”, “win” or “number of wins” all find a table's “wins” column."""
+    if not name or name in item:
+        return name
+    n = re.sub(r"[^\w]+", "_", str(name).lower()).strip("_")
+    stem = lambda w: w[:-1] if len(w) > 3 and w.endswith("s") else w
+    for k in item:
+        kk = str(k).lower()
+        if kk == n or stem(kk) == stem(n) or (len(kk) > 2 and stem(kk) in [stem(w) for w in n.split("_")]):
+            return k
+    return name
+
+
 def keep(item, f):
+    if f.get("field") and f.get("field") not in item:
+        f = {**f, "field": field_of(item, f["field"])}
     op, want = f.get("op"), f.get("value")
     if f.get("field") == "text" and "text" not in item:  # anything shown in the result: what was read of it
         item = {**item, "text": " ".join(str(x) for k, x in item.items() if isinstance(x, str) and k not in ("link", "image"))}
@@ -158,8 +173,9 @@ def apply_filters(items, filters):
 def unchecked(items, filters):
     """Rules this site's results can't be checked against (their field isn't extracted)."""
     fields = {k for it in items[:20] for k in it}
+    known = lambda f: f.get("field") in fields | {"text"} or field_of(items[0], f.get("field")) in fields
     return [f.get("text") or f"{f['field']} {f['op']} {f['value']}" for f in filters or []
-            if items and (f.get("field") not in fields | {"text"} or (f.get("field") == "text" and f.get("op") in ("<", "<=", ">", ">=")))]
+            if items and (not known(f) or (f.get("field") == "text" and f.get("op") in ("<", "<=", ">", ">=")))]
 
 
 def item_key(it):
