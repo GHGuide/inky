@@ -293,7 +293,7 @@ class LearningTest(unittest.TestCase):
     def test_opening_one_result_is_no_step(self):  # a small model clicked one AI story on Hacker News and read that page
         skill, _, _ = self.learned_and_repeats("/hn/news", "Tell me new Hacker News stories about AI",
                                                step("click", "Story 5: what changed in AI this week", label="Click AI story"), n=30, priced=False)
-        self.assertEqual(self.texts(skill), ["Read 30 results"])
+        self.assertEqual(self.texts(skill), ["Read 30 results", "Next page (More)"])  # its “More” (rel="next") is followed too
 
     def test_a_search_that_found_nothing_isnt_tried_again_and_again(self):  # gemma3 retyped “hockey” after every undo
         skill, model, _ = self.learned_and_repeats("/teams", "Find hockey teams with more than 40 wins", step("fill", "Search for Teams", "hockey", "Type hockey", tries=99),

@@ -102,7 +102,7 @@ INDEX_JS = r"""() => {
     el.setAttribute('data-inky-idx', i);
     out.push({ i, tag: el.tagName.toLowerCase(), role: roleOf(el), name, text, type: (el.getAttribute('type') || '').toLowerCase(),
       id: el.id || '', attr_name: el.getAttribute('name') || '', placeholder: el.getAttribute('placeholder') || '',
-      href: el.getAttribute('href') || '', css: cssPath(el), value: el.tagName === 'SELECT' ? [...el.options].map(o => o.text).join('|') : '',
+      href: el.getAttribute('href') || '', rel: (el.getAttribute('rel') || '').toLowerCase(), css: cssPath(el), value: el.tagName === 'SELECT' ? [...el.options].map(o => o.text).join('|') : '',
       x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
       inview: r.bottom > 0 && r.top < innerHeight, form: formOf(el) });
     i++;
@@ -179,10 +179,12 @@ LISTS_JS = r"""() => {
       const linked = shown.filter((e) => e.matches('a[href]') || e.querySelector('a[href]'));
       const text = shown.reduce((n, e) => n + Math.min((e.innerText || '').trim().length, 300), 0) / Math.max(1, shown.length);
       const table = shown.length >= 3 && shown[0].tagName === 'TR' && shown.every((e) => e.children.length >= 3);  // a table's rows are results, links or not
-      if (shown.length < 3 || (linked.length < shown.length * 0.6 && !table) || text < 12) continue;
+      const cards = shown.length >= 4 && text >= 40 && shown.every((e) => e.children.length >= 2) && !shown[0].closest('aside,form,[role=complementary],[role=menu]');  // results with no links at all (quotes, notices): cards alike, with words
+      const linky = linked.length >= shown.length * 0.6;
+      if (shown.length < 3 || (!linky && !table && !cards) || text < 12) continue;
       const priced = shown.filter((e) => PRICE.test(e.innerText || '')).length / shown.length;
       const imaged = shown.filter((e) => e.querySelector('img')).length / shown.length;
-      groups.push({ parent, s, els: shown, score: shown.length * Math.log(5 + text) * (1 + priced * 2) * (1 + imaged * 0.5), priced, text });
+      groups.push({ parent, s, els: shown, score: shown.length * Math.log(5 + text) * (1 + priced * 2) * (1 + imaged * 0.5) * (linky || table ? 1 : 0.5), priced, text });  // a real list of links wins over cards
     }
   }
   groups.sort((a, b) => b.score - a.score);

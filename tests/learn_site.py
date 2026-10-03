@@ -186,6 +186,17 @@ class Site(BaseHTTPRequestHandler):
             cards = "".join(f'<div class="tile"><p class="desc">Red city bike, {24 + i % 3} inch, number {i}</p><b>{eur(100 + i * 10)}</b>'
                             f'<a href="/b/{i}">View</a></div>' for i in range(9))
             return self.send(shell("Bikes", f"<h1>Bikes</h1>{cards}"))
+        if p in ("/notices", "/hn"):  # results with no links at all, and a next page that's only a bare “More” (Hacker News)
+            k = int(q.get("p", "1") or 1)
+            if p == "/notices":
+                rows = "".join(f'<div class="notice"><p class="what">Town notice {i}: road works on street number {i} this week</p><span class="when">Oct {i}</span></div>'
+                               for i in range((k - 1) * 10 + 1, k * 10 + 1))
+                more = f'<a href="/notices?p={k + 1}" class="morelink" rel="next">More</a>' if k < 3 else ""
+            else:
+                rows = "".join(f'<div class="story"><a class="title" href="/item/{i}">Story number {i} about local news</a><span class="score">{i} points</span></div>'
+                               for i in range((k - 1) * 10 + 1, k * 10 + 1))
+                more = f'<a href="/hn?p={k + 1}">More</a>' if k < 3 else ""
+            return self.send(shell("News", f"<h1>Latest</h1><div class='list'>{rows}</div>{more}"))
         if p == "/quotes":  # quotes.toscrape: a quote's links (its author, its tags) are shared with other quotes
             chunk = QUOTES[(n - 1) * 10:n * 10]
             nxt = f'<ul class="pager"><li class="next"><a href="/quotes?page={n + 1}">Next <span aria-hidden="true">→</span></a></li></ul>' if n * 10 < len(QUOTES) else ""

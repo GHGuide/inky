@@ -230,9 +230,16 @@ def is_optional(step):
                     and not re.search(r"search|zoek|such|cerca|busca|recherch|szukaj|caut|поиск", where, re.I)))
 
 
+PAGED = re.compile(r"[?&](p|page|pg|pn|start|offset|after|cursor|next)=|/page/\d|/p/\d", re.I)
+
+
 def next_link(page):
     """The page's “next page” link (or button, off the home page: there a “Next” is usually a slideshow arrow)."""
     home = not urlparse(page.get("url") or "").path.strip("/") and not urlparse(page.get("url") or "").query
+    for e in page.get("elements") or []:  # the page says which link is its next page (rel="next"), or a bare “More” goes to page 2 (Hacker News)
+        if e.get("role") == "link" and e.get("href") and ("next" in (e.get("rel") or "").split()
+                                                          or re.fullmatch(r"more\s*[»›]?", (e.get("name") or "").strip(), re.I) and PAGED.search(e["href"])):
+            return e
     for e in page.get("elements") or []:
         name = (e.get("name") or "").strip()
         if name and len(name) < 40 and NEXT.match(name) and (e.get("role") == "link" and e.get("href") or e.get("role") == "button" and not home):
@@ -547,6 +554,10 @@ def learn(ctx, goal, start_url, max_steps=24):
                 extract = spec
                 steps.append({"action": "extract", "spec": spec, "text": f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}"})
                 ctx.emit("learn", f"Read {len(rows)} result{'' if len(rows) == 1 else 's'}", step=len(steps), fields=list(spec.get("fields", {})))
+                nxt = more_step(comp, comp.call("elements"), spec, rows)
+                if nxt:  # it said “done”, but there are more pages (or more as it scrolls): every run reads those too
+                    steps.append(nxt)
+                    ctx.emit("learn", nxt["text"], step=len(steps), target=(nxt["target"] or {}).get("name"))
             break
         if act == "done":
             break

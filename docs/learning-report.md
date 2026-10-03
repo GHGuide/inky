@@ -163,13 +163,20 @@ run on this page reads 10 quotes without the scroll step and 30 with it, the sam
 
 Cost: learning a page whose list has no next link spends up to 4 more seconds on the scroll check.
 
+## Fixed after this report (3 Oct 2026)
+
+- **Rules on a table column** ("more than 40 wins"): tables are read column by column, under their headings, and a
+  rule finds its column even when it's said loosely ("win", "number of wins").
+- **Hacker News "More"** is followed. Inky follows a link the page marks `rel="next"`, and a bare "More" only when its
+  address goes to a next page (`?p=2`, `page=`, `start=` …). With gemma3:12b it reads 90 stories (3 pages), and
+  every run uses 0 AI calls.
+- **Lists of results with no links** (quotes, notices) are found by code, as repeated cards with words in them. A
+  list of links still ranks above them. quotes.toscrape.com/scroll now learns with 2 AI calls instead of 3.
+- **When learning ends with the model's "done"** after reading the page, Inky still looks for a next page or more
+  results as it scrolls.
+
 ## Not fixed, and why
 
-- **Rules on a table column** ("more than 40 wins") can't be checked: the draft only knows the fields price, size,
-  title and text, and tables aren't read column by column. The bot now says it couldn't check the rule instead of
-  pretending.
-- **Hacker News "More"** isn't followed (one page of 30). A bare "More" is too often "read more" or "more
-  categories" to treat as a next page.
 - **A 12B model still varies** from one try to the next. These fixes make the learner catch its mistakes, but a run can
   still take an odd path. The `five` release gate wasn't run here: it searches the web for sites and visits
   sites other than the practice ones.

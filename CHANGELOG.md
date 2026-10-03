@@ -6,6 +6,7 @@ All notable changes to Inky. The format follows [Keep a Changelog](https://keepa
 
 ### Added
 - Infinite scroll: pages that load more results as you scroll are read past the first batch, both when learning (it notices on its own, without asking the AI) and on every run after. It stops when nothing new appears, or after its page limit.
+- Results with no links (quotes, notices) are found without asking the AI. A page's own next link (`rel="next"`) and a bare “More” that goes to page 2 (Hacker News) are followed. More pages are found even when the AI says it's done after reading the first.
 - Rules on a table's columns: “more than 40 wins” checks a table's Wins column. Columns are read by their headings, and a rule finds its column even when said loosely (“win”, “number of wins”).
 
 ### Changed
