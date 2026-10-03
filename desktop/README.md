@@ -51,6 +51,8 @@ Builds are ad-hoc signed on macOS and unsigned on Windows, so both warn the firs
 
 The app and its engine always run with the hardened runtime and [entitlements.plist](src-tauri/entitlements.plist): `allow-jit`, `allow-unsigned-executable-memory` and `disable-library-validation`. The engine is a PyInstaller program that unpacks Python, its libraries and Playwright's driver when it starts, and the hardened runtime refuses to load them otherwise. Without a certificate the signature is ad-hoc, so macOS offers **Open Anyway**. With a Developer ID it is signed, and with notary credentials it is also notarized, so it opens like any app.
 
+**The quick way:** run `desktop/scripts/setup-apple-signing.sh` (and again with your exported .p12 for releases). It does both steps below and asks for each password itself.
+
 **On your Mac**, once (only you can do this: it needs an app-specific password from [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords):
 
 ```bash
