@@ -25,7 +25,7 @@ jobs:
         run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
       - name: unit tests
         run: uv run python -m unittest discover -s tests -t . -v
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: UI logic tests
@@ -45,7 +45,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
